@@ -3,16 +3,15 @@ export default function Filters({ filters, onChange, onClear }) {
   return (
     <section className="filters" aria-label="Filtros de tarefas">
       <input className="search-input" type="search" value={filters.search} onChange={set('search')} placeholder="Pesquisar tarefas…" />
-      <select value={filters.status} onChange={set('status')} aria-label="Estado">
-        <option value="">Todos os estados</option>
-        <option value="novo">Novo</option><option value="em_curso">Em curso</option><option value="a_espera">À espera</option><option value="feito">Feito</option><option value="cancelado">Cancelado</option>
+      <select value={filters.status} onChange={set('status')} aria-label="Status">
+        <option value="">All statuses</option>
+        <option value="new">New</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="done">Done</option><option value="cancelled">Cancelled</option>
       </select>
       <select value={filters.priority} onChange={set('priority')} aria-label="Prioridade">
         <option value="">Todas as prioridades</option>
         <option value="4">Urgente</option><option value="3">Alta</option><option value="2">Média</option><option value="1">Baixa</option>
       </select>
-      <input value={filters.requestedBy} onChange={set('requestedBy')} placeholder="Pedido por…" />
-      <input value={filters.tag} onChange={set('tag')} placeholder="Etiqueta…" />
+      <input value={filters.tag} onChange={set('tag')} placeholder="Tag…" />
       <label className="check-filter"><input type="checkbox" checked={filters.overdue} onChange={set('overdue')} /> Atrasadas</label>
       <label className="check-filter"><input type="checkbox" checked={filters.today} onChange={set('today')} /> Hoje</label>
       <label className="check-filter"><input type="checkbox" checked={filters.noDueDate} onChange={set('noDueDate')} /> Sem prazo</label>

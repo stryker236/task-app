@@ -1,6 +1,6 @@
 # Task App
 
-Aplicação local de gestão de tarefas para desktop, com frontend React/Vite, API Node.js/Express e persistência num ficheiro JSON.
+Aplicação de gestão de tarefas para desktop, com frontend React/Vite, API Node.js/Express e persistência PostgreSQL no Supabase.
 
 ## Funcionalidades
 
@@ -9,12 +9,11 @@ Aplicação local de gestão de tarefas para desktop, com frontend React/Vite, A
 - Criação, edição, eliminação, duplicação e alteração rápida de estado
 - Registo rápido de progresso e histórico cronológico por tarefa
 - Contadores de hoje, atrasadas, à espera e sem prazo
-- Notas Markdown com pré-visualização em tempo real
 - Dependências selecionadas através de pesquisa (nunca é necessário escrever IDs)
 - Gestão bidirecional de relações: `bloqueada por` e `esta tarefa bloqueia`
 - Estado de conclusão das dependências, destaque de bloqueio e indicador `Ready`
 - Datas automáticas de criação, atualização, conclusão e cancelamento
-- Persistência local em `backend/tasks.json`
+- Persistência PostgreSQL no Supabase
 
 ## Pré-requisitos
 
@@ -30,10 +29,19 @@ Backend:
 ```bash
 cd backend
 npm install
+copy .env.example .env
 npm run dev
 ```
 
 A API fica disponível em `http://localhost:4000`.
+
+Antes de iniciar, copie a connection string apresentada em **Supabase Dashboard → Connect** para `DATABASE_URL` no ficheiro `.env`. Se a ligação direta não funcionar na sua rede, utilize a connection string do **Session pooler**. Nunca coloque `.env` ou a password da base de dados no Git.
+
+Teste apenas a ligação com:
+
+```bash
+npm run db:check
+```
 
 Frontend:
 
@@ -70,7 +78,7 @@ Em desenvolvimento, o frontend envia pedidos para `/api` e o Vite encaminha-os l
 
 Filtros disponíveis em `GET /tasks`:
 
-- `status=novo|em_curso|a_espera|feito|cancelado`
+- `status=new|in_progress|waiting|done|cancelled`
 - `priority=1|2|3|4`
 - `requestedBy=nome`
 - `needToAsk=nome`
@@ -85,20 +93,23 @@ Filtros disponíveis em `GET /tasks`:
 Os parâmetros podem ser combinados. Exemplos:
 
 ```text
-GET /tasks?status=a_espera&needToAsk=Carlos
+GET /tasks?status=waiting&needToAsk=Carlos
 GET /tasks?priority=4&overdue=true
 GET /tasks?today=true&sort=priority
-GET /tasks?search=ficheiro&status=em_curso
+GET /tasks?search=ficheiro&status=in_progress
 ```
 
-## Armazenamento
+## Base de dados e importação
 
-O backend cria `backend/tasks.json` automaticamente se não existir. As escritas usam um ficheiro temporário e substituição para reduzir o risco de deixar JSON parcialmente escrito. Ao eliminar uma tarefa, a respetiva referência também é removida das dependências das restantes tarefas.
+O backend usa as tabelas `tasks`, `task_dependencies`, `task_tags`, `task_activity` e `task_activity_revisions` do schema Supabase. Frontend, API e base de dados usam diretamente os mesmos estados e tipos de atividade ingleses, sem mapping em runtime.
 
-`blockedByTaskIds` continua a ser a relação canónica guardada. O formulário também envia `blocksTaskIds` como campo virtual; o backend converte-o em `blockedByTaskIds` nas tarefas selecionadas, sem duplicar relações no armazenamento.
+`blockedByTaskIds` continua a ser a relação canónica. O formulário também envia `blocksTaskIds` como campo virtual; o backend converte-o em registos de `task_dependencies` sem duplicar relações.
 
-O projeto inclui dados de exemplo. Para começar sem tarefas, pare o backend e substitua o conteúdo de `backend/tasks.json` por:
+Para importar uma única vez o ficheiro `backend/tasks.json` para uma base de dados vazia:
 
-```json
-[]
+```bash
+cd backend
+npm run db:import-json
 ```
+
+O importador recusa executar quando a tabela `tasks` já contém dados. IDs antigos que não sejam UUID são convertidos e as dependências são remapeadas automaticamente. Guarde `tasks.json` como backup até confirmar a importação.

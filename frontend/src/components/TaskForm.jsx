@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import DependencyPicker from './DependencyPicker';
-import MarkdownNotes from './MarkdownNotes';
 
 export const TASK_DRAFT_KEY = 'task-app:editing-draft:v1';
 
 const EMPTY_TASK = {
-  title: '', description: '', requestedBy: '', needToAsk: [], priority: 2, status: 'novo',
+  title: '', description: '', requestedBy: '', needToAsk: [], priority: 2, status: 'new',
   dueDateTime: '', tags: [], blockedReason: '', blockedByTaskIds: [], notesMarkdown: ''
 };
 
@@ -69,7 +68,7 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
   const splitList = (value) => [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
   const hasUnfinishedDependencies = (form.blockedByTaskIds || []).some((id) => {
     const dependency = tasks.find((item) => item.id === id);
-    return dependency && dependency.status !== 'feito';
+    return dependency && dependency.status !== 'done';
   });
 
   function submit(event) {
@@ -97,13 +96,12 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
         <div className="form-grid">
           <label className="full">Título *<input required value={form.title} onChange={set('title')} autoFocus /></label>
           <label className="full">Descrição<textarea rows="3" value={form.description} onChange={set('description')} /></label>
-          <label>Pedido por<input value={form.requestedBy} onChange={set('requestedBy')} /></label>
           <label>Prioridade *
             <select required value={form.priority} onChange={set('priority')}>
               <option value="1">Baixa</option><option value="2">Média</option><option value="3">Alta</option><option value="4">Urgente</option>
             </select>
           </label>
-          <label>Estado *
+          <label>Status *
             <select
               required
               value={form.status}
@@ -111,9 +109,9 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
               title={hasUnfinishedDependencies ? 'Conclua ou remova as dependências antes de alterar o estado' : 'Estado da tarefa'}
               onChange={set('status')}
             >
-              <option value="novo">Novo</option><option value="em_curso">Em curso</option><option value="a_espera">À espera</option><option value="feito" disabled={Boolean(blockingTarget)}>Feito</option><option value="cancelado">Cancelado</option>
+              <option value="new">New</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="done" disabled={Boolean(blockingTarget)}>Done</option><option value="cancelled">Cancelled</option>
             </select>
-            {hasUnfinishedDependencies && <small>Estado bloqueado por dependências por concluir</small>}
+            {hasUnfinishedDependencies && <small>Status blocked by unfinished dependencies</small>}
           </label>
           <label>Data do prazo
             <input
@@ -151,8 +149,7 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
             </span>
             {dueDate && dueTime === '23:59' && <small>Fim do dia por predefinição</small>}
           </label>
-          <label>Etiquetas <small>(separado por vírgulas)</small><input value={tagsText} onChange={(event) => setTagsText(event.target.value)} /></label>
-          <label className="full">Motivo do bloqueio<textarea rows="2" value={form.blockedReason} onChange={set('blockedReason')} /></label>
+          <label>Tags <small>(separadas por vírgulas)</small><input value={tagsText} onChange={(event) => setTagsText(event.target.value)} /></label>
           <div className="full">
             <DependencyPicker tasks={tasks} selectedIds={form.blockedByTaskIds || []} currentTaskId={task?.id} onChange={(ids) => setForm((current) => ({ ...current, blockedByTaskIds: ids }))} />
           </div>
@@ -169,7 +166,6 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
               emptyText="Não bloqueia outras tarefas"
             />
           </div>
-          <div className="full notes-field"><span>Notas Markdown</span><MarkdownNotes editable value={form.notesMarkdown} onChange={(value) => setForm((current) => ({ ...current, notesMarkdown: value }))} /></div>
         </div>
         <div className="dialog-actions">
           <span className="draft-status">

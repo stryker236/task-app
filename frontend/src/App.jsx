@@ -7,7 +7,7 @@ import TaskCard from './components/TaskCard';
 import TaskForm, { TASK_DRAFT_KEY } from './components/TaskForm';
 import ProgressLog from './components/ProgressLog';
 
-const EMPTY_FILTERS = { search: '', status: '', priority: '', requestedBy: '', tag: '', overdue: false, today: false, noDueDate: false, hideBlocked: false };
+const EMPTY_FILTERS = { search: '', status: '', priority: '', tag: '', overdue: false, today: false, noDueDate: false, hideBlocked: false };
 
 function isToday(task) {
   if (!task.dueDateTime) return false;
@@ -82,12 +82,12 @@ export default function App() {
   }, [loading, allTasks]);
 
   const counters = useMemo(() => {
-    const active = allTasks.filter((task) => !['feito', 'cancelado'].includes(task.status));
+    const active = allTasks.filter((task) => !['done', 'cancelled'].includes(task.status));
     return {
       total: allTasks.length,
       today: active.filter(isToday).length,
       overdue: active.filter(isOverdue).length,
-      waiting: allTasks.filter((task) => task.status === 'a_espera').length,
+      waiting: allTasks.filter((task) => task.status === 'waiting').length,
       noDue: active.filter((task) => !task.dueDateTime).length
     };
   }, [allTasks]);
@@ -204,13 +204,13 @@ export default function App() {
   const actions = { onEdit: openEdit, onDelete: removeTask, onDuplicate: copyTask, onStatusChange: changeStatus, onOpenTask: openEdit, onProgress: setProgressTask, onAddBlocker: openBlockerForm };
 
   const collectionSections = useMemo(() => {
-    const active = (task) => !['feito', 'cancelado'].includes(task.status);
+    const active = (task) => !['done', 'cancelled'].includes(task.status);
     return [
       ['Atrasadas', tasks.filter((task) => active(task) && isOverdue(task))],
       ['Para hoje', tasks.filter((task) => active(task) && isToday(task))],
       ['Urgentes', tasks.filter((task) => active(task) && task.priority === 4)],
       ['Alta prioridade', tasks.filter((task) => active(task) && task.priority === 3)],
-      ['À espera', tasks.filter((task) => task.status === 'a_espera')],
+      ['Waiting', tasks.filter((task) => task.status === 'waiting')],
       ['Sem prazo', tasks.filter((task) => active(task) && !task.dueDateTime)]
     ];
   }, [tasks]);
@@ -227,7 +227,7 @@ export default function App() {
           <div><span>Total</span><strong>{counters.total}</strong></div>
           <div><span>Hoje</span><strong>{counters.today}</strong></div>
           <div className={counters.overdue ? 'counter-alert' : ''}><span>Atrasadas</span><strong>{counters.overdue}</strong></div>
-          <div><span>À espera</span><strong>{counters.waiting}</strong></div>
+          <div><span>Waiting</span><strong>{counters.waiting}</strong></div>
           <div><span>Sem prazo</span><strong>{counters.noDue}</strong></div>
         </section>
 

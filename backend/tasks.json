@@ -6,7 +6,7 @@
     "requestedBy": "",
     "needToAsk": [],
     "priority": 1,
-    "status": "feito",
+    "status": "done",
     "dueDateTime": null,
     "tags": [],
     "blockedReason": "",
@@ -20,9 +20,9 @@
       {
         "id": "711b0c75-f360-4e67-a712-c933f5ddf1ba",
         "type": "status",
-        "message": "Estado alterado de novo para feito",
-        "fromStatus": "novo",
-        "toStatus": "feito",
+        "message": "Status changed from new to done",
+        "fromStatus": "new",
+        "toStatus": "done",
         "createdAt": "2026-06-20T19:00:24.108Z"
       }
     ]
@@ -34,7 +34,7 @@
     "requestedBy": "",
     "needToAsk": [],
     "priority": 1,
-    "status": "feito",
+    "status": "done",
     "dueDateTime": null,
     "tags": [],
     "blockedReason": "",
@@ -48,23 +48,23 @@
       {
         "id": "a9ef8c8b-6295-4e03-aff2-3157bc4e1b76",
         "type": "status",
-        "message": "Estado alterado de novo para em_curso",
-        "fromStatus": "novo",
-        "toStatus": "em_curso",
+        "message": "Status changed from new to in_progress",
+        "fromStatus": "new",
+        "toStatus": "in_progress",
         "createdAt": "2026-06-20T19:00:36.918Z"
       },
       {
         "id": "fbf82279-5de6-4bd7-88ee-08c7c37cb865",
-        "type": "progress",
+        "type": "note",
         "message": "0.0.0.0 é o IP que diz para request de todos os IPs tanto locais, como LAN como VPN. Não entendo como é que 0.0.0.0 sabe que VPM também conta mas funciona",
         "createdAt": "2026-06-20T19:01:47.013Z"
       },
       {
         "id": "51ad3fff-829b-4006-a8f1-502911536f74",
         "type": "status",
-        "message": "Estado alterado de em_curso para feito",
-        "fromStatus": "em_curso",
-        "toStatus": "feito",
+        "message": "Status changed from in_progress to done",
+        "fromStatus": "in_progress",
+        "toStatus": "done",
         "createdAt": "2026-06-20T19:02:00.009Z"
       }
     ]
@@ -76,7 +76,7 @@
     "requestedBy": "",
     "needToAsk": [],
     "priority": 2,
-    "status": "novo",
+    "status": "new",
     "dueDateTime": null,
     "tags": [],
     "blockedReason": "",
@@ -94,7 +94,7 @@
     "requestedBy": "",
     "needToAsk": [],
     "priority": 4,
-    "status": "novo",
+    "status": "new",
     "dueDateTime": "2026-06-21T09:59:00.000Z",
     "tags": [],
     "blockedReason": "",
@@ -114,7 +114,7 @@
     "requestedBy": "",
     "needToAsk": [],
     "priority": 4,
-    "status": "feito",
+    "status": "done",
     "dueDateTime": "2026-06-21T22:03:00.000Z",
     "tags": [],
     "blockedReason": "",
@@ -128,9 +128,9 @@
       {
         "id": "4cb3c54c-22f6-4174-bbf2-36da0b7d9edb",
         "type": "status",
-        "message": "Estado alterado de novo para feito",
-        "fromStatus": "novo",
-        "toStatus": "feito",
+        "message": "Status changed from new to done",
+        "fromStatus": "new",
+        "toStatus": "done",
         "createdAt": "2026-06-20T18:08:16.837Z"
       }
     ]
@@ -142,7 +142,7 @@
     "requestedBy": "",
     "needToAsk": [],
     "priority": 4,
-    "status": "novo",
+    "status": "new",
     "dueDateTime": "2026-06-21T09:00:00.000Z",
     "tags": [],
     "blockedReason": "",
@@ -160,7 +160,7 @@
     "requestedBy": "",
     "needToAsk": [],
     "priority": 3,
-    "status": "em_curso",
+    "status": "in_progress",
     "dueDateTime": "2026-06-28T22:59:00.000Z",
     "tags": [],
     "blockedReason": "",
@@ -174,14 +174,14 @@
       {
         "id": "e191a0cb-fd21-4210-87ea-d6316ed22258",
         "type": "status",
-        "message": "Estado alterado de novo para em_curso",
-        "fromStatus": "novo",
-        "toStatus": "em_curso",
+        "message": "Status changed from new to in_progress",
+        "fromStatus": "new",
+        "toStatus": "in_progress",
         "createdAt": "2026-06-20T19:00:03.183Z"
       },
       {
         "id": "783984d8-abdf-43f1-8594-2ffa6ce0d65d",
-        "type": "progress",
+        "type": "note",
         "message": "Acho que faz todo o sentido procurar em Madrid. Perto e melhor simplesmente.\n\nPus alerta no linkdin",
         "createdAt": "2026-06-20T19:12:35.567Z",
         "revisions": [
@@ -201,7 +201,7 @@
     "requestedBy": "",
     "needToAsk": [],
     "priority": 3,
-    "status": "novo",
+    "status": "new",
     "dueDateTime": "2026-06-21T22:59:00.000Z",
     "tags": [],
     "blockedReason": "",
@@ -222,7 +222,7 @@
     "requestedBy": "",
     "needToAsk": [],
     "priority": 1,
-    "status": "novo",
+    "status": "new",
     "dueDateTime": null,
     "tags": [],
     "blockedReason": "",
@@ -232,5 +232,31 @@
     "updatedAt": "2026-06-20T16:53:19.400Z",
     "completedAt": null,
     "cancelledAt": null
+  },
+  {
+    "id": "e91b9c44-3d08-439d-abb1-9d32c6d037ba",
+    "title": "Ligar a wells para saber se podem arranjarme o oculos iman",
+    "description": "",
+    "requestedBy": "",
+    "needToAsk": [],
+    "priority": 2,
+    "status": "new",
+    "dueDateTime": null,
+    "tags": [],
+    "blockedReason": "",
+    "blockedByTaskIds": [],
+    "notesMarkdown": "",
+    "createdAt": "2026-06-20T20:22:05.082Z",
+    "updatedAt": "2026-06-20T20:22:05.082Z",
+    "completedAt": null,
+    "cancelledAt": null,
+    "activityLog": [
+      {
+        "id": "7904dafe-585b-4655-a3dc-f6b2183431c9",
+        "type": "created",
+        "message": "Tarefa criada",
+        "createdAt": "2026-06-20T20:22:05.082Z"
+      }
+    ]
   }
 ]

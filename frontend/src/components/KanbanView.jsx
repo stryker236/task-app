@@ -2,14 +2,13 @@ import { useState } from 'react';
 import TaskCard from './TaskCard';
 
 const COLUMNS = [
-  ['novo', 'Novo'], ['em_curso', 'Em curso'], ['a_espera', 'À espera'], ['feito', 'Feito'], ['cancelado', 'Cancelado']
+  ['new', 'New'], ['in_progress', 'In progress'], ['waiting', 'Waiting'], ['done', 'Done'], ['cancelled', 'Cancelled']
 ];
 
 const SORT_OPTIONS = [
   ['priority', 'Prioridade'],
   ['dueDateTime', 'Prazo'],
   ['title', 'Título'],
-  ['requestedBy', 'Pedido por'],
   ['createdAt', 'Data de criação'],
   ['updatedAt', 'Última atualização']
 ];

@@ -1,0 +1,221 @@
+const { Pool } = require('pg');
+const { randomUUID } = require('crypto');
+
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL is required. Copy .env.example to .env and add the Supabase PostgreSQL connection string.');
+}
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
+  max: Number(process.env.DATABASE_POOL_MAX || 10),
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000
+});
+
+pool.on('error', (error) => console.error('Unexpected PostgreSQL pool error', error));
+
+const iso = (value) => value ? new Date(value).toISOString() : null;
+
+async function withTransaction(work) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function fetchTasks(db = pool) {
+  const taskRows = (await db.query('SELECT * FROM tasks ORDER BY created_at')).rows;
+  const dependencyRows = (await db.query('SELECT task_id, dependency_task_id FROM task_dependencies')).rows;
+  const tagRows = (await db.query('SELECT task_id, tag FROM task_tags ORDER BY tag')).rows;
+  const activityRows = (await db.query('SELECT * FROM task_activity ORDER BY created_at')).rows;
+  const revisionRows = (await db.query('SELECT * FROM task_activity_revisions ORDER BY replaced_at')).rows;
+
+  const dependencies = new Map();
+  const tags = new Map();
+  const activities = new Map();
+  const revisions = new Map();
+
+  for (const row of dependencyRows) {
+    const id = String(row.task_id);
+    dependencies.set(id, [...(dependencies.get(id) || []), String(row.dependency_task_id)]);
+  }
+  for (const row of tagRows) {
+    const id = String(row.task_id);
+    tags.set(id, [...(tags.get(id) || []), row.tag]);
+  }
+  for (const row of revisionRows) {
+    const id = String(row.activity_id);
+    revisions.set(id, [...(revisions.get(id) || []), {
+      message: row.previous_message,
+      replacedAt: iso(row.replaced_at)
+    }]);
+  }
+  for (const row of activityRows) {
+    const taskId = String(row.task_id);
+    const activityId = String(row.id);
+    const entry = {
+      id: activityId,
+      type: row.type,
+      message: row.message,
+      createdAt: iso(row.created_at),
+      ...(row.edited_at ? { editedAt: iso(row.edited_at) } : {}),
+      ...(row.from_status ? { fromStatus: row.from_status } : {}),
+      ...(row.to_status ? { toStatus: row.to_status } : {}),
+      ...((revisions.get(activityId) || []).length ? { revisions: revisions.get(activityId) } : {})
+    };
+    activities.set(taskId, [...(activities.get(taskId) || []), entry]);
+  }
+
+  return taskRows.map((row) => {
+    const id = String(row.id);
+    return {
+      id,
+      title: row.title,
+      description: row.description,
+      requestedBy: row.requested_by,
+      needToAsk: Array.isArray(row.need_to_ask) ? row.need_to_ask : [],
+      priority: row.priority,
+      status: row.status,
+      dueDateTime: iso(row.due_at),
+      tags: tags.get(id) || [],
+      blockedReason: row.blocked_reason,
+      blockedByTaskIds: dependencies.get(id) || [],
+      notesMarkdown: row.notes_markdown,
+      createdAt: iso(row.created_at),
+      updatedAt: iso(row.updated_at),
+      completedAt: iso(row.completed_at),
+      cancelledAt: iso(row.cancelled_at),
+      activityLog: activities.get(id) || []
+    };
+  });
+}
+
+async function replaceTags(db, taskId, tags) {
+  await db.query('DELETE FROM task_tags WHERE task_id = $1', [taskId]);
+  if (tags.length) {
+    await db.query('INSERT INTO task_tags (task_id, tag) SELECT $1, unnest($2::text[])', [taskId, tags]);
+  }
+}
+
+async function replaceDependencies(db, taskId, dependencyIds) {
+  await db.query('DELETE FROM task_dependencies WHERE task_id = $1', [taskId]);
+  if (dependencyIds.length) {
+    await db.query(
+      'INSERT INTO task_dependencies (task_id, dependency_task_id) SELECT $1, unnest($2::uuid[])',
+      [taskId, dependencyIds]
+    );
+  }
+}
+
+async function insertActivity(db, taskId, entry) {
+  const result = await db.query(
+    `INSERT INTO task_activity (id, task_id, type, message, from_status, to_status, created_at, edited_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id`,
+    [
+      entry.id || randomUUID(),
+      taskId,
+      entry.type,
+      entry.message,
+      entry.fromStatus || null,
+      entry.toStatus || null,
+      entry.createdAt,
+      entry.editedAt || null
+    ]
+  );
+  return String(result.rows[0].id);
+}
+
+async function insertTask(db, task, creationMessage = 'Tarefa criada') {
+  await db.query(
+    `INSERT INTO tasks (
+       id, title, description, requested_by, need_to_ask, priority, status, due_at,
+       blocked_reason, notes_markdown, created_at, updated_at, completed_at, cancelled_at
+     ) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      task.id, task.title, task.description, task.requestedBy, JSON.stringify(task.needToAsk),
+      task.priority, task.status, task.dueDateTime, task.blockedReason,
+      task.notesMarkdown, task.createdAt, task.updatedAt, task.completedAt, task.cancelledAt
+    ]
+  );
+  await replaceTags(db, task.id, task.tags);
+  await replaceDependencies(db, task.id, task.blockedByTaskIds);
+  await insertActivity(db, task.id, {
+    id: task.activityLog?.[0]?.id,
+    type: 'created',
+    message: creationMessage,
+    createdAt: task.createdAt
+  });
+}
+
+async function updateTask(db, task) {
+  await db.query(
+    `UPDATE tasks SET
+       title=$2, description=$3, requested_by=$4, need_to_ask=$5::jsonb, priority=$6,
+       status=$7, due_at=$8, blocked_reason=$9, notes_markdown=$10,
+       updated_at=$11, completed_at=$12, cancelled_at=$13
+     WHERE id=$1`,
+    [
+      task.id, task.title, task.description, task.requestedBy, JSON.stringify(task.needToAsk),
+      task.priority, task.status, task.dueDateTime, task.blockedReason,
+      task.notesMarkdown, task.updatedAt, task.completedAt, task.cancelledAt
+    ]
+  );
+  await replaceTags(db, task.id, task.tags);
+  await replaceDependencies(db, task.id, task.blockedByTaskIds);
+}
+
+async function syncInverseRelationships(db, blocker, blockedTaskIds, now) {
+  const currentRows = (await db.query(
+    'SELECT task_id FROM task_dependencies WHERE dependency_task_id = $1',
+    [blocker.id]
+  )).rows;
+  const current = new Set(currentRows.map((row) => String(row.task_id)));
+  const selected = new Set(blockedTaskIds);
+  await db.query('DELETE FROM task_dependencies WHERE dependency_task_id = $1', [blocker.id]);
+  if (blockedTaskIds.length) {
+    await db.query(
+      'INSERT INTO task_dependencies (task_id, dependency_task_id) SELECT unnest($1::uuid[]), $2',
+      [blockedTaskIds, blocker.id]
+    );
+  }
+  const changedIds = new Set([...current, ...selected]);
+  for (const taskId of changedIds) {
+    if (current.has(taskId) === selected.has(taskId)) continue;
+    const added = selected.has(taskId);
+    await db.query('UPDATE tasks SET updated_at = $2 WHERE id = $1', [taskId, now]);
+    await insertActivity(db, taskId, {
+      id: randomUUID(),
+      type: 'dependency',
+      message: added
+        ? `Nova tarefa bloqueadora adicionada: ${blocker.title}`
+        : `Tarefa bloqueadora removida: ${blocker.title}`,
+      createdAt: now
+    });
+  }
+}
+
+async function checkConnection() {
+  const result = await pool.query('SELECT current_database() AS database, now() AS time');
+  return result.rows[0];
+}
+
+module.exports = {
+  pool,
+  withTransaction,
+  fetchTasks,
+  insertTask,
+  updateTask,
+  insertActivity,
+  syncInverseRelationships,
+  checkConnection
+};

@@ -1,16 +1,16 @@
 import { useState } from 'react';
 
 const STATUS_LABELS = {
-  novo: 'Novo',
-  em_curso: 'Em curso',
-  a_espera: 'À espera',
-  feito: 'Feito',
-  cancelado: 'Cancelado'
+  new: 'New',
+  in_progress: 'In progress',
+  waiting: 'Waiting',
+  done: 'Done',
+  cancelled: 'Cancelled'
 };
 
 function entryText(entry) {
   if (entry.type === 'status') {
-    return `Estado alterado: ${STATUS_LABELS[entry.fromStatus] || entry.fromStatus} → ${STATUS_LABELS[entry.toStatus] || entry.toStatus}`;
+    return `Status changed: ${STATUS_LABELS[entry.fromStatus] || entry.fromStatus} → ${STATUS_LABELS[entry.toStatus] || entry.toStatus}`;
   }
   return entry.message;
 }
@@ -57,8 +57,8 @@ export default function ProgressLog({ task, onClose, onAdd, onEdit, saving }) {
           </div>
           <button type="button" className="icon-button" aria-label="Fechar" onClick={onClose}>×</button>
         </div>
-        {task.status === 'novo' ? (
-          <div className="progress-locked">Altere o estado da tarefa para começar a registar progresso.</div>
+        {task.status === 'new' ? (
+          <div className="progress-locked">Change the task status before logging progress.</div>
         ) : (
           <form className="quick-progress-form" onSubmit={submit}>
             <label htmlFor="progress-message">Nova atualização</label>
@@ -93,7 +93,7 @@ export default function ProgressLog({ task, onClose, onAdd, onEdit, saving }) {
                     <p>{entryText(entry)}</p>
                     <div className="activity-meta">
                       <time>{formatDate(entry.createdAt)}{entry.editedAt ? ' · Editado' : ''}</time>
-                      {entry.type === 'progress' && (
+                      {entry.type === 'note' && (
                         <button type="button" onClick={() => { setEditingEntryId(entry.id); setEditingMessage(entry.message); }}>Editar</button>
                       )}
                     </div>

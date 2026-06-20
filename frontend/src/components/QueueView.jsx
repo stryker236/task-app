@@ -1,8 +1,8 @@
 import TaskCard from './TaskCard';
 
 const OPTIONS = [
-  ['priority', 'Prioridade'], ['dueDateTime', 'Prazo'], ['requestedBy', 'Pedido por'],
-  ['createdAt', 'Criada em'], ['updatedAt', 'Atualizada em'], ['status', 'Estado']
+  ['priority', 'Prioridade'], ['dueDateTime', 'Prazo'],
+  ['createdAt', 'Criada em'], ['updatedAt', 'Atualizada em'], ['status', 'Status']
 ];
 
 function sorted(tasks, field, direction) {
