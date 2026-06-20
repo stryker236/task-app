@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -27,3 +27,6 @@ export const createTask = (task) => request('/tasks', { method: 'POST', body: JS
 export const updateTask = (id, task) => request(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(task) });
 export const deleteTask = (id) => request(`/tasks/${id}`, { method: 'DELETE' });
 export const duplicateTask = (id) => request(`/tasks/${id}/duplicate`, { method: 'POST' });
+export const addProgress = (id, message) => request(`/tasks/${id}/progress`, { method: 'POST', body: JSON.stringify({ message }) });
+export const editProgress = (id, entryId, message) => request(`/tasks/${id}/progress/${entryId}`, { method: 'PUT', body: JSON.stringify({ message }) });
+export const createBlocker = (id, task) => request(`/tasks/${id}/blockers`, { method: 'POST', body: JSON.stringify(task) });

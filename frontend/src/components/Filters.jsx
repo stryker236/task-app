@@ -12,11 +12,11 @@ export default function Filters({ filters, onChange, onClear }) {
         <option value="4">Urgente</option><option value="3">Alta</option><option value="2">Média</option><option value="1">Baixa</option>
       </select>
       <input value={filters.requestedBy} onChange={set('requestedBy')} placeholder="Pedido por…" />
-      <input value={filters.needToAsk} onChange={set('needToAsk')} placeholder="Perguntar a…" />
       <input value={filters.tag} onChange={set('tag')} placeholder="Etiqueta…" />
       <label className="check-filter"><input type="checkbox" checked={filters.overdue} onChange={set('overdue')} /> Atrasadas</label>
       <label className="check-filter"><input type="checkbox" checked={filters.today} onChange={set('today')} /> Hoje</label>
       <label className="check-filter"><input type="checkbox" checked={filters.noDueDate} onChange={set('noDueDate')} /> Sem prazo</label>
+      <label className="check-filter"><input type="checkbox" checked={filters.hideBlocked} onChange={set('hideBlocked')} /> Ocultar bloqueadas</label>
       <button type="button" className="button ghost" onClick={onClear}>Limpar</button>
     </section>
   );

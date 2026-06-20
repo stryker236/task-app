@@ -6,6 +6,7 @@ const { randomUUID } = require('crypto');
 
 const app = express();
 const PORT = 4000;
+const HOST = '0.0.0.0';
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
 const STATUSES = ['novo', 'em_curso', 'a_espera', 'feito', 'cancelado'];
 const SORT_FIELDS = ['priority', 'dueDateTime', 'createdAt', 'updatedAt', 'requestedBy', 'status'];
@@ -88,6 +89,45 @@ function validateTask(input, tasks, currentId = null) {
   };
 }
 
+function validateBlocksTaskIds(value, tasks, currentId = null) {
+  const ids = normalizeArray(value);
+  const existingIds = new Set(tasks.map((task) => task.id));
+  const errors = [];
+  if (currentId && ids.includes(currentId)) errors.push('a task cannot block itself');
+  const missingIds = ids.filter((id) => !existingIds.has(id));
+  if (missingIds.length) errors.push(`unknown blocked task ids: ${missingIds.join(', ')}`);
+  if (errors.length) {
+    const error = new Error('Validation failed');
+    error.status = 400;
+    error.details = errors;
+    throw error;
+  }
+  return ids;
+}
+
+function applyBlockedTaskRelationships(tasks, blocker, blockedTaskIds, now) {
+  const selected = new Set(blockedTaskIds);
+  tasks.forEach((target) => {
+    if (target.id === blocker.id) return;
+    const currentIds = Array.isArray(target.blockedByTaskIds) ? target.blockedByTaskIds : [];
+    const alreadyBlocked = currentIds.includes(blocker.id);
+    const shouldBeBlocked = selected.has(target.id);
+    if (alreadyBlocked === shouldBeBlocked) return;
+    target.blockedByTaskIds = shouldBeBlocked
+      ? [...currentIds, blocker.id]
+      : currentIds.filter((id) => id !== blocker.id);
+    target.updatedAt = now;
+    target.activityLog = [...(Array.isArray(target.activityLog) ? target.activityLog : []), {
+      id: randomUUID(),
+      type: 'dependency',
+      message: shouldBeBlocked
+        ? `Nova tarefa bloqueadora adicionada: ${blocker.title}`
+        : `Tarefa bloqueadora removida: ${blocker.title}`,
+      createdAt: now
+    }];
+  });
+}
+
 function applyStatusTimestamps(task, oldStatus, now) {
   if (task.status === 'feito' && oldStatus !== 'feito') task.completedAt = now;
   if (task.status !== 'feito') task.completedAt = null;
@@ -111,6 +151,7 @@ function includesText(value, query) {
 function filterTasks(tasks, query) {
   let result = [...tasks];
   const active = (task) => !['feito', 'cancelado'].includes(task.status);
+  const taskMap = new Map(tasks.map((task) => [task.id, task]));
 
   if (query.status) result = result.filter((task) => task.status === query.status);
   if (query.priority) result = result.filter((task) => task.priority === Number(query.priority));
@@ -118,6 +159,12 @@ function filterTasks(tasks, query) {
   if (query.needToAsk) result = result.filter((task) => task.needToAsk.some((name) => includesText(name, query.needToAsk.toLocaleLowerCase())));
   if (query.tag) result = result.filter((task) => task.tags.some((tag) => includesText(tag, query.tag.toLocaleLowerCase())));
   if (query.noDueDate === 'true') result = result.filter((task) => !task.dueDateTime);
+  if (query.hideBlocked === 'true') {
+    result = result.filter((task) => !task.blockedByTaskIds.some((id) => {
+      const dependency = taskMap.get(id);
+      return dependency && dependency.status !== 'feito';
+    }));
+  }
 
   const { start, end } = localDayBounds();
   if (query.today === 'true') {
@@ -135,7 +182,8 @@ function filterTasks(tasks, query) {
       task.blockedReason,
       task.notesMarkdown,
       ...task.needToAsk,
-      ...task.tags
+      ...task.tags,
+      ...(task.activityLog || []).map((entry) => entry.message)
     ].some((value) => includesText(value, term)));
   }
 
@@ -177,15 +225,23 @@ app.post('/tasks', (req, res, next) => {
   try {
     const tasks = readTasks();
     const now = new Date().toISOString();
+    const blocksTaskIds = validateBlocksTaskIds(req.body.blocksTaskIds, tasks);
     const task = applyStatusTimestamps({
       id: randomUUID(),
       ...validateTask(req.body, tasks),
       createdAt: now,
       updatedAt: now,
       completedAt: null,
-      cancelledAt: null
+      cancelledAt: null,
+      activityLog: [{
+        id: randomUUID(),
+        type: 'created',
+        message: 'Tarefa criada',
+        createdAt: now
+      }]
     }, null, now);
     tasks.push(task);
+    applyBlockedTaskRelationships(tasks, task, blocksTaskIds, now);
     writeTasks(tasks);
     res.status(201).json(task);
   } catch (error) { next(error); }
@@ -199,12 +255,42 @@ app.put('/tasks/:id', (req, res, next) => {
     const previous = tasks[index];
     const merged = { ...previous, ...req.body };
     const now = new Date().toISOString();
+    const validated = validateTask(merged, tasks, previous.id);
+    const hasInverseRelationships = Object.prototype.hasOwnProperty.call(req.body, 'blocksTaskIds');
+    const blocksTaskIds = hasInverseRelationships
+      ? validateBlocksTaskIds(req.body.blocksTaskIds, tasks, previous.id)
+      : null;
+    if (validated.status !== previous.status) {
+      const taskMap = new Map(tasks.map((task) => [task.id, task]));
+      const unfinishedDependencies = validated.blockedByTaskIds
+        .map((id) => taskMap.get(id))
+        .filter((dependency) => dependency && dependency.status !== 'feito');
+      if (unfinishedDependencies.length) {
+        const error = new Error('Blocked tasks cannot change status');
+        error.status = 409;
+        error.details = unfinishedDependencies.map((dependency) => `Complete dependency: ${dependency.title}`);
+        throw error;
+      }
+    }
+    const activityLog = Array.isArray(previous.activityLog) ? [...previous.activityLog] : [];
+    if (validated.status !== previous.status) {
+      activityLog.push({
+        id: randomUUID(),
+        type: 'status',
+        message: `Estado alterado de ${previous.status} para ${validated.status}`,
+        fromStatus: previous.status,
+        toStatus: validated.status,
+        createdAt: now
+      });
+    }
     const task = applyStatusTimestamps({
       ...previous,
-      ...validateTask(merged, tasks, previous.id),
-      updatedAt: now
+      ...validated,
+      updatedAt: now,
+      activityLog
     }, previous.status, now);
     tasks[index] = task;
+    if (hasInverseRelationships) applyBlockedTaskRelationships(tasks, task, blocksTaskIds, now);
     writeTasks(tasks);
     res.json(task);
   } catch (error) { next(error); }
@@ -228,6 +314,106 @@ app.delete('/tasks/:id', (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post('/tasks/:id/progress', (req, res, next) => {
+  try {
+    const tasks = readTasks();
+    const index = tasks.findIndex((item) => item.id === req.params.id);
+    if (index === -1) return res.status(404).json({ error: 'Task not found' });
+    if (tasks[index].status === 'novo') {
+      return res.status(409).json({ error: 'Progress cannot be logged while the task status is novo' });
+    }
+    const message = normalizeString(req.body.message);
+    if (!message) {
+      return res.status(400).json({ error: 'Validation failed', details: ['message is required'] });
+    }
+    if (message.length > 2000) {
+      return res.status(400).json({ error: 'Validation failed', details: ['message must have at most 2000 characters'] });
+    }
+    const now = new Date().toISOString();
+    const entry = {
+      id: randomUUID(),
+      type: 'progress',
+      message,
+      createdAt: now
+    };
+    const task = tasks[index];
+    task.activityLog = [...(Array.isArray(task.activityLog) ? task.activityLog : []), entry];
+    task.updatedAt = now;
+    writeTasks(tasks);
+    res.status(201).json({ task, entry });
+  } catch (error) { next(error); }
+});
+
+app.put('/tasks/:id/progress/:entryId', (req, res, next) => {
+  try {
+    const tasks = readTasks();
+    const taskIndex = tasks.findIndex((item) => item.id === req.params.id);
+    if (taskIndex === -1) return res.status(404).json({ error: 'Task not found' });
+    const task = tasks[taskIndex];
+    const entryIndex = (task.activityLog || []).findIndex((entry) => entry.id === req.params.entryId);
+    if (entryIndex === -1) return res.status(404).json({ error: 'Progress entry not found' });
+    const entry = task.activityLog[entryIndex];
+    if (entry.type !== 'progress') {
+      return res.status(409).json({ error: 'Automatic history entries cannot be edited' });
+    }
+    const message = normalizeString(req.body.message);
+    if (!message) {
+      return res.status(400).json({ error: 'Validation failed', details: ['message is required'] });
+    }
+    if (message.length > 2000) {
+      return res.status(400).json({ error: 'Validation failed', details: ['message must have at most 2000 characters'] });
+    }
+    const now = new Date().toISOString();
+    if (message !== entry.message) {
+      entry.revisions = [...(Array.isArray(entry.revisions) ? entry.revisions : []), {
+        message: entry.message,
+        replacedAt: now
+      }];
+      entry.message = message;
+      entry.editedAt = now;
+      task.updatedAt = now;
+      writeTasks(tasks);
+    }
+    res.json({ task, entry });
+  } catch (error) { next(error); }
+});
+
+app.post('/tasks/:id/blockers', (req, res, next) => {
+  try {
+    const tasks = readTasks();
+    const targetIndex = tasks.findIndex((item) => item.id === req.params.id);
+    if (targetIndex === -1) return res.status(404).json({ error: 'Task not found' });
+    const target = tasks[targetIndex];
+    if (['feito', 'cancelado'].includes(target.status)) {
+      return res.status(409).json({ error: 'Completed or cancelled tasks cannot receive new blockers' });
+    }
+    const validated = validateTask(req.body, tasks);
+    const requestedBlockedTaskIds = validateBlocksTaskIds(req.body.blocksTaskIds, tasks);
+    if (validated.status === 'feito') {
+      return res.status(400).json({ error: 'Validation failed', details: ['a blocking task must be unfinished'] });
+    }
+    const now = new Date().toISOString();
+    const blocker = applyStatusTimestamps({
+      id: randomUUID(),
+      ...validated,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: null,
+      cancelledAt: null,
+      activityLog: [{
+        id: randomUUID(),
+        type: 'created',
+        message: `Tarefa criada para bloquear: ${target.title}`,
+        createdAt: now
+      }]
+    }, null, now);
+    tasks.push(blocker);
+    applyBlockedTaskRelationships(tasks, blocker, [...new Set([...requestedBlockedTaskIds, target.id])], now);
+    writeTasks(tasks);
+    res.status(201).json({ task: blocker, blockedTask: target });
+  } catch (error) { next(error); }
+});
+
 app.post('/tasks/:id/duplicate', (req, res, next) => {
   try {
     const tasks = readTasks();
@@ -242,7 +428,13 @@ app.post('/tasks/:id/duplicate', (req, res, next) => {
       createdAt: now,
       updatedAt: now,
       completedAt: null,
-      cancelledAt: null
+      cancelledAt: null,
+      activityLog: [{
+        id: randomUUID(),
+        type: 'created',
+        message: `Tarefa duplicada a partir de: ${source.title}`,
+        createdAt: now
+      }]
     };
     tasks.push(duplicate);
     writeTasks(tasks);
@@ -260,4 +452,4 @@ app.use((error, req, res, next) => {
 });
 
 ensureTasksFile();
-app.listen(PORT, () => console.log(`Task App API running at http://localhost:${PORT}`));
+app.listen(PORT, HOST, () => console.log(`Task App API listening on http://${HOST}:${PORT}`));

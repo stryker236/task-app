@@ -2,10 +2,15 @@ import { useEffect, useState } from 'react';
 import DependencyPicker from './DependencyPicker';
 import MarkdownNotes from './MarkdownNotes';
 
+export const TASK_DRAFT_KEY = 'task-app:editing-draft:v1';
+
 const EMPTY_TASK = {
   title: '', description: '', requestedBy: '', needToAsk: [], priority: 2, status: 'novo',
   dueDateTime: '', tags: [], blockedReason: '', blockedByTaskIds: [], notesMarkdown: ''
 };
+
+const HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
+const MINUTES = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
 
 function toLocalInput(isoDate) {
   if (!isoDate) return '';
@@ -14,25 +19,58 @@ function toLocalInput(isoDate) {
   return local.toISOString().slice(0, 16);
 }
 
-export default function TaskForm({ task, tasks, onSave, onClose, saving }) {
+export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, onClose, saving }) {
   const [form, setForm] = useState(EMPTY_TASK);
-  const [needToAskText, setNeedToAskText] = useState('');
   const [tagsText, setTagsText] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [dueTime, setDueTime] = useState('');
+  const [blocksTaskIds, setBlocksTaskIds] = useState([]);
+  const [hydrated, setHydrated] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState(null);
 
   useEffect(() => {
     const localDeadline = task ? toLocalInput(task.dueDateTime) : '';
-    const source = task ? { ...task, dueDateTime: localDeadline } : EMPTY_TASK;
+    const base = task ? { ...task, dueDateTime: localDeadline } : EMPTY_TASK;
+    const source = draft?.form ? { ...base, ...draft.form } : base;
     setForm(source);
-    setNeedToAskText((source.needToAsk || []).join(', '));
-    setTagsText((source.tags || []).join(', '));
-    setDueDate(localDeadline ? localDeadline.slice(0, 10) : '');
-    setDueTime(localDeadline ? localDeadline.slice(11, 16) : '');
-  }, [task]);
+    setTagsText(draft?.tagsText ?? (source.tags || []).join(', '));
+    setDueDate(draft?.dueDate ?? (localDeadline ? localDeadline.slice(0, 10) : ''));
+    setDueTime(draft?.dueTime ?? (localDeadline ? localDeadline.slice(11, 16) : ''));
+    const inverseIds = task
+      ? tasks.filter((candidate) => (candidate.blockedByTaskIds || []).includes(task.id)).map((candidate) => candidate.id)
+      : blockingTarget ? [blockingTarget.id] : [];
+    setBlocksTaskIds(draft?.blocksTaskIds ?? inverseIds);
+    setDraftSavedAt(draft?.savedAt || null);
+    setHydrated(true);
+  }, [task, draft, blockingTarget, tasks]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const savedAt = new Date().toISOString();
+    try {
+      localStorage.setItem(TASK_DRAFT_KEY, JSON.stringify({
+        mode: task ? 'edit' : blockingTarget ? 'create-blocker' : 'create',
+        taskId: task?.id || null,
+        blockingTarget: blockingTarget ? { id: blockingTarget.id, title: blockingTarget.title } : null,
+        form,
+        tagsText,
+        dueDate,
+        dueTime,
+        blocksTaskIds,
+        savedAt
+      }));
+      setDraftSavedAt(savedAt);
+    } catch (error) {
+      console.error('Could not save the task draft.', error);
+    }
+  }, [hydrated, task, blockingTarget, form, tagsText, dueDate, dueTime, blocksTaskIds]);
 
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const splitList = (value) => [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
+  const hasUnfinishedDependencies = (form.blockedByTaskIds || []).some((id) => {
+    const dependency = tasks.find((item) => item.id === id);
+    return dependency && dependency.status !== 'feito';
+  });
 
   function submit(event) {
     event.preventDefault();
@@ -41,8 +79,8 @@ export default function TaskForm({ task, tasks, onSave, onClose, saving }) {
       ...form,
       priority: Number(form.priority),
       dueDateTime: deadline,
-      needToAsk: splitList(needToAskText),
-      tags: splitList(tagsText)
+      tags: splitList(tagsText),
+      blocksTaskIds
     });
   }
 
@@ -50,23 +88,32 @@ export default function TaskForm({ task, tasks, onSave, onClose, saving }) {
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <form className="dialog task-form" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
         <div className="dialog-header">
-          <div><h2>{task ? 'Editar tarefa' : 'Nova tarefa'}</h2><p>Os campos com * são obrigatórios.</p></div>
+          <div>
+            <h2>{task ? 'Editar tarefa' : blockingTarget ? 'Nova tarefa bloqueadora' : 'Nova tarefa'}</h2>
+            <p>{blockingTarget ? `Esta tarefa irá bloquear: ${blockingTarget.title}` : 'Os campos com * são obrigatórios.'}</p>
+          </div>
           <button type="button" className="icon-button" aria-label="Fechar" onClick={onClose}>×</button>
         </div>
         <div className="form-grid">
           <label className="full">Título *<input required value={form.title} onChange={set('title')} autoFocus /></label>
           <label className="full">Descrição<textarea rows="3" value={form.description} onChange={set('description')} /></label>
           <label>Pedido por<input value={form.requestedBy} onChange={set('requestedBy')} /></label>
-          <label>Perguntar a <small>(separado por vírgulas)</small><input value={needToAskText} onChange={(event) => setNeedToAskText(event.target.value)} /></label>
           <label>Prioridade *
             <select required value={form.priority} onChange={set('priority')}>
               <option value="1">Baixa</option><option value="2">Média</option><option value="3">Alta</option><option value="4">Urgente</option>
             </select>
           </label>
           <label>Estado *
-            <select required value={form.status} onChange={set('status')}>
-              <option value="novo">Novo</option><option value="em_curso">Em curso</option><option value="a_espera">À espera</option><option value="feito">Feito</option><option value="cancelado">Cancelado</option>
+            <select
+              required
+              value={form.status}
+              disabled={hasUnfinishedDependencies}
+              title={hasUnfinishedDependencies ? 'Conclua ou remova as dependências antes de alterar o estado' : 'Estado da tarefa'}
+              onChange={set('status')}
+            >
+              <option value="novo">Novo</option><option value="em_curso">Em curso</option><option value="a_espera">À espera</option><option value="feito" disabled={Boolean(blockingTarget)}>Feito</option><option value="cancelado">Cancelado</option>
             </select>
+            {hasUnfinishedDependencies && <small>Estado bloqueado por dependências por concluir</small>}
           </label>
           <label>Data do prazo
             <input
@@ -80,8 +127,28 @@ export default function TaskForm({ task, tasks, onSave, onClose, saving }) {
               }}
             />
           </label>
-          <label>Hora do prazo
-            <input type="time" value={dueTime} disabled={!dueDate} onChange={(event) => setDueTime(event.target.value)} />
+          <label>Hora do prazo <small>(24 horas)</small>
+            <span className="time-select-group">
+              <select
+                aria-label="Hora"
+                value={dueTime ? dueTime.slice(0, 2) : ''}
+                disabled={!dueDate}
+                onChange={(event) => setDueTime(`${event.target.value}:${dueTime.slice(3, 5) || '00'}`)}
+              >
+                <option value="">HH</option>
+                {HOURS.map((hour) => <option value={hour} key={hour}>{hour}</option>)}
+              </select>
+              <strong>:</strong>
+              <select
+                aria-label="Minuto"
+                value={dueTime ? dueTime.slice(3, 5) : ''}
+                disabled={!dueDate}
+                onChange={(event) => setDueTime(`${dueTime.slice(0, 2) || '00'}:${event.target.value}`)}
+              >
+                <option value="">MM</option>
+                {MINUTES.map((minute) => <option value={minute} key={minute}>{minute}</option>)}
+              </select>
+            </span>
             {dueDate && dueTime === '23:59' && <small>Fim do dia por predefinição</small>}
           </label>
           <label>Etiquetas <small>(separado por vírgulas)</small><input value={tagsText} onChange={(event) => setTagsText(event.target.value)} /></label>
@@ -89,9 +156,25 @@ export default function TaskForm({ task, tasks, onSave, onClose, saving }) {
           <div className="full">
             <DependencyPicker tasks={tasks} selectedIds={form.blockedByTaskIds || []} currentTaskId={task?.id} onChange={(ids) => setForm((current) => ({ ...current, blockedByTaskIds: ids }))} />
           </div>
+          <div className="full">
+            <DependencyPicker
+              tasks={tasks}
+              selectedIds={blocksTaskIds}
+              currentTaskId={task?.id}
+              onChange={setBlocksTaskIds}
+              label="Esta tarefa bloqueia"
+              buttonLabel="+ Adicionar tarefa bloqueada"
+              dialogTitle="Selecionar tarefas bloqueadas"
+              dialogDescription="Selecione as tarefas que não poderão avançar até esta estar concluída."
+              emptyText="Não bloqueia outras tarefas"
+            />
+          </div>
           <div className="full notes-field"><span>Notas Markdown</span><MarkdownNotes editable value={form.notesMarkdown} onChange={(value) => setForm((current) => ({ ...current, notesMarkdown: value }))} /></div>
         </div>
         <div className="dialog-actions">
+          <span className="draft-status">
+            {draftSavedAt ? `Rascunho guardado às ${new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date(draftSavedAt))}` : 'A guardar rascunho…'}
+          </span>
           <button type="button" className="button secondary" onClick={onClose}>Cancelar</button>
           <button type="submit" className="button primary" disabled={saving}>{saving ? 'A guardar…' : 'Guardar tarefa'}</button>
         </div>

@@ -1,6 +1,16 @@
 import { useMemo, useState } from 'react';
 
-export default function DependencyPicker({ tasks, selectedIds, currentTaskId, onChange }) {
+export default function DependencyPicker({
+  tasks,
+  selectedIds,
+  currentTaskId,
+  onChange,
+  label = 'Dependências (bloqueada por)',
+  buttonLabel = '+ Adicionar dependência',
+  dialogTitle = 'Adicionar dependência',
+  dialogDescription = 'Selecione tarefas que têm de estar concluídas primeiro.',
+  emptyText = 'Sem dependências'
+}) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const taskMap = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
@@ -16,11 +26,11 @@ export default function DependencyPicker({ tasks, selectedIds, currentTaskId, on
   return (
     <div className="dependency-field">
       <div className="field-heading">
-        <span>Dependências</span>
-        <button type="button" className="button secondary small" onClick={() => setOpen(true)}>+ Adicionar dependência</button>
+        <span>{label}</span>
+        <button type="button" className="button secondary small" onClick={() => setOpen(true)}>{buttonLabel}</button>
       </div>
       <div className="selected-dependencies">
-        {selectedIds.length === 0 && <span className="muted">Sem dependências</span>}
+        {selectedIds.length === 0 && <span className="muted">{emptyText}</span>}
         {selectedIds.map((id) => (
           <span className="dependency-chip" key={id}>
             {taskMap.get(id)?.title || 'Tarefa indisponível'}
@@ -34,8 +44,8 @@ export default function DependencyPicker({ tasks, selectedIds, currentTaskId, on
           <div className="dialog dependency-dialog" role="dialog" aria-modal="true" aria-labelledby="dependency-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="dialog-header">
               <div>
-                <h2 id="dependency-title">Adicionar dependência</h2>
-                <p>Selecione tarefas que têm de estar concluídas primeiro.</p>
+                <h2 id="dependency-title">{dialogTitle}</h2>
+                <p>{dialogDescription}</p>
               </div>
               <button type="button" className="icon-button" aria-label="Fechar" onClick={() => setOpen(false)}>×</button>
             </div>

@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createTask, deleteTask, duplicateTask, getTasks, updateTask } from './api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { addProgress, createBlocker, createTask, deleteTask, duplicateTask, editProgress, getTasks, updateTask } from './api';
 import Filters from './components/Filters';
 import KanbanView from './components/KanbanView';
 import QueueView from './components/QueueView';
 import TaskCard from './components/TaskCard';
-import TaskForm from './components/TaskForm';
+import TaskForm, { TASK_DRAFT_KEY } from './components/TaskForm';
+import ProgressLog from './components/ProgressLog';
 
-const EMPTY_FILTERS = { search: '', status: '', priority: '', requestedBy: '', needToAsk: '', tag: '', overdue: false, today: false, noDueDate: false };
+const EMPTY_FILTERS = { search: '', status: '', priority: '', requestedBy: '', tag: '', overdue: false, today: false, noDueDate: false, hideBlocked: false };
 
 function isToday(task) {
   if (!task.dueDateTime) return false;
@@ -31,6 +32,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [queueSort, setQueueSort] = useState({ field: 'priority', direction: 'desc' });
+  const [formDraft, setFormDraft] = useState(null);
+  const [progressTask, setProgressTask] = useState(null);
+  const [savingProgress, setSavingProgress] = useState(false);
+  const [blockingTarget, setBlockingTarget] = useState(null);
+  const draftRestored = useRef(false);
 
   const load = useCallback(async (currentFilters = filters) => {
     try {
@@ -50,6 +56,31 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [filters, load]);
 
+  useEffect(() => {
+    if (loading || draftRestored.current) return;
+    draftRestored.current = true;
+    try {
+      const storedDraft = JSON.parse(localStorage.getItem(TASK_DRAFT_KEY));
+      if (!storedDraft?.mode) return;
+      if (storedDraft.mode === 'create' || storedDraft.mode === 'create-blocker') {
+        setEditingTask(null);
+        if (storedDraft.mode === 'create-blocker' && storedDraft.blockingTarget) {
+          setBlockingTarget(allTasks.find((task) => task.id === storedDraft.blockingTarget.id) || storedDraft.blockingTarget);
+        }
+      } else {
+        const sourceTask = allTasks.find((task) => task.id === storedDraft.taskId) || {
+          ...storedDraft.form,
+          id: storedDraft.taskId
+        };
+        setEditingTask(sourceTask);
+      }
+      setFormDraft(storedDraft);
+      setFormOpen(true);
+    } catch {
+      localStorage.removeItem(TASK_DRAFT_KEY);
+    }
+  }, [loading, allTasks]);
+
   const counters = useMemo(() => {
     const active = allTasks.filter((task) => !['feito', 'cancelado'].includes(task.status));
     return {
@@ -62,13 +93,35 @@ export default function App() {
   }, [allTasks]);
 
   function openNew() {
+    localStorage.removeItem(TASK_DRAFT_KEY);
+    setFormDraft(null);
     setEditingTask(null);
+    setBlockingTarget(null);
     setFormOpen(true);
   }
 
   function openEdit(task) {
+    localStorage.removeItem(TASK_DRAFT_KEY);
+    setFormDraft(null);
     setEditingTask(task);
+    setBlockingTarget(null);
     setFormOpen(true);
+  }
+
+  function openBlockerForm(task) {
+    localStorage.removeItem(TASK_DRAFT_KEY);
+    setFormDraft(null);
+    setEditingTask(null);
+    setBlockingTarget(task);
+    setFormOpen(true);
+  }
+
+  function closeForm() {
+    if (!window.confirm('Descartar este rascunho e fechar o editor?')) return;
+    localStorage.removeItem(TASK_DRAFT_KEY);
+    setFormDraft(null);
+    setBlockingTarget(null);
+    setFormOpen(false);
   }
 
   async function saveTask(taskData) {
@@ -76,7 +129,11 @@ export default function App() {
     setError('');
     try {
       if (editingTask) await updateTask(editingTask.id, taskData);
+      else if (blockingTarget) await createBlocker(blockingTarget.id, taskData);
       else await createTask(taskData);
+      localStorage.removeItem(TASK_DRAFT_KEY);
+      setFormDraft(null);
+      setBlockingTarget(null);
       setFormOpen(false);
       await load(filters);
     } catch (requestError) {
@@ -98,6 +155,8 @@ export default function App() {
     try {
       const duplicate = await duplicateTask(task.id);
       await load(filters);
+      localStorage.removeItem(TASK_DRAFT_KEY);
+      setFormDraft(null);
       setEditingTask(duplicate);
       setFormOpen(true);
     } catch (requestError) { setError(requestError.message); }
@@ -110,7 +169,39 @@ export default function App() {
     } catch (requestError) { setError(requestError.message); }
   }
 
-  const actions = { onEdit: openEdit, onDelete: removeTask, onDuplicate: copyTask, onStatusChange: changeStatus, onOpenTask: openEdit };
+  async function saveProgress(task, message) {
+    setSavingProgress(true);
+    setError('');
+    try {
+      const result = await addProgress(task.id, message);
+      setProgressTask(result.task);
+      await load(filters);
+      return true;
+    } catch (requestError) {
+      setError(requestError.message);
+      return false;
+    } finally {
+      setSavingProgress(false);
+    }
+  }
+
+  async function saveProgressEdit(task, entryId, message) {
+    setSavingProgress(true);
+    setError('');
+    try {
+      const result = await editProgress(task.id, entryId, message);
+      setProgressTask(result.task);
+      await load(filters);
+      return true;
+    } catch (requestError) {
+      setError(requestError.message);
+      return false;
+    } finally {
+      setSavingProgress(false);
+    }
+  }
+
+  const actions = { onEdit: openEdit, onDelete: removeTask, onDuplicate: copyTask, onStatusChange: changeStatus, onOpenTask: openEdit, onProgress: setProgressTask, onAddBlocker: openBlockerForm };
 
   const collectionSections = useMemo(() => {
     const active = (task) => !['feito', 'cancelado'].includes(task.status);
@@ -167,7 +258,8 @@ export default function App() {
         )}
       </main>
 
-      {formOpen && <TaskForm task={editingTask} tasks={allTasks} onSave={saveTask} onClose={() => setFormOpen(false)} saving={saving} />}
+      {formOpen && <TaskForm task={editingTask} tasks={allTasks} draft={formDraft} blockingTarget={blockingTarget} onSave={saveTask} onClose={closeForm} saving={saving} />}
+      {progressTask && <ProgressLog task={progressTask} onClose={() => setProgressTask(null)} onAdd={saveProgress} onEdit={saveProgressEdit} saving={savingProgress} />}
     </div>
   );
 }
