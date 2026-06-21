@@ -1,10 +1,14 @@
 .git
 .gitignore
-frontend
 backend/node_modules
 backend/.env
 backend/.env.*
 !backend/.env.example
 backend/tasks.json
 backend/tasks.json.tmp
+frontend/node_modules
+frontend/dist
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 **/*.log

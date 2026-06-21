@@ -134,6 +134,21 @@ https://your-task-app-api.koyeb.app/health
 https://your-task-app-api.koyeb.app/tasks
 ```
 
+### Deploy do frontend no Koyeb
+
+Crie um segundo Web Service a partir do mesmo repositório:
+
+1. Escolha **Dockerfile** como builder.
+2. Indique `Dockerfile.frontend` como Dockerfile e mantenha a raiz do repositório como work directory.
+3. Configure a porta HTTP `8000`, a rota `/` e o health check `/health`.
+4. Defina `BACKEND_URL` com o URL HTTPS do backend, sem barra final.
+
+```text
+BACKEND_URL=https://taskmanager-utzqe3ir.b4a.run
+```
+
+O frontend usa `/api` no browser e o Nginx encaminha esses pedidos para `BACKEND_URL`. Como o pedido do browser permanece na origem do frontend, não é necessário recompilar a aplicação quando o URL do backend muda. O proxy remove o header `Origin`; `CORS_ORIGIN` continua a ser necessário apenas para clientes browser que acedam diretamente ao domínio do backend.
+
 ## Base de dados e importação
 
 O backend usa as tabelas `tasks`, `task_dependencies`, `task_tags`, `task_activity` e `task_activity_revisions` do schema Supabase. Frontend, API e base de dados usam diretamente os mesmos estados e tipos de atividade ingleses, sem mapping em runtime.
