@@ -183,7 +183,9 @@ app.get('/health', async (req, res, next) => {
   try {
     const connection = await checkConnection();
     res.json({ status: 'ok', database: connection.database, databaseTime: connection.time });
-  } catch (error) { next(error); }
+  } catch (error) {
+    res.status(503).json({ status: 'unavailable', error: 'Database connection is not ready' });
+  }
 });
 
 app.get('/tasks', async (req, res, next) => {
@@ -402,14 +404,9 @@ async function shutdown(signal) {
 process.once('SIGTERM', () => shutdown('SIGTERM'));
 process.once('SIGINT', () => shutdown('SIGINT'));
 
-checkConnection()
-  .then((connection) => {
-    server = app.listen(PORT, HOST, () => {
-      console.log(`Task App API listening on http://${HOST}:${PORT}`);
-      console.log(`Connected to Supabase PostgreSQL database: ${connection.database}`);
-    });
-  })
-  .catch((error) => {
-    console.error('Could not connect to Supabase PostgreSQL:', error.message);
-    process.exit(1);
-  });
+server = app.listen(PORT, HOST, () => {
+  console.log(`Task App API listening on http://${HOST}:${PORT}`);
+  checkConnection()
+    .then((connection) => console.log(`Connected to Supabase PostgreSQL database: ${connection.database}`))
+    .catch((error) => console.error('Supabase PostgreSQL is not ready:', error.message));
+});
