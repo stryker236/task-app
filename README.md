@@ -99,16 +99,20 @@ GET /tasks?today=true&sort=priority
 GET /tasks?search=ficheiro&status=in_progress
 ```
 
-## Deploy do backend no Render
+## Deploy do backend no Koyeb
 
-O ficheiro `render.yaml` na raiz define o serviço web. Depois de publicar o repositório no GitHub:
+O `Dockerfile` na raiz cria uma imagem de produção apenas com o backend e executa-a como utilizador não-root. O ficheiro `.dockerignore` impede que `.env`, `tasks.json`, `node_modules` e o frontend sejam incluídos na imagem.
 
-1. No Render, escolha **New → Blueprint** e selecione o repositório.
-2. Antes do primeiro deploy, defina `DATABASE_URL` com a connection string PostgreSQL do Supabase. Para comunicação IPv4 a partir do Render, prefira a connection string do **Session pooler** mostrada em **Supabase → Connect**.
-3. Defina `CORS_ORIGIN` com a origem HTTPS exata do frontend, sem barra final. Pode indicar várias origens separadas por vírgulas.
-4. Crie o Blueprint e aguarde pelo health check em `/health`.
+Depois de publicar o repositório no GitHub:
 
-Exemplo de variáveis no Render:
+1. No Koyeb, escolha **Create Web Service** e selecione o repositório.
+2. Escolha **Dockerfile** como builder e mantenha a raiz do repositório como work directory.
+3. Configure a porta HTTP como `8000` e o health check HTTP como `/health`.
+4. Defina `DATABASE_URL` com a connection string PostgreSQL do Supabase. Se a ligação direta não estiver disponível a partir da região Koyeb, use a connection string do **Session pooler** apresentada em **Supabase → Connect**.
+5. Defina `CORS_ORIGIN` com a origem HTTPS exata do frontend, sem barra final. Pode indicar várias origens separadas por vírgulas.
+6. Faça o deploy e confirme que `/health` responde com `status: ok`.
+
+Variáveis de ambiente no Koyeb:
 
 ```text
 DATABASE_URL=postgresql://...
@@ -117,17 +121,17 @@ DATABASE_POOL_MAX=5
 CORS_ORIGIN=https://task-app-frontend.example.com
 ```
 
-O Render fornece `PORT` automaticamente; não o configure manualmente. O frontend de produção deve ser compilado com:
+O container usa `PORT=8000` por omissão, mas respeita qualquer valor `PORT` fornecido pelo Koyeb. O frontend de produção deve ser compilado com:
 
 ```text
-VITE_API_URL=https://task-app-api.onrender.com
+VITE_API_URL=https://your-task-app-api.koyeb.app
 ```
 
 Verificação depois do deploy:
 
 ```text
-https://task-app-api.onrender.com/health
-https://task-app-api.onrender.com/tasks
+https://your-task-app-api.koyeb.app/health
+https://your-task-app-api.koyeb.app/tasks
 ```
 
 ## Base de dados e importação

@@ -1,0 +1,10 @@
+.git
+.gitignore
+frontend
+backend/node_modules
+backend/.env
+backend/.env.*
+!backend/.env.example
+backend/tasks.json
+backend/tasks.json.tmp
+**/*.log
