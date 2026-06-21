@@ -53,6 +53,34 @@ npm run dev
 
 Abra o endereço apresentado pelo Vite (normalmente `http://localhost:5173`).
 
+### Executar frontend e backend com Docker Compose
+
+A base de dados continua no Supabase; o Compose executa apenas frontend e backend localmente. Confirme primeiro que `backend/.env` contém uma `DATABASE_URL` válida.
+
+```bash
+docker compose up --build
+```
+
+Serviços disponíveis:
+
+```text
+Frontend: http://localhost:5173
+Backend:  http://localhost:4000
+Health:   http://localhost:4000/health
+```
+
+Ver logs:
+
+```bash
+docker compose logs -f
+```
+
+Parar os serviços:
+
+```bash
+docker compose down
+```
+
 Para criar uma build de produção do frontend:
 
 ```bash

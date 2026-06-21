@@ -1,0 +1,40 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8000
+      CORS_ORIGIN: http://localhost:5173,http://127.0.0.1:5173,http://100.109.0.57:5173
+    ports:
+      - "4000:8000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      PORT: 8000
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "5173:8000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
