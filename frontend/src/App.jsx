@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { addProgress, createBlocker, createTask, deleteTask, duplicateTask, editProgress, getTasks, updateTask } from './api';
+import { addProgress, createBlocker, createTask, deleteTask, duplicateTask, editProgress, getTags, getTasks, updateTask } from './api';
 import Filters from './components/Filters';
 import KanbanView from './components/KanbanView';
 import QueueView from './components/QueueView';
@@ -24,6 +24,7 @@ const isOverdue = (task) => Boolean(task.dueDateTime) && new Date(task.dueDateTi
 export default function App() {
   const [tasks, setTasks] = useState([]);
   const [allTasks, setAllTasks] = useState([]);
+  const [availableTags, setAvailableTags] = useState([]);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [view, setView] = useState('kanban');
   const [editingTask, setEditingTask] = useState(undefined);
@@ -41,9 +42,10 @@ export default function App() {
   const load = useCallback(async (currentFilters = filters) => {
     try {
       setError('');
-      const [filtered, complete] = await Promise.all([getTasks(currentFilters), getTasks()]);
+      const [filtered, complete, tags] = await Promise.all([getTasks(currentFilters), getTasks(), getTags()]);
       setTasks(filtered);
       setAllTasks(complete);
+      setAvailableTags(tags);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -237,7 +239,7 @@ export default function App() {
           <button className={view === 'collections' ? 'active' : ''} onClick={() => setView('collections')}>Cobranças prováveis</button>
         </nav>
 
-        <Filters filters={filters} onChange={setFilters} onClear={() => setFilters(EMPTY_FILTERS)} />
+        <Filters filters={filters} tags={availableTags} onChange={setFilters} onClear={() => setFilters(EMPTY_FILTERS)} />
         {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Fechar">×</button></div>}
 
         {loading ? <div className="loading">A carregar tarefas…</div> : (
@@ -258,7 +260,7 @@ export default function App() {
         )}
       </main>
 
-      {formOpen && <TaskForm task={editingTask} tasks={allTasks} draft={formDraft} blockingTarget={blockingTarget} onSave={saveTask} onClose={closeForm} saving={saving} />}
+      {formOpen && <TaskForm task={editingTask} tasks={allTasks} availableTags={availableTags} draft={formDraft} blockingTarget={blockingTarget} onSave={saveTask} onClose={closeForm} saving={saving} />}
       {progressTask && <ProgressLog task={progressTask} onClose={() => setProgressTask(null)} onAdd={saveProgress} onEdit={saveProgressEdit} saving={savingProgress} />}
     </div>
   );

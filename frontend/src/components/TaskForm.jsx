@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import DependencyPicker from './DependencyPicker';
+import TagPicker from './TagPicker';
 
 export const TASK_DRAFT_KEY = 'task-app:editing-draft:v1';
 
@@ -18,9 +19,8 @@ function toLocalInput(isoDate) {
   return local.toISOString().slice(0, 16);
 }
 
-export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, onClose, saving }) {
+export default function TaskForm({ task, tasks, availableTags, draft, blockingTarget, onSave, onClose, saving }) {
   const [form, setForm] = useState(EMPTY_TASK);
-  const [tagsText, setTagsText] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [dueTime, setDueTime] = useState('');
   const [blocksTaskIds, setBlocksTaskIds] = useState([]);
@@ -32,7 +32,6 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
     const base = task ? { ...task, dueDateTime: localDeadline } : EMPTY_TASK;
     const source = draft?.form ? { ...base, ...draft.form } : base;
     setForm(source);
-    setTagsText(draft?.tagsText ?? (source.tags || []).join(', '));
     setDueDate(draft?.dueDate ?? (localDeadline ? localDeadline.slice(0, 10) : ''));
     setDueTime(draft?.dueTime ?? (localDeadline ? localDeadline.slice(11, 16) : ''));
     const inverseIds = task
@@ -52,7 +51,6 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
         taskId: task?.id || null,
         blockingTarget: blockingTarget ? { id: blockingTarget.id, title: blockingTarget.title } : null,
         form,
-        tagsText,
         dueDate,
         dueTime,
         blocksTaskIds,
@@ -62,10 +60,9 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
     } catch (error) {
       console.error('Could not save the task draft.', error);
     }
-  }, [hydrated, task, blockingTarget, form, tagsText, dueDate, dueTime, blocksTaskIds]);
+  }, [hydrated, task, blockingTarget, form, dueDate, dueTime, blocksTaskIds]);
 
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
-  const splitList = (value) => [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
   const hasUnfinishedDependencies = (form.blockedByTaskIds || []).some((id) => {
     const dependency = tasks.find((item) => item.id === id);
     return dependency && dependency.status !== 'done';
@@ -78,7 +75,7 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
       ...form,
       priority: Number(form.priority),
       dueDateTime: deadline,
-      tags: splitList(tagsText),
+      tags: form.tags || [],
       blocksTaskIds
     });
   }
@@ -149,7 +146,9 @@ export default function TaskForm({ task, tasks, draft, blockingTarget, onSave, o
             </span>
             {dueDate && dueTime === '23:59' && <small>Fim do dia por predefinição</small>}
           </label>
-          <label>Tags <small>(separadas por vírgulas)</small><input value={tagsText} onChange={(event) => setTagsText(event.target.value)} /></label>
+          <div className="full">
+            <TagPicker tags={availableTags} selected={form.tags || []} onChange={(tags) => setForm((current) => ({ ...current, tags }))} />
+          </div>
           <div className="full">
             <DependencyPicker tasks={tasks} selectedIds={form.blockedByTaskIds || []} currentTaskId={task?.id} onChange={(ids) => setForm((current) => ({ ...current, blockedByTaskIds: ids }))} />
           </div>

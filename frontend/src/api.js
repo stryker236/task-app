@@ -23,6 +23,11 @@ export function getTasks(filters = {}) {
   return request(`/tasks${query ? `?${query}` : ''}`);
 }
 
+export function getTags(search = '') {
+  const query = search ? `?search=${encodeURIComponent(search)}` : '';
+  return request(`/tags${query}`);
+}
+
 export const createTask = (task) => request('/tasks', { method: 'POST', body: JSON.stringify(task) });
 export const updateTask = (id, task) => request(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(task) });
 export const deleteTask = (id) => request(`/tasks/${id}`, { method: 'DELETE' });

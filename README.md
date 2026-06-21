@@ -95,6 +95,7 @@ Em desenvolvimento, o frontend envia pedidos para `/api` e o Vite encaminha-os l
 | Método | Endpoint | Descrição |
 | --- | --- | --- |
 | `GET` | `/tasks` | Listar, filtrar e ordenar tarefas |
+| `GET` | `/tags` | Listar ou pesquisar o catálogo reutilizável de tags |
 | `POST` | `/tasks` | Criar tarefa |
 | `GET` | `/tasks/:id` | Obter uma tarefa |
 | `PUT` | `/tasks/:id` | Atualizar uma tarefa |
@@ -180,6 +181,16 @@ O frontend usa `/api` no browser e o Nginx encaminha esses pedidos para `BACKEND
 ## Base de dados e importação
 
 O backend usa as tabelas `tasks`, `task_dependencies`, `task_tags`, `task_activity` e `task_activity_revisions` do schema Supabase. Frontend, API e base de dados usam diretamente os mesmos estados e tipos de atividade ingleses, sem mapping em runtime.
+
+### Migração do catálogo de tags
+
+Antes de executar esta versão do backend, abra o SQL Editor do Supabase e execute uma única vez:
+
+```text
+backend/migrations/20260621_normalize_tags.sql
+```
+
+A migração cria `tags(id, name, normalized_name)`, converte `task_tags` para usar `tag_id`, preserva as associações existentes e junta variantes que diferem apenas em maiúsculas/minúsculas ou espaços. Execute-a primeiro num ambiente de teste ou depois de criar um backup.
 
 `blockedByTaskIds` continua a ser a relação canónica. O formulário também envia `blocksTaskIds` como campo virtual; o backend converte-o em registos de `task_dependencies` sem duplicar relações.
 

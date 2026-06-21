@@ -11,6 +11,7 @@ const {
   updateTask: updateTaskRecord,
   insertActivity,
   syncInverseRelationships,
+  fetchTags,
   checkConnection
 } = require('./database');
 
@@ -58,11 +59,13 @@ function validateTask(input, tasks, currentId = null) {
   const title = normalizeString(input.title);
   const priority = Number(input.priority);
   const status = input.status;
+  const tags = [...new Map(normalizeArray(input.tags).map((tag) => [tag.toLocaleLowerCase(), tag])).values()];
   if (!title) errors.push('title is required');
   if (title.length > 200) errors.push('title must have at most 200 characters');
   if (!Number.isInteger(priority) || priority < 1 || priority > 4) errors.push('priority must be an integer from 1 to 4');
   if (!STATUSES.includes(status)) errors.push(`status must be one of: ${STATUSES.join(', ')}`);
   if (input.dueDateTime && Number.isNaN(Date.parse(input.dueDateTime))) errors.push('dueDateTime must be a valid date-time');
+  if (tags.some((tag) => tag.length > 50)) errors.push('each tag must have at most 50 characters');
 
   const dependencyIds = normalizeArray(input.blockedByTaskIds);
   if (currentId && dependencyIds.includes(currentId)) errors.push('a task cannot depend on itself');
@@ -79,7 +82,7 @@ function validateTask(input, tasks, currentId = null) {
     priority,
     status,
     dueDateTime: input.dueDateTime ? new Date(input.dueDateTime).toISOString() : null,
-    tags: normalizeArray(input.tags),
+    tags,
     blockedReason: normalizeString(input.blockedReason),
     blockedByTaskIds: dependencyIds,
     notesMarkdown: typeof input.notesMarkdown === 'string' ? input.notesMarkdown : ''
@@ -190,6 +193,11 @@ app.get('/health', async (req, res, next) => {
 
 app.get('/tasks', async (req, res, next) => {
   try { res.json(filterTasks(await fetchTasks(), req.query)); }
+  catch (error) { next(error); }
+});
+
+app.get('/tags', async (req, res, next) => {
+  try { res.json(await fetchTags(req.query.search || '')); }
   catch (error) { next(error); }
 });
 

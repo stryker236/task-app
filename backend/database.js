@@ -35,7 +35,12 @@ async function withTransaction(work) {
 async function fetchTasks(db = pool) {
   const taskRows = (await db.query('SELECT * FROM tasks ORDER BY created_at')).rows;
   const dependencyRows = (await db.query('SELECT task_id, dependency_task_id FROM task_dependencies')).rows;
-  const tagRows = (await db.query('SELECT task_id, tag FROM task_tags ORDER BY tag')).rows;
+  const tagRows = (await db.query(
+    `SELECT task_tags.task_id, tags.name AS tag
+     FROM task_tags
+     JOIN tags ON tags.id = task_tags.tag_id
+     ORDER BY tags.name`
+  )).rows;
   const activityRows = (await db.query('SELECT * FROM task_activity ORDER BY created_at')).rows;
   const revisionRows = (await db.query('SELECT * FROM task_activity_revisions ORDER BY replaced_at')).rows;
 
@@ -101,9 +106,38 @@ async function fetchTasks(db = pool) {
 
 async function replaceTags(db, taskId, tags) {
   await db.query('DELETE FROM task_tags WHERE task_id = $1', [taskId]);
-  if (tags.length) {
-    await db.query('INSERT INTO task_tags (task_id, tag) SELECT $1, unnest($2::text[])', [taskId, tags]);
+  const uniqueTags = [...new Map(tags.map((tag) => [tag.trim().toLocaleLowerCase(), tag.trim()])).values()]
+    .filter(Boolean);
+  for (const tag of uniqueTags) {
+    const result = await db.query(
+      `INSERT INTO tags (name)
+       VALUES ($1)
+       ON CONFLICT (normalized_name) DO UPDATE SET name = tags.name
+       RETURNING id`,
+      [tag]
+    );
+    await db.query(
+      'INSERT INTO task_tags (task_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [taskId, result.rows[0].id]
+    );
   }
+}
+
+async function fetchTags(search = '') {
+  const term = search.trim();
+  const result = await pool.query(
+    `SELECT id, name, created_at
+     FROM tags
+     WHERE ($1 = '' OR normalized_name LIKE '%' || lower($1) || '%')
+     ORDER BY normalized_name
+     LIMIT 200`,
+    [term]
+  );
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    name: row.name,
+    createdAt: iso(row.created_at)
+  }));
 }
 
 async function replaceDependencies(db, taskId, dependencyIds) {
@@ -217,5 +251,6 @@ module.exports = {
   updateTask,
   insertActivity,
   syncInverseRelationships,
+  fetchTags,
   checkConnection
 };
