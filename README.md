@@ -101,12 +101,12 @@ GET /tasks?search=ficheiro&status=in_progress
 
 ## Deploy do backend no Koyeb
 
-O `Dockerfile` na raiz cria uma imagem de produção apenas com o backend e executa-a como utilizador não-root. O ficheiro `.dockerignore` impede que `.env`, `tasks.json`, `node_modules` e o frontend sejam incluídos na imagem.
+O `Dockerfile` em `backend/` cria uma imagem de produção apenas com o backend e executa-a como utilizador não-root. O respetivo `.dockerignore` impede que `.env`, `tasks.json` e `node_modules` sejam incluídos na imagem.
 
 Depois de publicar o repositório no GitHub:
 
 1. No Koyeb, escolha **Create Web Service** e selecione o repositório.
-2. Escolha **Dockerfile** como builder e mantenha a raiz do repositório como work directory.
+2. Escolha **Dockerfile** como builder, defina `backend` como work directory e use `Dockerfile` como Dockerfile path.
 3. Configure a porta HTTP como `8000` e o health check HTTP como `/health`.
 4. Defina `DATABASE_URL` com a connection string PostgreSQL do Supabase. Se a ligação direta não estiver disponível a partir da região Koyeb, use a connection string do **Session pooler** apresentada em **Supabase → Connect**.
 5. Defina `CORS_ORIGIN` com a origem HTTPS exata do frontend, sem barra final. Pode indicar várias origens separadas por vírgulas.
@@ -139,7 +139,7 @@ https://your-task-app-api.koyeb.app/tasks
 Crie um segundo Web Service a partir do mesmo repositório:
 
 1. Escolha **Dockerfile** como builder.
-2. Indique `Dockerfile.frontend` como Dockerfile e mantenha a raiz do repositório como work directory.
+2. Defina `frontend` como work directory e use `Dockerfile` como Dockerfile path.
 3. Configure a porta HTTP `8000`, a rota `/` e o health check `/health`.
 4. Defina `BACKEND_URL` com o URL HTTPS do backend, sem barra final.
 
