@@ -21,6 +21,12 @@ const STATUSES = ['new', 'in_progress', 'waiting', 'done', 'cancelled'];
 const SORT_FIELDS = ['priority', 'dueDateTime', 'createdAt', 'updatedAt', 'requestedBy', 'status'];
 const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map((origin) => origin.trim()).filter(Boolean);
 
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+  throw new Error('CORS_ORIGIN is required in production');
+}
+
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return callback(null, true);
@@ -168,6 +174,10 @@ function newTask(input, tasks, message = 'Tarefa criada') {
 async function findTask(db, id) {
   return (await fetchTasks(db)).find((task) => task.id === id);
 }
+
+app.get('/', (req, res) => {
+  res.json({ name: 'Task App API', status: 'ok', health: '/health' });
+});
 
 app.get('/health', async (req, res, next) => {
   try {
@@ -376,9 +386,25 @@ app.use((error, req, res, next) => {
   });
 });
 
+let server;
+
+async function shutdown(signal) {
+  console.log(`${signal} received. Closing HTTP server and PostgreSQL pool...`);
+  const forceExit = setTimeout(() => process.exit(1), 10_000);
+  forceExit.unref();
+  if (server) {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  await pool.end();
+  process.exit(0);
+}
+
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));
+
 checkConnection()
   .then((connection) => {
-    app.listen(PORT, HOST, () => {
+    server = app.listen(PORT, HOST, () => {
       console.log(`Task App API listening on http://${HOST}:${PORT}`);
       console.log(`Connected to Supabase PostgreSQL database: ${connection.database}`);
     });

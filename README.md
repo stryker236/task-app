@@ -99,6 +99,37 @@ GET /tasks?today=true&sort=priority
 GET /tasks?search=ficheiro&status=in_progress
 ```
 
+## Deploy do backend no Render
+
+O ficheiro `render.yaml` na raiz define o serviço web. Depois de publicar o repositório no GitHub:
+
+1. No Render, escolha **New → Blueprint** e selecione o repositório.
+2. Antes do primeiro deploy, defina `DATABASE_URL` com a connection string PostgreSQL do Supabase. Para comunicação IPv4 a partir do Render, prefira a connection string do **Session pooler** mostrada em **Supabase → Connect**.
+3. Defina `CORS_ORIGIN` com a origem HTTPS exata do frontend, sem barra final. Pode indicar várias origens separadas por vírgulas.
+4. Crie o Blueprint e aguarde pelo health check em `/health`.
+
+Exemplo de variáveis no Render:
+
+```text
+DATABASE_URL=postgresql://...
+DATABASE_SSL=true
+DATABASE_POOL_MAX=5
+CORS_ORIGIN=https://task-app-frontend.example.com
+```
+
+O Render fornece `PORT` automaticamente; não o configure manualmente. O frontend de produção deve ser compilado com:
+
+```text
+VITE_API_URL=https://task-app-api.onrender.com
+```
+
+Verificação depois do deploy:
+
+```text
+https://task-app-api.onrender.com/health
+https://task-app-api.onrender.com/tasks
+```
+
 ## Base de dados e importação
 
 O backend usa as tabelas `tasks`, `task_dependencies`, `task_tags`, `task_activity` e `task_activity_revisions` do schema Supabase. Frontend, API e base de dados usam diretamente os mesmos estados e tipos de atividade ingleses, sem mapping em runtime.
