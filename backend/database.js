@@ -34,7 +34,8 @@ async function withTransaction(work) {
 
 async function fetchTasks(db = pool) {
   const taskRows = (await db.query('SELECT * FROM tasks ORDER BY created_at')).rows;
-  const dependencyRows = (await db.query('SELECT task_id, dependency_task_id FROM task_dependencies')).rows;
+  const relationRows = (await db.query('SELECT * FROM task_relations ORDER BY created_at')).rows;
+  const checklistRows = (await db.query('SELECT * FROM task_checklist_items ORDER BY task_id, position, created_at')).rows;
   const tagRows = (await db.query(
     `SELECT task_tags.task_id, tags.name AS tag
      FROM task_tags
@@ -44,14 +45,30 @@ async function fetchTasks(db = pool) {
   const activityRows = (await db.query('SELECT * FROM task_activity ORDER BY created_at')).rows;
   const revisionRows = (await db.query('SELECT * FROM task_activity_revisions ORDER BY replaced_at')).rows;
 
-  const dependencies = new Map();
+  const relations = new Map();
+  const checklists = new Map();
   const tags = new Map();
   const activities = new Map();
   const revisions = new Map();
 
-  for (const row of dependencyRows) {
+  for (const row of relationRows) {
     const id = String(row.task_id);
-    dependencies.set(id, [...(dependencies.get(id) || []), String(row.dependency_task_id)]);
+    relations.set(id, [...(relations.get(id) || []), {
+      relatedTaskId: String(row.related_task_id),
+      type: row.relation_type,
+      createdAt: iso(row.created_at)
+    }]);
+  }
+  for (const row of checklistRows) {
+    const id = String(row.task_id);
+    checklists.set(id, [...(checklists.get(id) || []), {
+      id: String(row.id),
+      title: row.title,
+      isDone: row.is_done,
+      position: row.position,
+      createdAt: iso(row.created_at),
+      completedAt: iso(row.completed_at)
+    }]);
   }
   for (const row of tagRows) {
     const id = String(row.task_id);
@@ -82,23 +99,31 @@ async function fetchTasks(db = pool) {
 
   return taskRows.map((row) => {
     const id = String(row.id);
+    const taskRelations = relations.get(id) || [];
     return {
       id,
       title: row.title,
-      description: row.description,
+      notes: row.notes,
+      description: row.notes,
       requestedBy: row.requested_by,
       needToAsk: Array.isArray(row.need_to_ask) ? row.need_to_ask : [],
       priority: row.priority,
       status: row.status,
       dueDateTime: iso(row.due_at),
+      estimatedMinutes: row.estimated_minutes,
+      isFavorite: row.is_favorite,
       tags: tags.get(id) || [],
       blockedReason: row.blocked_reason,
-      blockedByTaskIds: dependencies.get(id) || [],
-      notesMarkdown: row.notes_markdown,
+      blockedByTaskIds: taskRelations.filter((relation) => relation.type === 'blocked_by').map((relation) => relation.relatedTaskId),
+      relations: taskRelations,
+      checklistItems: checklists.get(id) || [],
+      notesMarkdown: '',
       createdAt: iso(row.created_at),
       updatedAt: iso(row.updated_at),
       completedAt: iso(row.completed_at),
       cancelledAt: iso(row.cancelled_at),
+      archivedAt: iso(row.archived_at),
+      isArchived: Boolean(row.archived_at),
       activityLog: activities.get(id) || []
     };
   });
@@ -156,12 +181,26 @@ async function deleteUnusedTag(id) {
   return exists.rowCount ? 'in_use' : 'not_found';
 }
 
-async function replaceDependencies(db, taskId, dependencyIds) {
-  await db.query('DELETE FROM task_dependencies WHERE task_id = $1', [taskId]);
-  if (dependencyIds.length) {
+async function replaceRelations(db, taskId, relations) {
+  await db.query('DELETE FROM task_relations WHERE task_id = $1', [taskId]);
+  for (const relation of relations) {
     await db.query(
-      'INSERT INTO task_dependencies (task_id, dependency_task_id) SELECT $1, unnest($2::uuid[])',
-      [taskId, dependencyIds]
+      `INSERT INTO task_relations (task_id, related_task_id, relation_type, created_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING`,
+      [taskId, relation.relatedTaskId, relation.type, relation.createdAt]
+    );
+  }
+}
+
+async function replaceChecklist(db, taskId, items) {
+  await db.query('DELETE FROM task_checklist_items WHERE task_id = $1', [taskId]);
+  for (const item of items) {
+    await db.query(
+      `INSERT INTO task_checklist_items (
+         id, task_id, title, is_done, position, created_at, completed_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [item.id, taskId, item.title, item.isDone, item.position, item.createdAt, item.completedAt]
     );
   }
 }
@@ -188,17 +227,20 @@ async function insertActivity(db, taskId, entry) {
 async function insertTask(db, task, creationMessage = 'Tarefa criada') {
   await db.query(
     `INSERT INTO tasks (
-       id, title, description, requested_by, need_to_ask, priority, status, due_at,
-       blocked_reason, notes_markdown, created_at, updated_at, completed_at, cancelled_at
-     ) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+       id, title, notes, requested_by, need_to_ask, priority, status, due_at,
+       blocked_reason, estimated_minutes, is_favorite,
+       created_at, updated_at, completed_at, cancelled_at, archived_at
+     ) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
     [
-      task.id, task.title, task.description, task.requestedBy, JSON.stringify(task.needToAsk),
+      task.id, task.title, task.notes, task.requestedBy, JSON.stringify(task.needToAsk),
       task.priority, task.status, task.dueDateTime, task.blockedReason,
-      task.notesMarkdown, task.createdAt, task.updatedAt, task.completedAt, task.cancelledAt
+      task.estimatedMinutes, task.isFavorite,
+      task.createdAt, task.updatedAt, task.completedAt, task.cancelledAt, task.archivedAt
     ]
   );
   await replaceTags(db, task.id, task.tags);
-  await replaceDependencies(db, task.id, task.blockedByTaskIds);
+  await replaceRelations(db, task.id, task.relations);
+  await replaceChecklist(db, task.id, task.checklistItems);
   await insertActivity(db, task.id, {
     id: task.activityLog?.[0]?.id,
     type: 'created',
@@ -210,31 +252,39 @@ async function insertTask(db, task, creationMessage = 'Tarefa criada') {
 async function updateTask(db, task) {
   await db.query(
     `UPDATE tasks SET
-       title=$2, description=$3, requested_by=$4, need_to_ask=$5::jsonb, priority=$6,
-       status=$7, due_at=$8, blocked_reason=$9, notes_markdown=$10,
-       updated_at=$11, completed_at=$12, cancelled_at=$13
+       title=$2, notes=$3, requested_by=$4, need_to_ask=$5::jsonb, priority=$6,
+       status=$7, due_at=$8, blocked_reason=$9, estimated_minutes=$10, is_favorite=$11,
+       updated_at=$12, completed_at=$13, cancelled_at=$14, archived_at=$15
      WHERE id=$1`,
     [
-      task.id, task.title, task.description, task.requestedBy, JSON.stringify(task.needToAsk),
+      task.id, task.title, task.notes, task.requestedBy, JSON.stringify(task.needToAsk),
       task.priority, task.status, task.dueDateTime, task.blockedReason,
-      task.notesMarkdown, task.updatedAt, task.completedAt, task.cancelledAt
+      task.estimatedMinutes, task.isFavorite,
+      task.updatedAt, task.completedAt, task.cancelledAt, task.archivedAt
     ]
   );
   await replaceTags(db, task.id, task.tags);
-  await replaceDependencies(db, task.id, task.blockedByTaskIds);
+  await replaceRelations(db, task.id, task.relations);
+  await replaceChecklist(db, task.id, task.checklistItems);
 }
 
 async function syncInverseRelationships(db, blocker, blockedTaskIds, now) {
   const currentRows = (await db.query(
-    'SELECT task_id FROM task_dependencies WHERE dependency_task_id = $1',
+    `SELECT task_id FROM task_relations
+     WHERE related_task_id = $1 AND relation_type = 'blocked_by'`,
     [blocker.id]
   )).rows;
   const current = new Set(currentRows.map((row) => String(row.task_id)));
   const selected = new Set(blockedTaskIds);
-  await db.query('DELETE FROM task_dependencies WHERE dependency_task_id = $1', [blocker.id]);
+  await db.query(
+    `DELETE FROM task_relations
+     WHERE related_task_id = $1 AND relation_type = 'blocked_by'`,
+    [blocker.id]
+  );
   if (blockedTaskIds.length) {
     await db.query(
-      'INSERT INTO task_dependencies (task_id, dependency_task_id) SELECT unnest($1::uuid[]), $2',
+      `INSERT INTO task_relations (task_id, related_task_id, relation_type)
+       SELECT unnest($1::uuid[]), $2, 'blocked_by'::task_relation_type`,
       [blockedTaskIds, blocker.id]
     );
   }

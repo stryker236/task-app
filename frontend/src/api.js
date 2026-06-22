@@ -38,6 +38,9 @@ export const createTask = (task) => request('/tasks', { method: 'POST', body: JS
 export const updateTask = (id, task) => request(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(task) });
 export const deleteTask = (id) => request(`/tasks/${id}`, { method: 'DELETE' });
 export const duplicateTask = (id) => request(`/tasks/${id}/duplicate`, { method: 'POST' });
+export const archiveTask = (id) => request(`/tasks/${id}/archive`, { method: 'POST' });
+export const restoreTask = (id) => request(`/tasks/${id}/archive`, { method: 'DELETE' });
+export const toggleChecklistItem = (taskId, itemId, isDone) => request(`/tasks/${taskId}/checklist/${itemId}`, { method: 'PATCH', body: JSON.stringify({ isDone }) });
 export const addProgress = (id, message) => request(`/tasks/${id}/progress`, { method: 'POST', body: JSON.stringify({ message }) });
 export const editProgress = (id, entryId, message) => request(`/tasks/${id}/progress/${entryId}`, { method: 'PUT', body: JSON.stringify({ message }) });
 export const createBlocker = (id, task) => request(`/tasks/${id}/blockers`, { method: 'POST', body: JSON.stringify(task) });

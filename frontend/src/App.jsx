@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { addProgress, createBlocker, createTask, deleteTag, deleteTask, duplicateTask, editProgress, getTags, getTasks, updateTask } from './api';
+import { addProgress, archiveTask, createBlocker, createTask, deleteTag, deleteTask, duplicateTask, editProgress, getTags, getTasks, restoreTask, toggleChecklistItem, updateTask } from './api';
 import Filters from './components/Filters';
 import KanbanView from './components/KanbanView';
 import QueueView from './components/QueueView';
@@ -17,6 +17,7 @@ const EMPTY_FILTERS = {
   overdue: false,
   today: false,
   noDueDate: false,
+  favoriteOnly: false,
   hideBlocked: false,
   hideDone: true,
   hideCancelled: true
@@ -25,7 +26,8 @@ const EMPTY_FILTERS = {
 const createViewFilters = () => ({
   kanban: { ...EMPTY_FILTERS, tags: [] },
   queue: { ...EMPTY_FILTERS, tags: [] },
-  collections: { ...EMPTY_FILTERS, tags: [] }
+  collections: { ...EMPTY_FILTERS, tags: [] },
+  archived: { ...EMPTY_FILTERS, tags: [], archived: true, hideDone: false, hideCancelled: false }
 });
 
 function isToday(task) {
@@ -69,7 +71,7 @@ export default function App() {
   const load = useCallback(async (currentFilters = filters) => {
     try {
       setError('');
-      const [filtered, complete, tags] = await Promise.all([getTasks(currentFilters), getTasks(), getTags()]);
+      const [filtered, complete, tags] = await Promise.all([getTasks(currentFilters), getTasks({ includeArchived: true }), getTags()]);
       setTasks(filtered);
       setAllTasks(complete);
       setAvailableTags(tags);
@@ -111,12 +113,13 @@ export default function App() {
   }, [loading, allTasks]);
 
   const counters = useMemo(() => {
-    const active = allTasks.filter((task) => !['done', 'cancelled'].includes(task.status));
+    const visibleTasks = allTasks.filter((task) => !task.isArchived);
+    const active = visibleTasks.filter((task) => !['done', 'cancelled'].includes(task.status));
     return {
-      total: allTasks.length,
+      total: visibleTasks.length,
       today: active.filter(isToday).length,
       overdue: active.filter(isOverdue).length,
-      waiting: allTasks.filter((task) => task.status === 'waiting').length,
+      waiting: visibleTasks.filter((task) => task.status === 'waiting').length,
       noDue: active.filter((task) => !task.dueDateTime).length
     };
   }, [allTasks]);
@@ -140,6 +143,15 @@ export default function App() {
   function editFromDetails(task) {
     setViewingTask(null);
     openEdit(task);
+  }
+
+  function openTask(task) {
+    setViewingTask(task);
+  }
+
+  function openHistoryFromDetails(task) {
+    setViewingTask(null);
+    setProgressTask(task);
   }
 
   function openBlockerForm(task) {
@@ -191,8 +203,7 @@ export default function App() {
       await load(filters);
       localStorage.removeItem(TASK_DRAFT_KEY);
       setFormDraft(null);
-      setEditingTask(duplicate);
-      setFormOpen(true);
+      setViewingTask(duplicate);
     } catch (requestError) { setError(requestError.message); }
   }
 
@@ -209,6 +220,50 @@ export default function App() {
       await updateTask(task.id, { ...task, priority });
       await load(filters);
     } catch (requestError) { setError(requestError.message); }
+  }
+
+  async function changeFavorite(task, isFavorite) {
+    try {
+      await updateTask(task.id, { ...task, isFavorite });
+      await load(filters);
+    } catch (requestError) { setError(requestError.message); }
+  }
+
+  async function archive(task) {
+    if (!window.confirm(`Arquivar “${task.title}”?`)) return;
+    try {
+      await archiveTask(task.id);
+      setViewingTask(null);
+      await load(filters);
+    } catch (requestError) { setError(requestError.message); }
+  }
+
+  async function restore(task) {
+    try {
+      await restoreTask(task.id);
+      setViewingTask(null);
+      await load(filters);
+    } catch (requestError) { setError(requestError.message); }
+  }
+
+  async function toggleChecklist(task, item, isDone) {
+    try {
+      const updated = await toggleChecklistItem(task.id, item.id, isDone);
+      setViewingTask(updated);
+      await load(filters);
+    } catch (requestError) { setError(requestError.message); }
+  }
+
+  async function updateFromView(task, changes) {
+    try {
+      const updated = await updateTask(task.id, { ...task, ...changes });
+      setViewingTask(updated);
+      await load(filters);
+      return updated;
+    } catch (requestError) {
+      setError(requestError.message);
+      return null;
+    }
   }
 
   async function postpone(task, dueDateTime) {
@@ -273,7 +328,7 @@ export default function App() {
     }
   }
 
-  const actions = { onEdit: openEdit, onDelete: removeTask, onDuplicate: copyTask, onStatusChange: changeStatus, onPriorityChange: changePriority, onOpenTask: setViewingTask, onProgress: setProgressTask, onAddBlocker: openBlockerForm, onPostpone: setPostponeTask };
+  const actions = { onEdit: openEdit, onDelete: removeTask, onDuplicate: copyTask, onStatusChange: changeStatus, onPriorityChange: changePriority, onFavoriteChange: changeFavorite, onOpenTask: openTask, onProgress: setProgressTask, onAddBlocker: openBlockerForm, onPostpone: setPostponeTask, onArchive: archive, onRestore: restore };
 
   const collectionSections = useMemo(() => {
     const active = (task) => !['done', 'cancelled'].includes(task.status);
@@ -307,9 +362,10 @@ export default function App() {
           <button className={view === 'kanban' ? 'active' : ''} onClick={() => setView('kanban')}>Kanban</button>
           <button className={view === 'queue' ? 'active' : ''} onClick={() => setView('queue')}>Fila</button>
           <button className={view === 'collections' ? 'active' : ''} onClick={() => setView('collections')}>Cobranças prováveis</button>
+          <button className={view === 'archived' ? 'active' : ''} onClick={() => setView('archived')}>Arquivadas</button>
         </nav>
 
-        <Filters filters={filters} tags={availableTags} onChange={setFilters} onDeleteTag={removeTag} onClear={() => setFilters({ ...EMPTY_FILTERS, tags: [] })} />
+        <Filters filters={filters} tags={availableTags} onChange={setFilters} onDeleteTag={removeTag} onClear={() => setFilters(view === 'archived' ? { ...EMPTY_FILTERS, tags: [], archived: true, hideDone: false, hideCancelled: false } : { ...EMPTY_FILTERS, tags: [] })} />
         {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Fechar">×</button></div>}
 
         {loading ? <div className="loading">A carregar tarefas…</div> : (
@@ -324,6 +380,7 @@ export default function App() {
               />
             )}
             {view === 'queue' && <QueueView tasks={tasks} allTasks={allTasks} actions={actions} sort={queueSort} onSortChange={setQueueSort} />}
+            {view === 'archived' && <QueueView tasks={tasks} allTasks={allTasks} actions={actions} sort={queueSort} onSortChange={setQueueSort} />}
             {view === 'collections' && (
               <div className="collections-view">
                 {collectionSections.map(([title, items]) => (
@@ -338,9 +395,9 @@ export default function App() {
         )}
       </main>
 
-      {formOpen && <TaskForm task={editingTask} tasks={allTasks} availableTags={availableTags} draft={formDraft} blockingTarget={blockingTarget} onSave={saveTask} onClose={closeForm} saving={saving} />}
+      {formOpen && <TaskForm task={editingTask} tasks={allTasks} availableTags={availableTags} draft={formDraft} blockingTarget={blockingTarget} onSave={saveTask} onClose={closeForm} onProgress={setProgressTask} saving={saving} />}
       {progressTask && <ProgressLog task={progressTask} onClose={() => setProgressTask(null)} onAdd={saveProgress} onEdit={saveProgressEdit} saving={savingProgress} />}
-      {viewingTask && <TaskDetails task={viewingTask} allTasks={allTasks} onClose={() => setViewingTask(null)} onEdit={editFromDetails} onOpenTask={setViewingTask} />}
+      {viewingTask && <TaskDetails task={viewingTask} allTasks={allTasks} availableTags={availableTags} onClose={() => setViewingTask(null)} onChange={updateFromView} onOpenTask={openTask} onProgress={openHistoryFromDetails} onArchive={archive} onRestore={restore} onToggleChecklist={toggleChecklist} />}
       {postponeTask && <PostponeDialog task={postponeTask} onClose={() => setPostponeTask(null)} onSave={postpone} saving={postponing} />}
     </div>
   );

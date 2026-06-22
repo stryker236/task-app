@@ -17,6 +17,7 @@ export default function Filters({ filters, tags, onChange, onDeleteTag, onClear 
       <label className="check-filter"><input type="checkbox" checked={filters.overdue} onChange={set('overdue')} /> Atrasadas</label>
       <label className="check-filter"><input type="checkbox" checked={filters.today} onChange={set('today')} /> Hoje</label>
       <label className="check-filter"><input type="checkbox" checked={filters.noDueDate} onChange={set('noDueDate')} /> Sem prazo</label>
+      <label className="check-filter"><input type="checkbox" checked={filters.favoriteOnly} onChange={set('favoriteOnly')} /> Favoritas</label>
       <label className="check-filter"><input type="checkbox" checked={filters.hideBlocked} onChange={set('hideBlocked')} /> Ocultar bloqueadas</label>
       <label className="check-filter"><input type="checkbox" checked={filters.hideDone} onChange={set('hideDone')} /> Ocultar feitas</label>
       <label className="check-filter"><input type="checkbox" checked={filters.hideCancelled} onChange={set('hideCancelled')} /> Ocultar canceladas</label>

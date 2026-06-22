@@ -5,6 +5,7 @@ export default function DependencyPicker({
   selectedIds,
   currentTaskId,
   onChange,
+  onOpenTask,
   label = 'Dependências (bloqueada por)',
   buttonLabel = '+ Adicionar dependência',
   dialogTitle = 'Adicionar dependência',
@@ -16,7 +17,7 @@ export default function DependencyPicker({
   const taskMap = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
   const candidates = tasks.filter((task) => {
     const term = search.trim().toLocaleLowerCase();
-    return task.id !== currentTaskId && (!term || task.title.toLocaleLowerCase().includes(term));
+    return !task.isArchived && task.id !== currentTaskId && (!term || task.title.toLocaleLowerCase().includes(term));
   });
 
   function toggle(id) {
@@ -33,7 +34,9 @@ export default function DependencyPicker({
         {selectedIds.length === 0 && <span className="muted">{emptyText}</span>}
         {selectedIds.map((id) => (
           <span className="dependency-chip" key={id}>
-            {taskMap.get(id)?.title || 'Tarefa indisponível'}
+            {onOpenTask && taskMap.get(id)
+              ? <button type="button" className="chip-task-link" onClick={() => onOpenTask(taskMap.get(id))}>{taskMap.get(id).title}</button>
+              : taskMap.get(id)?.title || 'Tarefa indisponível'}
             <button type="button" aria-label="Remover dependência" onClick={() => onChange(selectedIds.filter((item) => item !== id))}>×</button>
           </span>
         ))}

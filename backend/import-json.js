@@ -25,20 +25,34 @@ async function importTasks() {
       const task = {
         id: idMap.get(item.id),
         title: item.title,
-        description: item.description || '',
+        notes: [item.notes ?? item.description, item.notesMarkdown].filter(Boolean).join('\n\n'),
+        description: item.notes ?? item.description ?? '',
         requestedBy: item.requestedBy || '',
         needToAsk: Array.isArray(item.needToAsk) ? item.needToAsk : [],
         priority: item.priority,
         status: item.status,
         dueDateTime: item.dueDateTime || null,
+        estimatedMinutes: item.estimatedMinutes ?? null,
+        isFavorite: item.isFavorite === true,
         tags: Array.isArray(item.tags) ? item.tags : [],
         blockedReason: item.blockedReason || '',
         blockedByTaskIds: [],
-        notesMarkdown: item.notesMarkdown || '',
+        relations: [],
+        checklistItems: (item.checklistItems || []).map((checklistItem, position) => ({
+          id: isUuid(checklistItem.id) ? checklistItem.id : randomUUID(),
+          title: checklistItem.title,
+          isDone: checklistItem.isDone === true,
+          position: Number.isInteger(checklistItem.position) ? checklistItem.position : position,
+          createdAt: checklistItem.createdAt || createdAt,
+          completedAt: checklistItem.isDone ? (checklistItem.completedAt || createdAt) : null
+        })),
+        notesMarkdown: '',
         createdAt,
         updatedAt: item.updatedAt || createdAt,
         completedAt: item.completedAt || null,
         cancelledAt: item.cancelledAt || null,
+        archivedAt: item.archivedAt || null,
+        isArchived: Boolean(item.archivedAt),
         activityLog
       };
       await insertTask(client, task, activityLog[0].message);
@@ -68,7 +82,8 @@ async function importTasks() {
       const dependencyIds = (item.blockedByTaskIds || []).map((id) => idMap.get(id)).filter(Boolean);
       if (dependencyIds.length) {
         await client.query(
-          'INSERT INTO task_dependencies (task_id, dependency_task_id) SELECT $1, unnest($2::uuid[])',
+          `INSERT INTO task_relations (task_id, related_task_id, relation_type)
+           SELECT $1, unnest($2::uuid[]), 'blocked_by'::task_relation_type`,
           [taskId, dependencyIds]
         );
       }
