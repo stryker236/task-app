@@ -12,6 +12,7 @@ const {
   insertActivity,
   syncInverseRelationships,
   fetchTags,
+  deleteUnusedTag,
   checkConnection
 } = require('./database');
 
@@ -126,11 +127,21 @@ function filterTasks(tasks, query) {
   if (query.priority) result = result.filter((task) => task.priority === Number(query.priority));
   if (query.requestedBy) result = result.filter((task) => includesText(task.requestedBy, query.requestedBy.toLocaleLowerCase()));
   if (query.needToAsk) result = result.filter((task) => task.needToAsk.some((name) => includesText(name, query.needToAsk.toLocaleLowerCase())));
-  if (query.tag) result = result.filter((task) => task.tags.some((tag) => includesText(tag, query.tag.toLocaleLowerCase())));
+  if (query.tag) {
+    const selectedTags = (Array.isArray(query.tag) ? query.tag : [query.tag])
+      .map((tag) => String(tag).trim().toLocaleLowerCase())
+      .filter(Boolean);
+    result = result.filter((task) => {
+      const taskTags = new Set(task.tags.map((tag) => tag.toLocaleLowerCase()));
+      return selectedTags.every((tag) => taskTags.has(tag));
+    });
+  }
   if (query.noDueDate === 'true') result = result.filter((task) => !task.dueDateTime);
   if (query.hideBlocked === 'true') {
     result = result.filter((task) => !task.blockedByTaskIds.some((id) => taskMap.get(id)?.status !== 'done'));
   }
+  if (query.hideDone === 'true') result = result.filter((task) => task.status !== 'done');
+  if (query.hideCancelled === 'true') result = result.filter((task) => task.status !== 'cancelled');
   const { start, end } = localDayBounds();
   if (query.today === 'true') result = result.filter((task) => task.dueDateTime && new Date(task.dueDateTime) >= start && new Date(task.dueDateTime) < end);
   if (query.overdue === 'true') result = result.filter((task) => task.dueDateTime && new Date(task.dueDateTime) < new Date() && active(task));
@@ -199,6 +210,15 @@ app.get('/tasks', async (req, res, next) => {
 app.get('/tags', async (req, res, next) => {
   try { res.json(await fetchTags(req.query.search || '')); }
   catch (error) { next(error); }
+});
+
+app.delete('/tags/:id', async (req, res, next) => {
+  try {
+    const result = await deleteUnusedTag(req.params.id);
+    if (result === 'not_found') return res.status(404).json({ error: 'Tag not found' });
+    if (result === 'in_use') return res.status(409).json({ error: 'Tag is still used by one or more tasks' });
+    return res.status(204).send();
+  } catch (error) { return next(error); }
 });
 
 app.get('/tasks/:id', async (req, res, next) => {

@@ -126,9 +126,11 @@ async function replaceTags(db, taskId, tags) {
 async function fetchTags(search = '') {
   const term = search.trim();
   const result = await pool.query(
-    `SELECT id, name, created_at
+    `SELECT tags.id, tags.name, tags.created_at, count(task_tags.task_id)::int AS usage_count
      FROM tags
+     LEFT JOIN task_tags ON task_tags.tag_id = tags.id
      WHERE ($1 = '' OR normalized_name LIKE '%' || lower($1) || '%')
+     GROUP BY tags.id, tags.name, tags.created_at, tags.normalized_name
      ORDER BY normalized_name
      LIMIT 200`,
     [term]
@@ -136,8 +138,22 @@ async function fetchTags(search = '') {
   return result.rows.map((row) => ({
     id: String(row.id),
     name: row.name,
-    createdAt: iso(row.created_at)
+    createdAt: iso(row.created_at),
+    usageCount: row.usage_count
   }));
+}
+
+async function deleteUnusedTag(id) {
+  const result = await pool.query(
+    `DELETE FROM tags
+     WHERE id = $1
+       AND NOT EXISTS (SELECT 1 FROM task_tags WHERE task_tags.tag_id = tags.id)
+     RETURNING id`,
+    [id]
+  );
+  if (result.rowCount) return 'deleted';
+  const exists = await pool.query('SELECT 1 FROM tags WHERE id = $1', [id]);
+  return exists.rowCount ? 'in_use' : 'not_found';
 }
 
 async function replaceDependencies(db, taskId, dependencyIds) {
@@ -252,5 +268,6 @@ module.exports = {
   insertActivity,
   syncInverseRelationships,
   fetchTags,
+  deleteUnusedTag,
   checkConnection
 };

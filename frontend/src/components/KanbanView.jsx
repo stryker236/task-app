@@ -38,13 +38,16 @@ function sortTasks(tasks, sort) {
   });
 }
 
-export default function KanbanView({ tasks, allTasks, actions }) {
+export default function KanbanView({ tasks, allTasks, actions, hideDone, hideCancelled }) {
   const [sort, setSort] = useState({
     primary: { field: 'priority', direction: 'desc' },
     secondary: { field: 'dueDateTime', direction: 'asc' }
   });
   const [draggedTaskId, setDraggedTaskId] = useState(null);
   const [dropStatus, setDropStatus] = useState(null);
+  const visibleColumns = COLUMNS.filter(([status]) => (
+    !(status === 'done' && hideDone) && !(status === 'cancelled' && hideCancelled)
+  ));
 
   function startDrag(event, task) {
     setDraggedTaskId(task.id);
@@ -94,8 +97,8 @@ export default function KanbanView({ tasks, allTasks, actions }) {
           {sort.secondary.direction === 'desc' ? '↓ Desc.' : '↑ Asc.'}
         </button>
       </div>
-      <div className="kanban-board">
-        {COLUMNS.map(([status, label]) => {
+      <div className="kanban-board" style={{ '--kanban-column-count': visibleColumns.length }}>
+        {visibleColumns.map(([status, label]) => {
           const items = sortTasks(tasks.filter((task) => task.status === status), sort);
           return (
             <section

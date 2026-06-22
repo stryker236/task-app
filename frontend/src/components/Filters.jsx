@@ -1,4 +1,6 @@
-export default function Filters({ filters, tags, onChange, onClear }) {
+import TagFilter from './TagFilter';
+
+export default function Filters({ filters, tags, onChange, onDeleteTag, onClear }) {
   const set = (key) => (event) => onChange({ ...filters, [key]: event.target.type === 'checkbox' ? event.target.checked : event.target.value });
   return (
     <section className="filters" aria-label="Filtros de tarefas">
@@ -11,14 +13,13 @@ export default function Filters({ filters, tags, onChange, onClear }) {
         <option value="">Todas as prioridades</option>
         <option value="4">Urgente</option><option value="3">Alta</option><option value="2">Média</option><option value="1">Baixa</option>
       </select>
-      <select value={filters.tag} onChange={set('tag')} aria-label="Tag">
-        <option value="">Todas as tags</option>
-        {tags.map((tag) => <option value={tag.name} key={tag.id}>{tag.name}</option>)}
-      </select>
+      <TagFilter tags={tags} selected={filters.tags} onChange={(selectedTags) => onChange({ ...filters, tags: selectedTags })} onDelete={onDeleteTag} />
       <label className="check-filter"><input type="checkbox" checked={filters.overdue} onChange={set('overdue')} /> Atrasadas</label>
       <label className="check-filter"><input type="checkbox" checked={filters.today} onChange={set('today')} /> Hoje</label>
       <label className="check-filter"><input type="checkbox" checked={filters.noDueDate} onChange={set('noDueDate')} /> Sem prazo</label>
       <label className="check-filter"><input type="checkbox" checked={filters.hideBlocked} onChange={set('hideBlocked')} /> Ocultar bloqueadas</label>
+      <label className="check-filter"><input type="checkbox" checked={filters.hideDone} onChange={set('hideDone')} /> Ocultar feitas</label>
+      <label className="check-filter"><input type="checkbox" checked={filters.hideCancelled} onChange={set('hideCancelled')} /> Ocultar canceladas</label>
       <button type="button" className="button ghost" onClick={onClear}>Limpar</button>
     </section>
   );

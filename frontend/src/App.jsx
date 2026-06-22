@@ -1,13 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { addProgress, createBlocker, createTask, deleteTask, duplicateTask, editProgress, getTags, getTasks, updateTask } from './api';
+import { addProgress, createBlocker, createTask, deleteTag, deleteTask, duplicateTask, editProgress, getTags, getTasks, updateTask } from './api';
 import Filters from './components/Filters';
 import KanbanView from './components/KanbanView';
 import QueueView from './components/QueueView';
 import TaskCard from './components/TaskCard';
 import TaskForm, { TASK_DRAFT_KEY } from './components/TaskForm';
 import ProgressLog from './components/ProgressLog';
+import TaskDetails from './components/TaskDetails';
+import PostponeDialog from './components/PostponeDialog';
 
-const EMPTY_FILTERS = { search: '', status: '', priority: '', tag: '', overdue: false, today: false, noDueDate: false, hideBlocked: false };
+const EMPTY_FILTERS = {
+  search: '',
+  status: '',
+  priority: '',
+  tags: [],
+  overdue: false,
+  today: false,
+  noDueDate: false,
+  hideBlocked: false,
+  hideDone: true,
+  hideCancelled: true
+};
+
+const createViewFilters = () => ({
+  kanban: { ...EMPTY_FILTERS, tags: [] },
+  queue: { ...EMPTY_FILTERS, tags: [] },
+  collections: { ...EMPTY_FILTERS, tags: [] }
+});
 
 function isToday(task) {
   if (!task.dueDateTime) return false;
@@ -25,7 +44,7 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
   const [allTasks, setAllTasks] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [filtersByView, setFiltersByView] = useState(createViewFilters);
   const [view, setView] = useState('kanban');
   const [editingTask, setEditingTask] = useState(undefined);
   const [formOpen, setFormOpen] = useState(false);
@@ -37,7 +56,15 @@ export default function App() {
   const [progressTask, setProgressTask] = useState(null);
   const [savingProgress, setSavingProgress] = useState(false);
   const [blockingTarget, setBlockingTarget] = useState(null);
+  const [viewingTask, setViewingTask] = useState(null);
+  const [postponeTask, setPostponeTask] = useState(null);
+  const [postponing, setPostponing] = useState(false);
   const draftRestored = useRef(false);
+  const filters = filtersByView[view];
+
+  function setFilters(nextFilters) {
+    setFiltersByView((current) => ({ ...current, [view]: nextFilters }));
+  }
 
   const load = useCallback(async (currentFilters = filters) => {
     try {
@@ -110,6 +137,11 @@ export default function App() {
     setFormOpen(true);
   }
 
+  function editFromDetails(task) {
+    setViewingTask(null);
+    openEdit(task);
+  }
+
   function openBlockerForm(task) {
     localStorage.removeItem(TASK_DRAFT_KEY);
     setFormDraft(null);
@@ -171,6 +203,44 @@ export default function App() {
     } catch (requestError) { setError(requestError.message); }
   }
 
+  async function changePriority(task, priority) {
+    if (priority < 1 || priority > 4 || priority === task.priority) return;
+    try {
+      await updateTask(task.id, { ...task, priority });
+      await load(filters);
+    } catch (requestError) { setError(requestError.message); }
+  }
+
+  async function postpone(task, dueDateTime) {
+    setPostponing(true);
+    setError('');
+    try {
+      await updateTask(task.id, { ...task, dueDateTime });
+      setPostponeTask(null);
+      await load(filters);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setPostponing(false);
+    }
+  }
+
+  async function removeTag(tag) {
+    if (!window.confirm(`Eliminar a tag “${tag.name}”?`)) return;
+    try {
+      await deleteTag(tag.id);
+      setFiltersByView((current) => Object.fromEntries(
+        Object.entries(current).map(([key, value]) => [key, {
+          ...value,
+          tags: value.tags.filter((name) => name.toLocaleLowerCase() !== tag.name.toLocaleLowerCase())
+        }])
+      ));
+      setAvailableTags((current) => current.filter((item) => item.id !== tag.id));
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
+
   async function saveProgress(task, message) {
     setSavingProgress(true);
     setError('');
@@ -203,7 +273,7 @@ export default function App() {
     }
   }
 
-  const actions = { onEdit: openEdit, onDelete: removeTask, onDuplicate: copyTask, onStatusChange: changeStatus, onOpenTask: openEdit, onProgress: setProgressTask, onAddBlocker: openBlockerForm };
+  const actions = { onEdit: openEdit, onDelete: removeTask, onDuplicate: copyTask, onStatusChange: changeStatus, onPriorityChange: changePriority, onOpenTask: setViewingTask, onProgress: setProgressTask, onAddBlocker: openBlockerForm, onPostpone: setPostponeTask };
 
   const collectionSections = useMemo(() => {
     const active = (task) => !['done', 'cancelled'].includes(task.status);
@@ -239,12 +309,20 @@ export default function App() {
           <button className={view === 'collections' ? 'active' : ''} onClick={() => setView('collections')}>Cobranças prováveis</button>
         </nav>
 
-        <Filters filters={filters} tags={availableTags} onChange={setFilters} onClear={() => setFilters(EMPTY_FILTERS)} />
+        <Filters filters={filters} tags={availableTags} onChange={setFilters} onDeleteTag={removeTag} onClear={() => setFilters({ ...EMPTY_FILTERS, tags: [] })} />
         {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Fechar">×</button></div>}
 
         {loading ? <div className="loading">A carregar tarefas…</div> : (
           <>
-            {view === 'kanban' && <KanbanView tasks={tasks} allTasks={allTasks} actions={actions} />}
+            {view === 'kanban' && (
+              <KanbanView
+                tasks={tasks}
+                allTasks={allTasks}
+                actions={actions}
+                hideDone={filters.hideDone}
+                hideCancelled={filters.hideCancelled}
+              />
+            )}
             {view === 'queue' && <QueueView tasks={tasks} allTasks={allTasks} actions={actions} sort={queueSort} onSortChange={setQueueSort} />}
             {view === 'collections' && (
               <div className="collections-view">
@@ -262,6 +340,8 @@ export default function App() {
 
       {formOpen && <TaskForm task={editingTask} tasks={allTasks} availableTags={availableTags} draft={formDraft} blockingTarget={blockingTarget} onSave={saveTask} onClose={closeForm} saving={saving} />}
       {progressTask && <ProgressLog task={progressTask} onClose={() => setProgressTask(null)} onAdd={saveProgress} onEdit={saveProgressEdit} saving={savingProgress} />}
+      {viewingTask && <TaskDetails task={viewingTask} allTasks={allTasks} onClose={() => setViewingTask(null)} onEdit={editFromDetails} onOpenTask={setViewingTask} />}
+      {postponeTask && <PostponeDialog task={postponeTask} onClose={() => setPostponeTask(null)} onSave={postpone} saving={postponing} />}
     </div>
   );
 }

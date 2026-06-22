@@ -1,8 +1,4 @@
 const PRIORITIES = { 1: 'Baixa', 2: 'Média', 3: 'Alta', 4: 'Urgente' };
-const STATUS_OPTIONS = [
-  ['new', 'New'], ['in_progress', 'In progress'], ['waiting', 'Waiting'], ['done', 'Done'], ['cancelled', 'Cancelled']
-];
-
 function dateState(task) {
   if (!task.dueDateTime || ['done', 'cancelled'].includes(task.status)) return null;
   const date = new Date(task.dueDateTime);
@@ -16,7 +12,7 @@ function dateState(task) {
   return null;
 }
 
-export default function TaskCard({ task, allTasks, onEdit, onDelete, onDuplicate, onStatusChange, onOpenTask, onProgress, onAddBlocker, dragEnabled = false, onDragStart, onDragEnd }) {
+export default function TaskCard({ task, allTasks, onEdit, onDelete, onDuplicate, onPriorityChange, onOpenTask, onProgress, onAddBlocker, onPostpone, dragEnabled = false, onDragStart, onDragEnd }) {
   const dependencies = task.blockedByTaskIds.map((id) => allTasks.find((item) => item.id === id)).filter(Boolean);
   const unfinished = dependencies.filter((item) => item.status !== 'done');
   const blockedDependents = allTasks.filter((candidate) =>
@@ -28,8 +24,24 @@ export default function TaskCard({ task, allTasks, onEdit, onDelete, onDuplicate
   const latestProgress = progressEntries.at(-1);
   const timing = dateState(task);
 
+  function openFromCard(event) {
+    if (event.target.closest('button, select, input, textarea, a, [draggable="true"]')) return;
+    onOpenTask(task);
+  }
+
   return (
-    <article className={`task-card priority-${task.priority} ${unfinished.length ? 'is-blocked' : ''}`}>
+    <article
+      className={`task-card priority-${task.priority} ${unfinished.length ? 'is-blocked' : ''}`}
+      tabIndex="0"
+      aria-label={`Abrir detalhes de ${task.title}`}
+      onClick={openFromCard}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          onOpenTask(task);
+        }
+      }}
+    >
       <div className="card-topline">
         <span className={`priority-badge p${task.priority}`}>{PRIORITIES[task.priority]}</span>
         {timing === 'overdue' && <span className="timing-badge overdue">Atrasada</span>}
@@ -40,6 +52,10 @@ export default function TaskCard({ task, allTasks, onEdit, onDelete, onDuplicate
             A bloquear {blockedDependents.length}
           </span>
         )}
+        <span className="priority-stepper" aria-label="Alterar prioridade">
+          <button type="button" disabled={task.priority <= 1} title="Diminuir prioridade" onClick={() => onPriorityChange(task, task.priority - 1)}>−</button>
+          <button type="button" disabled={task.priority >= 4} title="Aumentar prioridade" onClick={() => onPriorityChange(task, task.priority + 1)}>+</button>
+        </span>
         {dragEnabled && unfinished.length === 0 && (
           <span
             className="drag-handle"
@@ -85,18 +101,8 @@ export default function TaskCard({ task, allTasks, onEdit, onDelete, onDuplicate
           <span>{latestProgress.message}</span>
         </button>
       )}
-      <div className="card-status">
-        <label>Status</label>
-        <select
-          value={task.status}
-          disabled={unfinished.length > 0}
-          title={unfinished.length ? 'Complete dependencies before changing status' : 'Change status'}
-          onChange={(event) => onStatusChange(task, event.target.value)}
-        >
-          {STATUS_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-        </select>
-      </div>
       <div className="card-actions">
+        {timing === 'overdue' && <button type="button" className="postpone-action" onClick={() => onPostpone(task)}>Adiar</button>}
         <button type="button" onClick={() => onProgress(task)}>{task.status === 'new' ? 'Histórico' : 'Progresso'} ({(task.activityLog || []).length})</button>
         {!['done', 'cancelled'].includes(task.status) && <button type="button" onClick={() => onAddBlocker(task)}>+ Bloqueio</button>}
         <button type="button" onClick={() => onEdit(task)}>Editar</button>

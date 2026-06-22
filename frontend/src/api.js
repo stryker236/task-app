@@ -17,7 +17,11 @@ async function request(path, options = {}) {
 export function getTasks(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
-    if (value !== '' && value !== false && value != null) params.set(key, String(value));
+    if (Array.isArray(value)) {
+      value.forEach((item) => params.append(key === 'tags' ? 'tag' : key, String(item)));
+    } else if (value !== '' && value !== false && value != null) {
+      params.set(key, String(value));
+    }
   });
   const query = params.toString();
   return request(`/tasks${query ? `?${query}` : ''}`);
@@ -27,6 +31,8 @@ export function getTags(search = '') {
   const query = search ? `?search=${encodeURIComponent(search)}` : '';
   return request(`/tags${query}`);
 }
+
+export const deleteTag = (id) => request(`/tags/${id}`, { method: 'DELETE' });
 
 export const createTask = (task) => request('/tasks', { method: 'POST', body: JSON.stringify(task) });
 export const updateTask = (id, task) => request(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(task) });

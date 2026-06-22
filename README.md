@@ -115,7 +115,7 @@ Filtros disponíveis em `GET /tasks`:
 - `today=true`
 - `noDueDate=true`
 - `hideBlocked=true`
-- `tag=etiqueta`
+- `tag=etiqueta` (pode repetir; todas as tags selecionadas são obrigatórias)
 - `search=texto`
 - `sort=priority|dueDateTime|createdAt|updatedAt|requestedBy|status`
 
