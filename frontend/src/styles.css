@@ -271,6 +271,9 @@ main { padding: 24px 30px 44px; }
 .dependency-chip .chip-task-link { border: 0; padding: 0; background: transparent; color: #3d5fa9; font: inherit; text-align: left; }
 .dependency-chip .chip-task-link:hover { text-decoration: underline; }
 
+.bulk-archive-actions { display: flex; justify-content: flex-end; align-items: center; gap: 7px; margin: 0 0 10px; }
+.bulk-archive-actions > span { color: #7c8596; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+
 .error-banner { display: flex; justify-content: space-between; align-items: center; background: #fff0f1; color: #982d37; border: 1px solid #efb6bb; border-radius: 8px; padding: 10px 13px; margin-bottom: 14px; font-size: 13px; }
 .error-banner button { border: 0; background: transparent; color: inherit; font-size: 18px; }
 .loading { text-align: center; color: #70798c; padding: 70px; }

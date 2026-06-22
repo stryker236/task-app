@@ -39,6 +39,7 @@ export const updateTask = (id, task) => request(`/tasks/${id}`, { method: 'PUT',
 export const deleteTask = (id) => request(`/tasks/${id}`, { method: 'DELETE' });
 export const duplicateTask = (id) => request(`/tasks/${id}/duplicate`, { method: 'POST' });
 export const archiveTask = (id) => request(`/tasks/${id}/archive`, { method: 'POST' });
+export const archiveTasksByStatus = (status) => request('/tasks/archive-bulk', { method: 'POST', body: JSON.stringify({ status }) });
 export const restoreTask = (id) => request(`/tasks/${id}/archive`, { method: 'DELETE' });
 export const toggleChecklistItem = (taskId, itemId, isDone) => request(`/tasks/${taskId}/checklist/${itemId}`, { method: 'PATCH', body: JSON.stringify({ isDone }) });
 export const addProgress = (id, message) => request(`/tasks/${id}/progress`, { method: 'POST', body: JSON.stringify({ message }) });

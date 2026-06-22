@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { addProgress, archiveTask, createBlocker, createTask, deleteTag, deleteTask, duplicateTask, editProgress, getTags, getTasks, restoreTask, toggleChecklistItem, updateTask } from './api';
+import { addProgress, archiveTask, archiveTasksByStatus, createBlocker, createTask, deleteTag, deleteTask, duplicateTask, editProgress, getTags, getTasks, restoreTask, toggleChecklistItem, updateTask } from './api';
 import Filters from './components/Filters';
 import KanbanView from './components/KanbanView';
 import QueueView from './components/QueueView';
@@ -246,6 +246,16 @@ export default function App() {
     } catch (requestError) { setError(requestError.message); }
   }
 
+  async function archiveStatus(status) {
+    const label = status === 'done' ? 'Done' : 'Cancelled';
+    if (!window.confirm(`Arquivar todas as tarefas em ${label}?`)) return;
+    try {
+      const result = await archiveTasksByStatus(status);
+      await load(filters);
+      if (result.archivedCount === 0) setError(`Não existem tarefas ${label} por arquivar.`);
+    } catch (requestError) { setError(requestError.message); }
+  }
+
   async function toggleChecklist(task, item, isDone) {
     try {
       const updated = await toggleChecklistItem(task.id, item.id, isDone);
@@ -364,6 +374,12 @@ export default function App() {
           <button className={view === 'collections' ? 'active' : ''} onClick={() => setView('collections')}>Cobranças prováveis</button>
           <button className={view === 'archived' ? 'active' : ''} onClick={() => setView('archived')}>Arquivadas</button>
         </nav>
+
+        {view !== 'archived' && <div className="bulk-archive-actions">
+          <span>Arquivo rápido</span>
+          <button type="button" className="button secondary small" onClick={() => archiveStatus('done')}>Arquivar Done</button>
+          <button type="button" className="button secondary small" onClick={() => archiveStatus('cancelled')}>Arquivar Cancelled</button>
+        </div>}
 
         <Filters filters={filters} tags={availableTags} onChange={setFilters} onDeleteTag={removeTag} onClear={() => setFilters(view === 'archived' ? { ...EMPTY_FILTERS, tags: [], archived: true, hideDone: false, hideCancelled: false } : { ...EMPTY_FILTERS, tags: [] })} />
         {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Fechar">×</button></div>}

@@ -313,6 +313,30 @@ app.delete('/tags/:id', async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+app.post('/tasks/archive-bulk', async (req, res, next) => {
+  try {
+    const status = req.body.status;
+    if (!['done', 'cancelled'].includes(status)) throw validationError(['status must be done or cancelled']);
+    const result = await withTransaction(async (client) => {
+      const now = new Date().toISOString();
+      const archived = await client.query(
+        `UPDATE tasks
+         SET archived_at = $2, updated_at = $2
+         WHERE status = $1 AND archived_at IS NULL
+         RETURNING id`,
+        [status, now]
+      );
+      for (const row of archived.rows) {
+        await insertActivity(client, String(row.id), {
+          id: randomUUID(), type: 'archive', message: 'Tarefa arquivada em lote', createdAt: now
+        });
+      }
+      return archived.rowCount;
+    });
+    return res.json({ archivedCount: result, status });
+  } catch (error) { return next(error); }
+});
+
 app.get('/tasks/:id', async (req, res, next) => {
   try {
     const task = await findTask(pool, req.params.id);
