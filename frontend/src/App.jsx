@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { addProgress, archiveTask, archiveTasksByStatus, createBlocker, createTask, deleteTag, deleteTask, duplicateTask, editProgress, getTags, getTasks, restoreTask, toggleChecklistItem, updateTask } from './api';
+import { addProgress, archiveTask, archiveTasksByStatus, createBlocker, createTask, deleteTag, deleteTask, duplicateTask, editProgress, getAdvisor, getTags, getTasks, restoreTask, toggleChecklistItem, updateTask } from './api';
 import Filters from './components/Filters';
 import KanbanView from './components/KanbanView';
 import QueueView from './components/QueueView';
+import AdvisorPanel from './components/AdvisorPanel';
 import TaskCard from './components/TaskCard';
 import TaskForm, { TASK_DRAFT_KEY } from './components/TaskForm';
 import ProgressLog from './components/ProgressLog';
@@ -52,6 +53,8 @@ export default function App() {
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [advisor, setAdvisor] = useState(null);
+  const [advisorLoading, setAdvisorLoading] = useState(true);
   const [error, setError] = useState('');
   const [queueSort, setQueueSort] = useState({ field: 'priority', direction: 'desc' });
   const [formDraft, setFormDraft] = useState(null);
@@ -71,14 +74,17 @@ export default function App() {
   const load = useCallback(async (currentFilters = filters) => {
     try {
       setError('');
-      const [filtered, complete, tags] = await Promise.all([getTasks(currentFilters), getTasks({ includeArchived: true }), getTags()]);
+      setAdvisorLoading(true);
+      const [filtered, complete, tags, advice] = await Promise.all([getTasks(currentFilters), getTasks({ includeArchived: true }), getTags(), getAdvisor(5)]);
       setTasks(filtered);
       setAllTasks(complete);
       setAvailableTags(tags);
+      setAdvisor(advice);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setLoading(false);
+      setAdvisorLoading(false);
     }
   }, [filters]);
 
@@ -147,6 +153,22 @@ export default function App() {
 
   function openTask(task) {
     setViewingTask(task);
+  }
+
+  async function refreshAdvisor() {
+    try {
+      setAdvisorLoading(true);
+      setAdvisor(await getAdvisor(5));
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setAdvisorLoading(false);
+    }
+  }
+
+  function openAdvisorTask(taskId) {
+    const task = allTasks.find((item) => item.id === taskId);
+    if (task) setViewingTask(task);
   }
 
   function openHistoryFromDetails(task) {
@@ -367,6 +389,15 @@ export default function App() {
           <div><span>Waiting</span><strong>{counters.waiting}</strong></div>
           <div><span>Sem prazo</span><strong>{counters.noDue}</strong></div>
         </section>
+
+        {view !== 'archived' && (
+          <AdvisorPanel
+            advice={advisor}
+            loading={advisorLoading}
+            onRefresh={refreshAdvisor}
+            onOpenTask={openAdvisorTask}
+          />
+        )}
 
         <nav className="view-tabs" aria-label="Vista">
           <button className={view === 'kanban' ? 'active' : ''} onClick={() => setView('kanban')}>Kanban</button>

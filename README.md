@@ -12,6 +12,7 @@ Aplicação de gestão de tarefas para desktop, com frontend React/Vite, API Nod
 - Dependências selecionadas através de pesquisa (nunca é necessário escrever IDs)
 - Gestão bidirecional de relações: `bloqueada por` e `esta tarefa bloqueia`
 - Estado de conclusão das dependências, destaque de bloqueio e indicador `Ready`
+- Assistente de trabalho em `/advisor`, com OpenAI opcional e fallback por regras locais
 - Datas automáticas de criação, atualização, conclusão e cancelamento
 - Persistência PostgreSQL no Supabase
 
@@ -96,6 +97,7 @@ Em desenvolvimento, o frontend envia pedidos para `/api` e o Vite encaminha-os l
 | --- | --- | --- |
 | `GET` | `/tasks` | Listar, filtrar e ordenar tarefas |
 | `GET` | `/tags` | Listar ou pesquisar o catálogo reutilizável de tags |
+| `GET` | `/advisor` | Sugerir as proximas tarefas a executar |
 | `POST` | `/tasks` | Criar tarefa |
 | `GET` | `/tasks/:id` | Obter uma tarefa |
 | `PUT` | `/tasks/:id` | Atualizar uma tarefa |
@@ -128,6 +130,19 @@ GET /tasks?today=true&sort=priority
 GET /tasks?search=ficheiro&status=in_progress
 ```
 
+### Assistente AI
+
+O endpoint `GET /advisor?limit=5` analisa tarefas ativas, prioridades, prazos, dependencias, checklist e estado `waiting`.
+
+Se `OPENAI_API_KEY` estiver definido no backend, o endpoint chama a API da OpenAI para devolver um plano curto em JSON. Se a chave estiver ausente ou a chamada falhar, o backend devolve sugestoes calculadas por regras locais, por isso a app continua operacional.
+
+Configuracao opcional no `backend/.env`:
+
+```text
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4.1-mini
+```
+
 ## Deploy do backend no Koyeb
 
 O `Dockerfile` em `backend/` cria uma imagem de produção apenas com o backend e executa-a como utilizador não-root. O respetivo `.dockerignore` impede que `.env`, `tasks.json` e `node_modules` sejam incluídos na imagem.
@@ -148,6 +163,8 @@ DATABASE_URL=postgresql://...
 DATABASE_SSL=true
 DATABASE_POOL_MAX=5
 CORS_ORIGIN=https://task-app-frontend.example.com
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
 ```
 
 O container usa `PORT=8000` por omissão, mas respeita qualquer valor `PORT` fornecido pelo Koyeb. O frontend de produção deve ser compilado com:

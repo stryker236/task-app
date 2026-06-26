@@ -15,6 +15,7 @@ const {
   deleteUnusedTag,
   checkConnection
 } = require('./database');
+const { generateTaskAdvisorAdvice } = require('./aiAdvisor');
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
@@ -302,6 +303,14 @@ app.get('/tasks', async (req, res, next) => {
 app.get('/tags', async (req, res, next) => {
   try { res.json(await fetchTags(req.query.search || '')); }
   catch (error) { next(error); }
+});
+
+app.get('/advisor', async (req, res, next) => {
+  try {
+    const requestedLimit = Number(req.query.limit || 5);
+    const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 && requestedLimit <= 10 ? requestedLimit : 5;
+    res.json(await generateTaskAdvisorAdvice(await fetchTasks(), limit));
+  } catch (error) { next(error); }
 });
 
 app.delete('/tags/:id', async (req, res, next) => {

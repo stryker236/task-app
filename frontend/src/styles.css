@@ -49,6 +49,23 @@ main { padding: 24px 30px 44px; }
 .counter-grid .counter-alert { border-color: #f0b2b7; background: #fff8f8; }
 .counter-alert strong { color: var(--danger); }
 
+.advisor-panel { margin: 0 0 18px; padding: 15px; border: 1px solid #d8deea; border-radius: 11px; background: #fff; box-shadow: 0 2px 8px rgba(25, 35, 55, .025); }
+.advisor-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.advisor-panel > header span { display: block; color: #667187; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.advisor-panel h2 { margin: 2px 0 0; color: #202a3f; font-size: 16px; }
+.advisor-summary { margin: 0 0 7px; color: #40506a; font-size: 13px; line-height: 1.45; }
+.advisor-note { margin: 0 0 10px; color: #7a6336; font-size: 11px; }
+.advisor-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, .9fr); gap: 14px; }
+.advisor-grid h3 { margin: 0 0 8px; color: #566177; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.advisor-action, .advisor-blocker { width: 100%; display: flex; flex-direction: column; gap: 3px; border: 1px solid #e0e5ee; border-radius: 8px; padding: 10px; margin-bottom: 7px; background: #fbfcfe; text-align: left; }
+.advisor-action:hover, .advisor-blocker:hover { border-color: #9fb0e7; background: #f4f7ff; }
+.advisor-action strong, .advisor-blocker strong { color: #26324a; font-size: 13px; }
+.advisor-action span, .advisor-blocker span { color: #4e5b72; font-size: 12px; line-height: 1.35; }
+.advisor-action small, .advisor-blocker small { color: #7c8798; font-size: 10px; }
+.advisor-blocker { background: #fff8ed; border-color: #f0d8b6; }
+.advisor-blocker:hover { background: #fff3df; border-color: #e0b56f; }
+.advisor-empty { margin: 10px 0; color: #8a93a6; font-size: 12px; }
+
 .view-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
 .view-tabs button { border: 0; border-bottom: 3px solid transparent; padding: 11px 16px; background: transparent; color: var(--muted); font-weight: 650; }
 .view-tabs button.active { color: var(--blue); border-bottom-color: var(--blue); }
@@ -282,4 +299,5 @@ main { padding: 24px 30px 44px; }
   .filters { grid-template-columns: repeat(6, 1fr); }
   .search-input { grid-column: span 2; }
   .kanban-board { grid-template-columns: repeat(var(--kanban-column-count, 5), minmax(250px, 1fr)); }
+  .advisor-grid { grid-template-columns: 1fr; }
 }

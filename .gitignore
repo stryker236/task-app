@@ -3,3 +3,4 @@ frontend/dist/
 backend/tasks.json.tmp
 .env
 *.log
+.vscode/
