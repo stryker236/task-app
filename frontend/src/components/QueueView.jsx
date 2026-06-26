@@ -1,11 +1,11 @@
 import TaskCard from './TaskCard';
 
-const OPTIONS = [
+const QUEUE_SORT_OPTIONS = [
   ['priority', 'Prioridade'], ['dueDateTime', 'Prazo'],
   ['createdAt', 'Criada em'], ['updatedAt', 'Atualizada em'], ['status', 'Status']
 ];
 
-function sorted(tasks, field, direction) {
+function sortTasksByQueueOrder(tasks, field, direction) {
   return [...tasks].sort((a, b) => {
     let comparison;
     if (field === 'priority') comparison = a.priority - b.priority;
@@ -18,14 +18,14 @@ function sorted(tasks, field, direction) {
   });
 }
 
-export default function QueueView({ tasks, allTasks, actions, sort, onSortChange }) {
-  const items = sorted(tasks, sort.field, sort.direction);
+export default function QueueView({ tasks, allTasks, taskActions, sort, onSortChange }) {
+  const items = sortTasksByQueueOrder(tasks, sort.field, sort.direction);
   return (
     <section className="queue-view">
       <div className="queue-toolbar">
         <label>Ordenar por
           <select value={sort.field} onChange={(event) => onSortChange({ ...sort, field: event.target.value })}>
-            {OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+            {QUEUE_SORT_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
           </select>
         </label>
         <button type="button" className="button secondary" onClick={() => onSortChange({ ...sort, direction: sort.direction === 'asc' ? 'desc' : 'asc' })}>
@@ -33,7 +33,7 @@ export default function QueueView({ tasks, allTasks, actions, sort, onSortChange
         </button>
       </div>
       <div className="queue-grid">
-        {items.map((task) => <TaskCard key={task.id} task={task} allTasks={allTasks} {...actions} />)}
+        {items.map((task) => <TaskCard key={task.id} task={task} allTasks={allTasks} {...taskActions} />)}
         {items.length === 0 && <p className="empty-message">Nenhuma tarefa corresponde aos filtros.</p>}
       </div>
     </section>

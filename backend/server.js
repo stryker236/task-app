@@ -51,14 +51,14 @@ function normalizeArray(value) {
   return [...new Set(value.map(normalizeString).filter(Boolean))];
 }
 
-function validationError(details) {
+function createValidationError(details) {
   const error = new Error('Validation failed');
   error.status = 400;
   error.details = details;
   return error;
 }
 
-function normalizeChecklist(value, errors) {
+function normalizeChecklistItems(value, errors) {
   if (value != null && !Array.isArray(value)) errors.push('checklistItems must be an array');
   const now = new Date().toISOString();
   const seenIds = new Set();
@@ -86,7 +86,7 @@ function normalizeChecklist(value, errors) {
   });
 }
 
-function normalizeRelations(value, tasks, currentId, errors) {
+function normalizeTaskRelations(value, tasks, currentId, errors) {
   if (value != null && !Array.isArray(value)) errors.push('relations must be an array');
   const existingIds = new Set(tasks.map((task) => task.id));
   const seen = new Set();
@@ -112,7 +112,7 @@ function normalizeRelations(value, tasks, currentId, errors) {
   return relations;
 }
 
-function validateTask(input, tasks, currentId = null) {
+function validateTaskPayload(input, tasks, currentId = null) {
   const errors = [];
   const title = normalizeString(input.title);
   const priority = Number(input.priority);
@@ -131,7 +131,7 @@ function validateTask(input, tasks, currentId = null) {
   if (typeof isFavorite !== 'boolean') errors.push('isFavorite must be a boolean');
   if (tags.some((tag) => tag.length > 50)) errors.push('each tag must have at most 50 characters');
 
-  const suppliedRelations = normalizeRelations(input.relations, tasks, currentId, errors);
+  const suppliedRelations = normalizeTaskRelations(input.relations, tasks, currentId, errors);
   const relationDependencyIds = suppliedRelations.filter((relation) => relation.type === 'blocked_by').map((relation) => relation.relatedTaskId);
   const dependencyIds = Object.prototype.hasOwnProperty.call(input, 'blockedByTaskIds')
     ? normalizeArray(input.blockedByTaskIds)
@@ -152,8 +152,8 @@ function validateTask(input, tasks, currentId = null) {
       createdAt: now
     })
   ];
-  const checklistItems = normalizeChecklist(input.checklistItems, errors);
-  if (errors.length) throw validationError(errors);
+  const checklistItems = normalizeChecklistItems(input.checklistItems, errors);
+  if (errors.length) throw createValidationError(errors);
 
   return {
     title,
@@ -175,18 +175,18 @@ function validateTask(input, tasks, currentId = null) {
   };
 }
 
-function validateBlocksTaskIds(value, tasks, currentId = null) {
+function validateBlockedTaskIds(value, tasks, currentId = null) {
   const ids = normalizeArray(value);
   const existingIds = new Set(tasks.map((task) => task.id));
   const errors = [];
   if (currentId && ids.includes(currentId)) errors.push('a task cannot block itself');
   const missingIds = ids.filter((id) => !existingIds.has(id));
   if (missingIds.length) errors.push(`unknown blocked task ids: ${missingIds.join(', ')}`);
-  if (errors.length) throw validationError(errors);
+  if (errors.length) throw createValidationError(errors);
   return ids;
 }
 
-function applyStatusTimestamps(task, oldStatus, now) {
+function applyTaskStatusTimestamps(task, oldStatus, now) {
   if (task.status === 'done' && oldStatus !== 'done') task.completedAt = now;
   if (task.status !== 'done') task.completedAt = null;
   if (task.status === 'cancelled' && oldStatus !== 'cancelled') task.cancelledAt = now;
@@ -194,7 +194,7 @@ function applyStatusTimestamps(task, oldStatus, now) {
   return task;
 }
 
-function localDayBounds() {
+function getLocalDayBounds() {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
@@ -202,18 +202,18 @@ function localDayBounds() {
   return { start, end };
 }
 
-const includesText = (value, query) => String(value || '').toLocaleLowerCase().includes(query);
+const containsText = (value, query) => String(value || '').toLocaleLowerCase().includes(query);
 
-function filterTasks(tasks, query) {
+function filterTasksByQuery(tasks, query) {
   let result = [...tasks];
   if (query.archived === 'true') result = result.filter((task) => task.isArchived);
   else if (query.includeArchived !== 'true') result = result.filter((task) => !task.isArchived);
   const active = (task) => !['done', 'cancelled'].includes(task.status);
-  const taskMap = new Map(tasks.map((task) => [task.id, task]));
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
   if (query.status) result = result.filter((task) => task.status === query.status);
   if (query.priority) result = result.filter((task) => task.priority === Number(query.priority));
-  if (query.requestedBy) result = result.filter((task) => includesText(task.requestedBy, query.requestedBy.toLocaleLowerCase()));
-  if (query.needToAsk) result = result.filter((task) => task.needToAsk.some((name) => includesText(name, query.needToAsk.toLocaleLowerCase())));
+  if (query.requestedBy) result = result.filter((task) => containsText(task.requestedBy, query.requestedBy.toLocaleLowerCase()));
+  if (query.needToAsk) result = result.filter((task) => task.needToAsk.some((name) => containsText(name, query.needToAsk.toLocaleLowerCase())));
   if (query.tag) {
     const selectedTags = (Array.isArray(query.tag) ? query.tag : [query.tag])
       .map((tag) => String(tag).trim().toLocaleLowerCase())
@@ -227,13 +227,13 @@ function filterTasks(tasks, query) {
   if (query.favoriteOnly === 'true') result = result.filter((task) => task.isFavorite);
   if (query.hideBlocked === 'true') {
     result = result.filter((task) => (
-      !task.blockedByTaskIds.some((id) => taskMap.get(id)?.status !== 'done')
+      !task.blockedByTaskIds.some((id) => tasksById.get(id)?.status !== 'done')
       && !task.checklistItems.some((item) => !item.isDone)
     ));
   }
   if (query.hideDone === 'true') result = result.filter((task) => task.status !== 'done');
   if (query.hideCancelled === 'true') result = result.filter((task) => task.status !== 'cancelled');
-  const { start, end } = localDayBounds();
+  const { start, end } = getLocalDayBounds();
   if (query.today === 'true') result = result.filter((task) => task.dueDateTime && new Date(task.dueDateTime) >= start && new Date(task.dueDateTime) < end);
   if (query.overdue === 'true') result = result.filter((task) => task.dueDateTime && new Date(task.dueDateTime) < new Date() && active(task));
   if (query.search) {
@@ -241,7 +241,7 @@ function filterTasks(tasks, query) {
     result = result.filter((task) => [
       task.title, task.notes, task.requestedBy, task.blockedReason,
       ...task.needToAsk, ...task.tags, ...task.activityLog.map((entry) => entry.message)
-    ].some((value) => includesText(value, term)));
+    ].some((value) => containsText(value, term)));
   }
   if (query.sort) {
     if (!SORT_FIELDS.includes(query.sort)) {
@@ -263,11 +263,11 @@ function filterTasks(tasks, query) {
   return result;
 }
 
-function newTask(input, tasks, message = 'Tarefa criada') {
+function buildNewTask(input, tasks, message = 'Tarefa criada') {
   const now = new Date().toISOString();
-  return applyStatusTimestamps({
+  return applyTaskStatusTimestamps({
     id: randomUUID(),
-    ...validateTask(input, tasks),
+    ...validateTaskPayload(input, tasks),
     createdAt: now,
     updatedAt: now,
     completedAt: null,
@@ -278,7 +278,7 @@ function newTask(input, tasks, message = 'Tarefa criada') {
   }, null, now);
 }
 
-async function findTask(db, id) {
+async function findTaskById(db, id) {
   return (await fetchTasks(db)).find((task) => task.id === id);
 }
 
@@ -296,7 +296,7 @@ app.get('/health', async (req, res, next) => {
 });
 
 app.get('/tasks', async (req, res, next) => {
-  try { res.json(filterTasks(await fetchTasks(), req.query)); }
+  try { res.json(filterTasksByQuery(await fetchTasks(), req.query)); }
   catch (error) { next(error); }
 });
 
@@ -325,7 +325,7 @@ app.delete('/tags/:id', async (req, res, next) => {
 app.post('/tasks/archive-bulk', async (req, res, next) => {
   try {
     const status = req.body.status;
-    if (!['done', 'cancelled'].includes(status)) throw validationError(['status must be done or cancelled']);
+    if (!['done', 'cancelled'].includes(status)) throw createValidationError(['status must be done or cancelled']);
     const result = await withTransaction(async (client) => {
       const now = new Date().toISOString();
       const archived = await client.query(
@@ -348,7 +348,7 @@ app.post('/tasks/archive-bulk', async (req, res, next) => {
 
 app.get('/tasks/:id', async (req, res, next) => {
   try {
-    const task = await findTask(pool, req.params.id);
+    const task = await findTaskById(pool, req.params.id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
     res.json(task);
   } catch (error) { next(error); }
@@ -358,11 +358,11 @@ app.post('/tasks', async (req, res, next) => {
   try {
     const task = await withTransaction(async (client) => {
       const tasks = await fetchTasks(client);
-      const blocksTaskIds = validateBlocksTaskIds(req.body.blocksTaskIds, tasks);
-      const created = newTask(req.body, tasks);
+      const blocksTaskIds = validateBlockedTaskIds(req.body.blocksTaskIds, tasks);
+      const created = buildNewTask(req.body, tasks);
       await insertTask(client, created);
       await syncInverseRelationships(client, created, blocksTaskIds, created.createdAt);
-      return findTask(client, created.id);
+      return findTaskById(client, created.id);
     });
     res.status(201).json(task);
   } catch (error) { next(error); }
@@ -387,12 +387,12 @@ app.put('/tasks/:id', async (req, res, next) => {
       if (changedLegacyDescription && !changedCanonicalNotes) {
         merged.notes = req.body.description;
       }
-      const validated = validateTask(merged, tasks, previous.id);
+      const validated = validateTaskPayload(merged, tasks, previous.id);
       const hasInverse = Object.prototype.hasOwnProperty.call(req.body, 'blocksTaskIds');
-      const inverseIds = hasInverse ? validateBlocksTaskIds(req.body.blocksTaskIds, tasks, previous.id) : null;
+      const inverseIds = hasInverse ? validateBlockedTaskIds(req.body.blocksTaskIds, tasks, previous.id) : null;
       if (validated.status === 'done' && previous.status !== 'done') {
-        const taskMap = new Map(tasks.map((item) => [item.id, item]));
-        const unfinished = validated.blockedByTaskIds.map((id) => taskMap.get(id)).filter((dependency) => dependency && dependency.status !== 'done');
+        const tasksById = new Map(tasks.map((item) => [item.id, item]));
+        const unfinished = validated.blockedByTaskIds.map((id) => tasksById.get(id)).filter((dependency) => dependency && dependency.status !== 'done');
         const unfinishedChecklist = validated.checklistItems.filter((item) => !item.isDone);
         if (unfinished.length || unfinishedChecklist.length) {
           const error = new Error('Blocked tasks cannot be completed');
@@ -405,7 +405,7 @@ app.put('/tasks/:id', async (req, res, next) => {
         }
       }
       const now = new Date().toISOString();
-      const updated = applyStatusTimestamps({ ...previous, ...validated, updatedAt: now }, previous.status, now);
+      const updated = applyTaskStatusTimestamps({ ...previous, ...validated, updatedAt: now }, previous.status, now);
       await updateTaskRecord(client, updated);
       if (validated.status !== previous.status) {
         await insertActivity(client, updated.id, {
@@ -415,7 +415,7 @@ app.put('/tasks/:id', async (req, res, next) => {
         });
       }
       if (hasInverse) await syncInverseRelationships(client, updated, inverseIds, now);
-      return findTask(client, updated.id);
+      return findTaskById(client, updated.id);
     });
     if (!task) return res.status(404).json({ error: 'Task not found' });
     res.json(task);
@@ -425,7 +425,7 @@ app.put('/tasks/:id', async (req, res, next) => {
 app.delete('/tasks/:id', async (req, res, next) => {
   try {
     const deleted = await withTransaction(async (client) => {
-      const task = await findTask(client, req.params.id);
+      const task = await findTaskById(client, req.params.id);
       if (!task) return false;
       const affected = (await client.query(
         `SELECT task_id FROM task_relations
@@ -451,7 +451,7 @@ app.delete('/tasks/:id', async (req, res, next) => {
 app.post('/tasks/:id/archive', async (req, res, next) => {
   try {
     const task = await withTransaction(async (client) => {
-      const current = await findTask(client, req.params.id);
+      const current = await findTaskById(client, req.params.id);
       if (!current) return null;
       if (current.isArchived) return current;
       const now = new Date().toISOString();
@@ -459,7 +459,7 @@ app.post('/tasks/:id/archive', async (req, res, next) => {
       await insertActivity(client, current.id, {
         id: randomUUID(), type: 'archive', message: 'Tarefa arquivada', createdAt: now
       });
-      return findTask(client, current.id);
+      return findTaskById(client, current.id);
     });
     if (!task) return res.status(404).json({ error: 'Task not found' });
     return res.json(task);
@@ -469,7 +469,7 @@ app.post('/tasks/:id/archive', async (req, res, next) => {
 app.delete('/tasks/:id/archive', async (req, res, next) => {
   try {
     const task = await withTransaction(async (client) => {
-      const current = await findTask(client, req.params.id);
+      const current = await findTaskById(client, req.params.id);
       if (!current) return null;
       if (!current.isArchived) return current;
       const now = new Date().toISOString();
@@ -477,7 +477,7 @@ app.delete('/tasks/:id/archive', async (req, res, next) => {
       await insertActivity(client, current.id, {
         id: randomUUID(), type: 'archive', message: 'Tarefa restaurada do arquivo', createdAt: now
       });
-      return findTask(client, current.id);
+      return findTaskById(client, current.id);
     });
     if (!task) return res.status(404).json({ error: 'Task not found' });
     return res.json(task);
@@ -486,9 +486,9 @@ app.delete('/tasks/:id/archive', async (req, res, next) => {
 
 app.patch('/tasks/:id/checklist/:itemId', async (req, res, next) => {
   try {
-    if (typeof req.body.isDone !== 'boolean') throw validationError(['isDone must be a boolean']);
+    if (typeof req.body.isDone !== 'boolean') throw createValidationError(['isDone must be a boolean']);
     const result = await withTransaction(async (client) => {
-      const task = await findTask(client, req.params.id);
+      const task = await findTaskById(client, req.params.id);
       if (!task) return null;
       if (task.isArchived) {
         const error = new Error('Archived task checklists cannot be changed');
@@ -506,7 +506,7 @@ app.patch('/tasks/:id/checklist/:itemId', async (req, res, next) => {
       );
       if (!updated.rowCount) return { missingItem: true };
       await client.query('UPDATE tasks SET updated_at = $2 WHERE id = $1', [task.id, now]);
-      return { task: await findTask(client, task.id) };
+      return { task: await findTaskById(client, task.id) };
     });
     if (!result) return res.status(404).json({ error: 'Task not found' });
     if (result.missingItem) return res.status(404).json({ error: 'Checklist item not found' });
@@ -517,7 +517,7 @@ app.patch('/tasks/:id/checklist/:itemId', async (req, res, next) => {
 app.post('/tasks/:id/progress', async (req, res, next) => {
   try {
     const result = await withTransaction(async (client) => {
-      const task = await findTask(client, req.params.id);
+      const task = await findTaskById(client, req.params.id);
       if (!task) return null;
       if (task.isArchived) {
         const error = new Error('Archived tasks cannot receive progress entries');
@@ -530,12 +530,12 @@ app.post('/tasks/:id/progress', async (req, res, next) => {
         throw error;
       }
       const message = normalizeString(req.body.message);
-      if (!message || message.length > 2000) throw validationError([!message ? 'message is required' : 'message must have at most 2000 characters']);
+      if (!message || message.length > 2000) throw createValidationError([!message ? 'message is required' : 'message must have at most 2000 characters']);
       const now = new Date().toISOString();
       const entry = { id: randomUUID(), type: 'note', message, createdAt: now };
       await insertActivity(client, task.id, entry);
       await client.query('UPDATE tasks SET updated_at = $2 WHERE id = $1', [task.id, now]);
-      return { task: await findTask(client, task.id), entry };
+      return { task: await findTaskById(client, task.id), entry };
     });
     if (!result) return res.status(404).json({ error: 'Task not found' });
     res.status(201).json(result);
@@ -545,7 +545,7 @@ app.post('/tasks/:id/progress', async (req, res, next) => {
 app.put('/tasks/:id/progress/:entryId', async (req, res, next) => {
   try {
     const result = await withTransaction(async (client) => {
-      const task = await findTask(client, req.params.id);
+      const task = await findTaskById(client, req.params.id);
       if (!task) return null;
       if (task.isArchived) {
         const error = new Error('Archived task history cannot be edited');
@@ -561,7 +561,7 @@ app.put('/tasks/:id/progress/:entryId', async (req, res, next) => {
         throw error;
       }
       const message = normalizeString(req.body.message);
-      if (!message || message.length > 2000) throw validationError([!message ? 'message is required' : 'message must have at most 2000 characters']);
+      if (!message || message.length > 2000) throw createValidationError([!message ? 'message is required' : 'message must have at most 2000 characters']);
       if (message !== row.message) {
         const now = new Date().toISOString();
         await client.query(
@@ -571,7 +571,7 @@ app.put('/tasks/:id/progress/:entryId', async (req, res, next) => {
         await client.query('UPDATE task_activity SET message = $2, edited_at = $3 WHERE id = $1', [row.id, message, now]);
         await client.query('UPDATE tasks SET updated_at = $2 WHERE id = $1', [task.id, now]);
       }
-      const updatedTask = await findTask(client, task.id);
+      const updatedTask = await findTaskById(client, task.id);
       return { task: updatedTask, entry: updatedTask.activityLog.find((entry) => entry.id === req.params.entryId) };
     });
     if (!result) return res.status(404).json({ error: 'Task not found' });
@@ -596,12 +596,12 @@ app.post('/tasks/:id/blockers', async (req, res, next) => {
         error.status = 409;
         throw error;
       }
-      const requestedIds = validateBlocksTaskIds(req.body.blocksTaskIds, tasks);
-      const blocker = newTask(req.body, tasks, `Tarefa criada para bloquear: ${target.title}`);
-      if (blocker.status === 'done') throw validationError(['a blocking task must be unfinished']);
+      const requestedIds = validateBlockedTaskIds(req.body.blocksTaskIds, tasks);
+      const blocker = buildNewTask(req.body, tasks, `Tarefa criada para bloquear: ${target.title}`);
+      if (blocker.status === 'done') throw createValidationError(['a blocking task must be unfinished']);
       await insertTask(client, blocker, blocker.activityLog[0].message);
       await syncInverseRelationships(client, blocker, [...new Set([...requestedIds, target.id])], blocker.createdAt);
-      return { task: await findTask(client, blocker.id), blockedTask: await findTask(client, target.id) };
+      return { task: await findTaskById(client, blocker.id), blockedTask: await findTaskById(client, target.id) };
     });
     if (!result) return res.status(404).json({ error: 'Task not found' });
     res.status(201).json(result);
@@ -611,7 +611,7 @@ app.post('/tasks/:id/blockers', async (req, res, next) => {
 app.post('/tasks/:id/duplicate', async (req, res, next) => {
   try {
     const duplicate = await withTransaction(async (client) => {
-      const source = await findTask(client, req.params.id);
+      const source = await findTaskById(client, req.params.id);
       if (!source) return null;
       const now = new Date().toISOString();
       const task = {
@@ -634,7 +634,7 @@ app.post('/tasks/:id/duplicate', async (req, res, next) => {
         activityLog: [{ id: randomUUID(), type: 'created', message: `Tarefa duplicada a partir de: ${source.title}`, createdAt: now }]
       };
       await insertTask(client, task, task.activityLog[0].message);
-      return findTask(client, task.id);
+      return findTaskById(client, task.id);
     });
     if (!duplicate) return res.status(404).json({ error: 'Task not found' });
     res.status(201).json(duplicate);

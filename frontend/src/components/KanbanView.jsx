@@ -38,7 +38,7 @@ function sortTasks(tasks, sort) {
   });
 }
 
-export default function KanbanView({ tasks, allTasks, actions, hideDone, hideCancelled }) {
+export default function KanbanView({ tasks, allTasks, taskActions, hideDone, hideCancelled }) {
   const [sort, setSort] = useState({
     primary: { field: 'priority', direction: 'desc' },
     secondary: { field: 'dueDateTime', direction: 'asc' }
@@ -65,7 +65,7 @@ export default function KanbanView({ tasks, allTasks, actions, hideDone, hideCan
     const id = event.dataTransfer.getData('text/plain') || draggedTaskId;
     const task = tasks.find((item) => item.id === id);
     finishDrag();
-    if (task && task.status !== status) actions.onStatusChange(task, status);
+    if (task && task.status !== status) taskActions.onStatusChange(task, status);
   }
 
   return (
@@ -124,7 +124,7 @@ export default function KanbanView({ tasks, allTasks, actions, hideDone, hideCan
                     dragEnabled
                     onDragStart={startDrag}
                     onDragEnd={finishDrag}
-                    {...actions}
+                    {...taskActions}
                   />
                 ))}
                 {items.length === 0 && <p className="empty-column">Sem tarefas</p>}
