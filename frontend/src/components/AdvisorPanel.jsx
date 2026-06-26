@@ -10,11 +10,11 @@ export default function AdvisorPanel({ advice, loading, onRefresh, onOpenTask })
           <h2>O que fazer agora</h2>
         </div>
         <button type="button" className="button secondary small" onClick={onRefresh} disabled={loading}>
-          {loading ? 'A pensar...' : 'Atualizar'}
+          {loading ? 'A pensar...' : 'Gerar conselho'}
         </button>
       </header>
 
-      {advice?.summary && <p className="advisor-summary">{advice.summary}</p>}
+      {advice?.summary ? <p className="advisor-summary">{advice.summary}</p> : <p className="advisor-summary">Clica em “Gerar conselho” para pedir uma análise ao AI Advisor.</p>}
       {advice?.note && <p className="advisor-note">{advice.note}</p>}
 
       <div className="advisor-grid">

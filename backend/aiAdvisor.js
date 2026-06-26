@@ -1,5 +1,81 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
+const STATUSES = ['new', 'in_progress', 'waiting', 'done', 'cancelled'];
+const RELATION_TYPES = ['blocks', 'blocked_by', 'relates_to', 'duplicates', 'parent_of', 'child_of'];
+const AI_COMMAND_TYPES = ['update_task', 'add_relation', 'create_task'];
+
+const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] };
+const nullableNumber = { anyOf: [{ type: 'number' }, { type: 'null' }] };
+const nullableBoolean = { anyOf: [{ type: 'boolean' }, { type: 'null' }] };
+const nullableStringArray = {
+  anyOf: [
+    { type: 'array', items: { type: 'string' } },
+    { type: 'null' }
+  ]
+};
+
+const taskPatchSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    title: nullableString,
+    notes: nullableString,
+    priority: { anyOf: [{ type: 'integer', enum: [1, 2, 3, 4] }, { type: 'null' }] },
+    status: { anyOf: [{ type: 'string', enum: STATUSES }, { type: 'null' }] },
+    dueDateTime: nullableString,
+    estimatedMinutes: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+    isFavorite: nullableBoolean,
+    tags: nullableStringArray,
+    blockedByTaskIds: nullableStringArray
+  },
+  required: ['title', 'notes', 'priority', 'status', 'dueDateTime', 'estimatedMinutes', 'isFavorite', 'tags', 'blockedByTaskIds']
+};
+
+const taskCreateSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    title: { type: 'string' },
+    notes: nullableString,
+    priority: { anyOf: [{ type: 'integer', enum: [1, 2, 3, 4] }, { type: 'null' }] },
+    status: { anyOf: [{ type: 'string', enum: STATUSES }, { type: 'null' }] },
+    dueDateTime: nullableString,
+    estimatedMinutes: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+    isFavorite: nullableBoolean,
+    tags: nullableStringArray,
+    blockedByTaskIds: nullableStringArray
+  },
+  required: ['title', 'notes', 'priority', 'status', 'dueDateTime', 'estimatedMinutes', 'isFavorite', 'tags', 'blockedByTaskIds']
+};
+
+const advisorCommandResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    summary: { type: 'string' },
+    commands: {
+      type: 'array',
+      maxItems: 50,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string' },
+          type: { type: 'string', enum: AI_COMMAND_TYPES },
+          label: { type: 'string' },
+          reason: { type: 'string' },
+          taskId: nullableString,
+          relatedTaskId: nullableString,
+          relationType: { anyOf: [{ type: 'string', enum: RELATION_TYPES }, { type: 'null' }] },
+          patch: { anyOf: [taskPatchSchema, { type: 'null' }] },
+          task: { anyOf: [taskCreateSchema, { type: 'null' }] }
+        },
+        required: ['id', 'type', 'label', 'reason', 'taskId', 'relatedTaskId', 'relationType', 'patch', 'task']
+      }
+    }
+  },
+  required: ['summary', 'commands']
+};
 
 function isActiveTask(task) {
   return !['done', 'cancelled'].includes(task.status) && !task.isArchived;
@@ -140,6 +216,153 @@ function extractOpenAiResponseText(responseBody) {
     .trim();
 }
 
+function removeNullProperties(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null && item !== undefined));
+}
+
+function createCommandContextTask(task) {
+  return {
+    id: task.id,
+    title: task.title,
+    notes: task.notes ? task.notes.slice(0, 1200) : '',
+    status: task.status,
+    priority: task.priority,
+    dueDateTime: task.dueDateTime,
+    estimatedMinutes: task.estimatedMinutes,
+    isFavorite: task.isFavorite,
+    tags: task.tags,
+    blockedByTaskIds: task.blockedByTaskIds,
+    relations: task.relations,
+    checklistItems: task.checklistItems.map((item) => ({
+      title: item.title,
+      isDone: item.isDone
+    })),
+    latestActivity: [...task.activityLog].reverse().slice(0, 3).map((entry) => ({
+      type: entry.type,
+      message: entry.message.slice(0, 300),
+      createdAt: entry.createdAt
+    })),
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt
+  };
+}
+
+function normalizeAdvisorCommands(parsed) {
+  const commands = Array.isArray(parsed.commands) ? parsed.commands : [];
+  return {
+    summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
+    commands: commands.map((command, index) => {
+      const type = command.type;
+      const base = {
+        id: command.id || `ai_cmd_${index + 1}`,
+        type,
+        label: command.label || '',
+        reason: command.reason || ''
+      };
+      if (type === 'update_task') {
+        return {
+          ...base,
+          taskId: command.taskId,
+          patch: removeNullProperties(command.patch)
+        };
+      }
+      if (type === 'add_relation') {
+        return {
+          ...base,
+          taskId: command.taskId,
+          relatedTaskId: command.relatedTaskId,
+          relationType: command.relationType
+        };
+      }
+      if (type === 'create_task') {
+        return {
+          ...base,
+          task: removeNullProperties(command.task)
+        };
+      }
+      return base;
+    })
+  };
+}
+
+async function generateTaskAdvisorCommands({ message, tasks, tags = [] }) {
+  if (!process.env.OPENAI_API_KEY) {
+    const error = new Error('OPENAI_API_KEY is required to generate AI Advisor commands');
+    error.status = 503;
+    throw error;
+  }
+
+  const activeTasks = tasks
+    .filter((task) => !task.isArchived)
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
+    .slice(0, 80)
+    .map(createCommandContextTask);
+
+  const body = {
+    model: DEFAULT_MODEL,
+    input: [
+      {
+        role: 'system',
+        content: [
+          'You are the Task App AI Advisor.',
+          'Return only JSON that matches the provided schema.',
+          'You may propose only these command types: update_task, add_relation, create_task.',
+          'Never invent task IDs. Only use task IDs from the provided task context.',
+          'Never return SQL. Never delete, archive, or directly execute anything.',
+          'Prefer small, useful improvements over noisy bulk edits.',
+          'For update_task, only include fields that materially improve the card.',
+          'For create_task, create only clear follow-up tasks that are missing from the existing list.',
+          'For add_relation, use relationType only when the relationship is strongly supported by the task data.',
+          'Do not mark tasks done unless blockers and checklist are complete.',
+          'Keep reasons short and concrete.'
+        ].join('\n')
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          today: new Date().toISOString(),
+          userRequest: message,
+          allowedCommands: AI_COMMAND_TYPES,
+          allowedStatuses: STATUSES,
+          allowedPriorities: [1, 2, 3, 4],
+          allowedRelationTypes: RELATION_TYPES,
+          availableTags: tags.map((tag) => tag.name || tag).slice(0, 200),
+          tasks: activeTasks
+        })
+      }
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'task_advisor_commands',
+        strict: true,
+        schema: advisorCommandResponseSchema
+      }
+    }
+  };
+
+  const response = await fetch(OPENAI_RESPONSES_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  const responseBody = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(responseBody.error?.message || `OpenAI request failed with ${response.status}`);
+
+  const outputText = extractOpenAiResponseText(responseBody);
+  const parsed = JSON.parse(outputText);
+  return {
+    generatedAt: new Date().toISOString(),
+    source: 'ai',
+    model: DEFAULT_MODEL,
+    ...normalizeAdvisorCommands(parsed)
+  };
+}
+
 function normalizeOpenAiAdvisorAdvice(parsed, fallback, model) {
   const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
   const blockers = Array.isArray(parsed.blockers) ? parsed.blockers : [];
@@ -228,5 +451,6 @@ async function generateTaskAdvisorAdvice(tasks, limit = 5) {
 
 module.exports = {
   generateTaskAdvisorAdvice,
+  generateTaskAdvisorCommands,
   buildRuleBasedAdvisorAdvice
 };
