@@ -1,0 +1,13 @@
+﻿.kanban-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-bottom: 10px; }
+.kanban-toolbar > span { color: #687286; font-size: 12px; font-weight: 650; }
+.kanban-toolbar select { width: 170px; padding: 8px 9px; }
+.kanban-toolbar .button { padding: 8px 11px; }
+.kanban-toolbar .direction-button { min-width: 78px; }
+.kanban-board { display: grid; grid-template-columns: repeat(var(--kanban-column-count, 5), minmax(240px, 1fr)); gap: 12px; align-items: stretch; overflow-x: auto; }
+.kanban-column { min-width: 240px; min-height: 280px; border-radius: 11px; background: #e9edf4; padding: 10px; }
+.kanban-column.drop-target { background: #dfe7ff; box-shadow: inset 0 0 0 2px #6683ee; }
+.kanban-column > header, .collection-section > header { display: flex; align-items: center; justify-content: space-between; padding: 3px 3px 10px; }
+.kanban-column h2, .collection-section h2 { margin: 0; font-size: 14px; }
+.kanban-column > header span, .collection-section > header span { background: rgba(95, 105, 125, .13); border-radius: 99px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
+.kanban-cards { display: flex; flex-direction: column; gap: 9px; }
+.empty-column, .empty-message { margin: 20px 8px; text-align: center; color: #8a93a6; font-size: 13px; }

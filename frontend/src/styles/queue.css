@@ -1,0 +1,8 @@
+﻿.queue-toolbar { display: flex; justify-content: flex-end; align-items: end; gap: 8px; margin-bottom: 13px; }
+.queue-toolbar label { font-size: 12px; font-weight: 650; color: #5f687a; }
+.queue-toolbar select { margin-top: 4px; min-width: 160px; }
+.queue-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(285px, 1fr)); gap: 12px; }
+
+.collections-view { display: flex; flex-direction: column; gap: 18px; }
+.collection-section { background: #e9edf4; border-radius: 11px; padding: 12px; }
+.collection-section > header { border-bottom: 1px solid #d7dce6; margin-bottom: 11px; }

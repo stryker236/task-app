@@ -1,0 +1,28 @@
+﻿.app-shell { min-height: 100vh; }
+.app-header {
+  height: 76px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between;
+  background: var(--navy); color: white; box-shadow: 0 2px 12px rgba(16, 24, 40, .16);
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--blue); font-weight: 800; font-size: 20px; }
+.brand h1 { margin: 0; font-size: 19px; letter-spacing: -.2px; }
+.brand p { margin: 2px 0 0; color: #aeb8ce; font-size: 12px; }
+main { padding: 24px 30px 44px; }
+
+.counter-grid { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.counter-grid > div { background: white; border: 1px solid var(--line); border-radius: 11px; padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(25, 35, 55, .025); }
+.counter-grid span { color: var(--muted); font-size: 13px; font-weight: 600; }
+.counter-grid strong { font-size: 23px; }
+.counter-grid .counter-alert { border-color: #f0b2b7; background: #fff8f8; }
+.counter-alert strong { color: var(--danger); }
+
+.view-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.view-tabs button { border: 0; border-bottom: 3px solid transparent; padding: 11px 16px; background: transparent; color: var(--muted); font-weight: 650; }
+.view-tabs button.active { color: var(--blue); border-bottom-color: var(--blue); }
+
+.bulk-archive-actions { display: flex; justify-content: flex-end; align-items: center; gap: 7px; margin: 0 0 10px; }
+.bulk-archive-actions > span { color: #7c8596; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+
+.error-banner { display: flex; justify-content: space-between; align-items: center; background: #fff0f1; color: #982d37; border: 1px solid #efb6bb; border-radius: 8px; padding: 10px 13px; margin-bottom: 14px; font-size: 13px; }
+.error-banner button { border: 0; background: transparent; color: inherit; font-size: 18px; }
+.loading { text-align: center; color: #70798c; padding: 70px; }

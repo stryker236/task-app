@@ -1,0 +1,23 @@
+﻿.filters { display: grid; grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(130px, 1fr)) auto auto auto auto auto; gap: 8px; align-items: center; padding: 12px; background: white; border: 1px solid var(--line); border-radius: 11px; margin-bottom: 18px; }
+.filters input, .filters select { padding: 8px 9px; font-size: 13px; }
+.check-filter { display: flex; align-items: center; white-space: nowrap; gap: 6px; font-size: 12px; color: #4f596d; font-weight: 600; }
+.check-filter input { width: auto; }
+.filters .button { padding: 8px 10px; font-size: 12px; }
+.tag-filter-control { position: relative; min-width: 130px; }
+.tag-filter-button { width: 100%; min-height: 34px; border: 1px solid #cfd5e1; border-radius: 8px; padding: 7px 28px 7px 9px; background: white; color: #5f687c; text-align: left; font-size: 12px; }
+.tag-filter-button::after { content: 'â–¾'; position: absolute; right: 10px; color: #7b8496; }
+.tag-filter-button.has-selection { border-color: #6d89f9; background: #f1f5ff; color: #3155a2; font-weight: 700; }
+.tag-filter-menu { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; width: 250px; padding: 10px; border: 1px solid #d6dce7; border-radius: 9px; background: white; box-shadow: var(--shadow); }
+.tag-filter-menu > input { margin-bottom: 7px; }
+.tag-filter-options { max-height: 230px; overflow-y: auto; }
+.tag-filter-options label { display: flex; align-items: center; gap: 7px; padding: 6px 3px; color: #455066; font-size: 12px; cursor: pointer; }
+.tag-filter-option { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; border-bottom: 1px solid #f0f2f6; }
+.tag-filter-option label { min-width: 0; }
+.tag-filter-option label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-filter-option small { color: #929aaa; font-size: 9px; white-space: nowrap; }
+.delete-tag-button { display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 50%; background: #fff0f1; color: #a92f3a; font-size: 15px; line-height: 1; }
+.delete-tag-button:hover { background: #ffdfe2; }
+.tag-filter-options input { width: auto; }
+.tag-filter-options p { color: #8991a1; font-size: 11px; text-align: center; }
+.tag-filter-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #edf0f4; padding-top: 8px; margin-top: 6px; }
+.tag-filter-actions > button:first-child { border: 0; background: transparent; color: #687286; font-size: 11px; }

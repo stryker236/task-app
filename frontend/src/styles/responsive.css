@@ -1,0 +1,6 @@
+﻿@media (max-width: 1350px) {
+  .filters { grid-template-columns: repeat(6, 1fr); }
+  .search-input { grid-column: span 2; }
+  .kanban-board { grid-template-columns: repeat(var(--kanban-column-count, 5), minmax(250px, 1fr)); }
+  .advisor-grid { grid-template-columns: 1fr; }
+}

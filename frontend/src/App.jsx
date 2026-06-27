@@ -1,453 +1,109 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { addTaskProgressEntry, archiveTask, archiveTasksByStatus, createBlockingTask, createTask, deleteTag, deleteTask, duplicateTask, editTaskProgressEntry, getTaskAdvisorAdvice, getTags, getTasks, restoreTask, toggleChecklistItem, updateTask } from './api';
-import Filters from './components/Filters';
-import KanbanView from './components/KanbanView';
-import QueueView from './components/QueueView';
+import { useMemo, useState } from 'react';
 import AdvisorPanel from './components/AdvisorPanel';
-import TaskCard from './components/TaskCard';
-import TaskForm, { TASK_DRAFT_KEY } from './components/TaskForm';
-import ProgressLog from './components/ProgressLog';
-import TaskDetails from './components/TaskDetails';
-import PostponeDialog from './components/PostponeDialog';
-import QuickQueue from './components/QuickQueue';
-
-const QUICK_QUEUE_KEY = 'task-app:quick-queue:v1';
-
-const EMPTY_FILTERS = {
-  search: '',
-  status: '',
-  priority: '',
-  tags: [],
-  overdue: false,
-  today: false,
-  noDueDate: false,
-  favoriteOnly: false,
-  hideBlocked: false,
-  hideDone: false,
-  hideCancelled: true
-};
-
-const createViewFilters = () => ({
-  kanban: { ...EMPTY_FILTERS, tags: [] },
-  queue: { ...EMPTY_FILTERS, tags: [] },
-  quickQueue: { ...EMPTY_FILTERS, tags: [] },
-  collections: { ...EMPTY_FILTERS, tags: [] },
-  archived: { ...EMPTY_FILTERS, tags: [], archived: true, hideDone: false, hideCancelled: false }
-});
-
-function isToday(task) {
-  if (!task.dueDateTime) return false;
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  const due = new Date(task.dueDateTime);
-  return due >= start && due < end;
-}
-
-const isOverdue = (task) => Boolean(task.dueDateTime) && new Date(task.dueDateTime) < new Date();
+import AppDialogs from './components/AppDialogs';
+import AppHeader from './components/AppHeader';
+import BulkArchiveActions from './components/BulkArchiveActions';
+import DashboardCounters from './components/DashboardCounters';
+import Filters from './components/Filters';
+import MainView from './components/MainView';
+import ViewTabs from './components/ViewTabs';
+import { EMPTY_FILTERS } from './constants/tasks';
+import useAdvisorController from './hooks/useAdvisorController';
+import useDashboardData from './hooks/useDashboardData';
+import useProgressLogController from './hooks/useProgressLogController';
+import useQuickQueue from './hooks/useQuickQueue';
+import useTagActions from './hooks/useTagActions';
+import useTaskActions from './hooks/useTaskActions';
+import useTaskFormController from './hooks/useTaskFormController';
+import { isOverdue, isToday } from './utils/taskDates';
 
 export default function App() {
-  const [tasks, setTasks] = useState([]);
-  const [allTasks, setAllTasks] = useState([]);
-  const [availableTags, setAvailableTags] = useState([]);
-  const [filtersByView, setFiltersByView] = useState(createViewFilters);
-  const [view, setView] = useState('kanban');
-  const [editingTask, setEditingTask] = useState(undefined);
-  const [formOpen, setFormOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [advisor, setAdvisor] = useState(null);
-  const [advisorLoading, setAdvisorLoading] = useState(false);
-  const [error, setError] = useState('');
+  const {
+    tasks,
+    allTasks,
+    availableTags,
+    setAvailableTags,
+    setFiltersByView,
+    filters,
+    setFilters,
+    view,
+    setView,
+    loading,
+    error,
+    setError,
+    counters,
+    fetchDashboardData
+  } = useDashboardData();
+
   const [queueSort, setQueueSort] = useState({ field: 'priority', direction: 'desc' });
-  const [formDraft, setFormDraft] = useState(null);
-  const [progressTask, setProgressTask] = useState(null);
-  const [savingProgress, setSavingProgress] = useState(false);
-  const [blockingTarget, setBlockingTarget] = useState(null);
   const [viewingTask, setViewingTask] = useState(null);
-  const [postponeTask, setPostponeTask] = useState(null);
-  const [postponing, setPostponing] = useState(false);
-  const [quickQueueTaskSourceId, setQuickQueueTaskSourceId] = useState(null);
-  const [quickQueueItems, setQuickQueueItems] = useState(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem(QUICK_QUEUE_KEY));
-      return Array.isArray(stored) ? stored : [];
-    } catch {
-      return [];
-    }
+
+  const {
+    quickQueueItems,
+    addQuickQueueItem,
+    toggleQuickQueueItem,
+    deleteQuickQueueItem,
+    moveQuickQueueItem,
+    clearDoneQuickQueueItems
+  } = useQuickQueue();
+
+  const taskForm = useTaskFormController({
+    allTasks,
+    loading,
+    filters,
+    fetchDashboardData,
+    setError,
+    deleteQuickQueueItem
   });
-  const draftRestored = useRef(false);
-  const filters = filtersByView[view];
 
-  function setFilters(nextFilters) {
-    setFiltersByView((current) => ({ ...current, [view]: nextFilters }));
-  }
+  const advisorController = useAdvisorController({
+    allTasks,
+    setError,
+    setViewingTask
+  });
 
-  useEffect(() => {
-    localStorage.setItem(QUICK_QUEUE_KEY, JSON.stringify(quickQueueItems));
-  }, [quickQueueItems]);
+  const progressLog = useProgressLogController({
+    filters,
+    fetchDashboardData,
+    setError
+  });
 
-  function addQuickQueueItem(text) {
-    setQuickQueueItems((current) => [
-      ...current,
-      {
-        id: `quick_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-        text,
-        done: false,
-        createdAt: new Date().toISOString()
-      }
-    ]);
-  }
+  const taskActions = useTaskActions({
+    filters,
+    fetchDashboardData,
+    setError,
+    setViewingTask,
+    clearFormDraft: taskForm.clearFormDraft
+  });
 
-  function toggleQuickQueueItem(id, done) {
-    setQuickQueueItems((current) => current.map((item) => (item.id === id ? { ...item, done } : item)));
-  }
-
-  function deleteQuickQueueItem(id) {
-    setQuickQueueItems((current) => current.filter((item) => item.id !== id));
-  }
-
-  function moveQuickQueueItem(id, direction) {
-    setQuickQueueItems((current) => {
-      const index = current.findIndex((item) => item.id === id);
-      const targetIndex = index + direction;
-      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
-      const next = [...current];
-      const [item] = next.splice(index, 1);
-      next.splice(targetIndex, 0, item);
-      return next;
-    });
-  }
-
-  function clearDoneQuickQueueItems() {
-    setQuickQueueItems((current) => current.filter((item) => !item.done));
-
-  }
-
-  function createTaskFromQuickQueueItem(item) {
-    const draft = {
-      mode: 'create',
-      taskId: null,
-      blockingTarget: null,
-      form: {
-        title: item.text,
-        status: 'new',
-        priority: 2,
-        notes: '',
-        tags: [],
-        blockedByTaskIds: [],
-        relations: [],
-        checklistItems: []
-      },
-      dueDate: '',
-      dueTime: '',
-      blocksTaskIds: [],
-      savedAt: new Date().toISOString()
-    };
-    localStorage.setItem(TASK_DRAFT_KEY, JSON.stringify(draft));
-    setQuickQueueTaskSourceId(item.id);
-    setFormDraft(draft);
-    setEditingTask(null);
-    setBlockingTarget(null);
-    setFormOpen(true);
-  }
-
-  const fetchDashboardData = useCallback(async (currentFilters = filters) => {
-    try {
-      setError('');
-      const [filteredTasks, completeTaskList, tagCatalog] = await Promise.all([getTasks(currentFilters), getTasks({ includeArchived: true }), getTags()]);
-      setTasks(filteredTasks);
-      setAllTasks(completeTaskList);
-      setAvailableTags(tagCatalog);
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [filters]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => fetchDashboardData(filters), 180);
-    return () => clearTimeout(timer);
-  }, [filters, fetchDashboardData]);
-
-  useEffect(() => {
-    if (loading || draftRestored.current) return;
-    draftRestored.current = true;
-    try {
-      const storedDraft = JSON.parse(localStorage.getItem(TASK_DRAFT_KEY));
-      if (!storedDraft?.mode) return;
-      if (storedDraft.mode === 'create' || storedDraft.mode === 'create-blocker') {
-        setEditingTask(null);
-        if (storedDraft.mode === 'create-blocker' && storedDraft.blockingTarget) {
-          setBlockingTarget(allTasks.find((task) => task.id === storedDraft.blockingTarget.id) || storedDraft.blockingTarget);
-        }
-      } else {
-        const sourceTask = allTasks.find((task) => task.id === storedDraft.taskId) || {
-          ...storedDraft.form,
-          id: storedDraft.taskId
-        };
-        setEditingTask(sourceTask);
-      }
-      setFormDraft(storedDraft);
-      setFormOpen(true);
-    } catch {
-      localStorage.removeItem(TASK_DRAFT_KEY);
-    }
-  }, [loading, allTasks]);
-
-  const counters = useMemo(() => {
-    const visibleTasks = allTasks.filter((task) => !task.isArchived);
-    const active = visibleTasks.filter((task) => !['done', 'cancelled'].includes(task.status));
-    return {
-      total: visibleTasks.length,
-      today: active.filter(isToday).length,
-      overdue: active.filter(isOverdue).length,
-      waiting: visibleTasks.filter((task) => task.status === 'waiting').length,
-      noDue: active.filter((task) => !task.dueDateTime).length
-    };
-  }, [allTasks]);
-
-  function openCreateTaskForm() {
-    localStorage.removeItem(TASK_DRAFT_KEY);
-    setQuickQueueTaskSourceId(null);
-    setFormDraft(null);
-    setEditingTask(null);
-    setBlockingTarget(null);
-    setFormOpen(true);
-  }
-
-  function openEditTaskForm(task) {
-    localStorage.removeItem(TASK_DRAFT_KEY);
-    setQuickQueueTaskSourceId(null);
-    setFormDraft(null);
-    setEditingTask(task);
-    setBlockingTarget(null);
-    setFormOpen(true);
-  }
-
-  function editFromDetails(task) {
-    setViewingTask(null);
-    openEditTaskForm(task);
-  }
+  const { deleteUnusedTagFromCatalog } = useTagActions({
+    setAvailableTags,
+    setError,
+    setFiltersByView
+  });
 
   function openTaskDetails(task) {
     setViewingTask(task);
   }
 
-  async function refreshTaskAdvisorAdvice() {
-    try {
-      setAdvisorLoading(true);
-      setAdvisor(await getTaskAdvisorAdvice(5));
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setAdvisorLoading(false);
-    }
-  }
-
-  function openAdvisorRecommendedTask(taskId) {
-    const task = allTasks.find((item) => item.id === taskId);
-    if (task) setViewingTask(task);
-  }
-
   function openProgressLogFromTaskDetails(task) {
-    setViewingTask(null);
-    setProgressTask(task);
+    progressLog.openProgressLogFromTaskDetails(task, setViewingTask);
   }
 
-  function openCreateBlockingTaskForm(task) {
-    localStorage.removeItem(TASK_DRAFT_KEY);
-    setQuickQueueTaskSourceId(null);
-    setFormDraft(null);
-    setEditingTask(null);
-    setBlockingTarget(task);
-    setFormOpen(true);
-  }
-
-  function closeTaskForm() {
-    if (!window.confirm('Descartar este rascunho e fechar o editor?')) return;
-    localStorage.removeItem(TASK_DRAFT_KEY);
-    setQuickQueueTaskSourceId(null);
-    setFormDraft(null);
-    setBlockingTarget(null);
-    setFormOpen(false);
-  }
-
-  async function saveTaskForm(taskData) {
-    setSaving(true);
-    setError('');
-    try {
-      if (editingTask) await updateTask(editingTask.id, taskData);
-      else if (blockingTarget) await createBlockingTask(blockingTarget.id, taskData);
-      else await createTask(taskData);
-      if (!editingTask && !blockingTarget && quickQueueTaskSourceId) {
-        deleteQuickQueueItem(quickQueueTaskSourceId);
-        setQuickQueueTaskSourceId(null);
-      }
-      localStorage.removeItem(TASK_DRAFT_KEY);
-      setFormDraft(null);
-      setBlockingTarget(null);
-      setFormOpen(false);
-      await fetchDashboardData(filters);
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteSingleTask(task) {
-    if (!window.confirm(`Eliminar “${task.title}”? Esta ação não pode ser anulada.`)) return;
-    try {
-      await deleteTask(task.id);
-      await fetchDashboardData(filters);
-    } catch (requestError) { setError(requestError.message); }
-  }
-
-  async function duplicateSingleTask(task) {
-    try {
-      const duplicate = await duplicateTask(task.id);
-      await fetchDashboardData(filters);
-      localStorage.removeItem(TASK_DRAFT_KEY);
-      setFormDraft(null);
-      setViewingTask(duplicate);
-    } catch (requestError) { setError(requestError.message); }
-  }
-
-  async function updateTaskStatus(task, status) {
-    try {
-      await updateTask(task.id, { ...task, status });
-      await fetchDashboardData(filters);
-    } catch (requestError) { setError(requestError.message); }
-  }
-
-  async function updateTaskPriority(task, priority) {
-    if (priority < 1 || priority > 4 || priority === task.priority) return;
-    try {
-      await updateTask(task.id, { ...task, priority });
-      await fetchDashboardData(filters);
-    } catch (requestError) { setError(requestError.message); }
-  }
-
-  async function updateTaskFavoriteFlag(task, isFavorite) {
-    try {
-      await updateTask(task.id, { ...task, isFavorite });
-      await fetchDashboardData(filters);
-    } catch (requestError) { setError(requestError.message); }
-  }
-
-  async function archiveSingleTask(task) {
-    if (!window.confirm(`Arquivar “${task.title}”?`)) return;
-    try {
-      await archiveTask(task.id);
-      setViewingTask(null);
-      await fetchDashboardData(filters);
-    } catch (requestError) { setError(requestError.message); }
-  }
-
-  async function restoreArchivedTask(task) {
-    try {
-      await restoreTask(task.id);
-      setViewingTask(null);
-      await fetchDashboardData(filters);
-    } catch (requestError) { setError(requestError.message); }
-  }
-
-  async function archiveTasksWithStatus(status) {
-    const label = status === 'done' ? 'Done' : 'Cancelled';
-    if (!window.confirm(`Arquivar todas as tarefas em ${label}?`)) return;
-    try {
-      const result = await archiveTasksByStatus(status);
-      await fetchDashboardData(filters);
-      if (result.archivedCount === 0) setError(`Não existem tarefas ${label} por arquivar.`);
-    } catch (requestError) { setError(requestError.message); }
-  }
-
-  async function updateTaskChecklistItemStatus(task, item, isDone) {
-    try {
-      const updated = await toggleChecklistItem(task.id, item.id, isDone);
-      setViewingTask(updated);
-      await fetchDashboardData(filters);
-    } catch (requestError) { setError(requestError.message); }
-  }
-
-  async function updateTaskFromDetails(task, changes) {
-    try {
-      const updated = await updateTask(task.id, { ...task, ...changes });
-      setViewingTask(updated);
-      await fetchDashboardData(filters);
-      return updated;
-    } catch (requestError) {
-      setError(requestError.message);
-      return null;
-    }
-  }
-
-  async function postponeTaskDueDate(task, dueDateTime) {
-    setPostponing(true);
-    setError('');
-    try {
-      await updateTask(task.id, { ...task, dueDateTime });
-      setPostponeTask(null);
-      await fetchDashboardData(filters);
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setPostponing(false);
-    }
-  }
-
-  async function deleteUnusedTagFromCatalog(tag) {
-    if (!window.confirm(`Eliminar a tag “${tag.name}”?`)) return;
-    try {
-      await deleteTag(tag.id);
-      setFiltersByView((current) => Object.fromEntries(
-        Object.entries(current).map(([key, value]) => [key, {
-          ...value,
-          tags: value.tags.filter((name) => name.toLocaleLowerCase() !== tag.name.toLocaleLowerCase())
-        }])
-      ));
-      setAvailableTags((current) => current.filter((item) => item.id !== tag.id));
-    } catch (requestError) {
-      setError(requestError.message);
-    }
-  }
-
-  async function saveTaskProgressEntry(task, message) {
-    setSavingProgress(true);
-    setError('');
-    try {
-      const result = await addTaskProgressEntry(task.id, message);
-      setProgressTask(result.task);
-      await fetchDashboardData(filters);
-      return true;
-    } catch (requestError) {
-      setError(requestError.message);
-      return false;
-    } finally {
-      setSavingProgress(false);
-    }
-  }
-
-  async function saveTaskProgressEntryEdit(task, entryId, message) {
-    setSavingProgress(true);
-    setError('');
-    try {
-      const result = await editTaskProgressEntry(task.id, entryId, message);
-      setProgressTask(result.task);
-      await fetchDashboardData(filters);
-      return true;
-    } catch (requestError) {
-      setError(requestError.message);
-      return false;
-    } finally {
-      setSavingProgress(false);
-    }
-  }
-
-  const taskCardActions = { onEdit: openEditTaskForm, onDelete: deleteSingleTask, onDuplicate: duplicateSingleTask, onStatusChange: updateTaskStatus, onPriorityChange: updateTaskPriority, onFavoriteChange: updateTaskFavoriteFlag, onOpenTask: openTaskDetails, onProgress: setProgressTask, onAddBlocker: openCreateBlockingTaskForm, onPostpone: setPostponeTask, onArchive: archiveSingleTask, onRestore: restoreArchivedTask };
+  const taskCardActions = {
+    onEdit: taskForm.openEditTaskForm,
+    onDelete: taskActions.deleteSingleTask,
+    onDuplicate: taskActions.duplicateSingleTask,
+    onStatusChange: taskActions.updateTaskStatus,
+    onPriorityChange: taskActions.updateTaskPriority,
+    onFavoriteChange: taskActions.updateTaskFavoriteFlag,
+    onOpenTask: openTaskDetails,
+    onProgress: progressLog.setProgressTask,
+    onAddBlocker: taskForm.openCreateBlockingTaskForm,
+    onPostpone: taskActions.setPostponeTask,
+    onArchive: taskActions.archiveSingleTask,
+    onRestore: taskActions.restoreArchivedTask
+  };
 
   const collectionSections = useMemo(() => {
     const active = (task) => !['done', 'cancelled'].includes(task.status);
@@ -463,87 +119,97 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <div className="brand"><span className="brand-mark">T</span><div><h1>Task App</h1><p>Organização de trabalho</p></div></div>
-        <button className="button primary add-task" type="button" onClick={openCreateTaskForm}>+ Nova tarefa</button>
-      </header>
+      <AppHeader onCreateTask={taskForm.openCreateTaskForm} />
 
       <main>
-        <section className="counter-grid" aria-label="Resumo">
-          <div><span>Total</span><strong>{counters.total}</strong></div>
-          <div><span>Hoje</span><strong>{counters.today}</strong></div>
-          <div className={counters.overdue ? 'counter-alert' : ''}><span>Atrasadas</span><strong>{counters.overdue}</strong></div>
-          <div><span>Waiting</span><strong>{counters.waiting}</strong></div>
-          <div><span>Sem prazo</span><strong>{counters.noDue}</strong></div>
-        </section>
+        <DashboardCounters counters={counters} />
+
         {view !== 'archived' && view !== 'quickQueue' && (
-
           <AdvisorPanel
-            advice={advisor}
-            loading={advisorLoading}
-            onRefresh={refreshTaskAdvisorAdvice}
-            onOpenTask={openAdvisorRecommendedTask}
+            advice={advisorController.advisor}
+            loading={advisorController.advisorLoading}
+            onRefresh={advisorController.refreshTaskAdvisorAdvice}
+            onOpenTask={advisorController.openAdvisorRecommendedTask}
           />
         )}
 
-        <nav className="view-tabs" aria-label="Vista">
-          <button className={view === 'kanban' ? 'active' : ''} onClick={() => setView('kanban')}>Kanban</button>
-          <button className={view === 'queue' ? 'active' : ''} onClick={() => setView('queue')}>Fila</button>          <button className={view === 'quickQueue' ? 'active' : ''} onClick={() => setView('quickQueue')}>Fila rápida</button>
+        <ViewTabs view={view} onChange={setView} />
 
-          <button className={view === 'collections' ? 'active' : ''} onClick={() => setView('collections')}>Cobranças prováveis</button>
-          <button className={view === 'archived' ? 'active' : ''} onClick={() => setView('archived')}>Arquivadas</button>
-        </nav>
-        {view !== 'archived' && view !== 'quickQueue' && <div className="bulk-archive-actions">
-
-          <span>Arquivo rápido</span>
-          <button type="button" className="button secondary small" onClick={() => archiveTasksWithStatus('done')}>Arquivar Done</button>
-          <button type="button" className="button secondary small" onClick={() => archiveTasksWithStatus('cancelled')}>Arquivar Cancelled</button>
-        </div>}
-        {view !== 'quickQueue' && <Filters filters={filters} tags={availableTags} onChange={setFilters} onDeleteTag={deleteUnusedTagFromCatalog} onClear={() => setFilters(view === 'archived' ? { ...EMPTY_FILTERS, tags: [], archived: true, hideDone: false, hideCancelled: false } : { ...EMPTY_FILTERS, tags: [] })} />}
-
-        {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Fechar">×</button></div>}
-        {view === 'quickQueue' ? (
-          <QuickQueue
-            items={quickQueueItems}
-            onAdd={addQuickQueueItem}
-            onToggle={toggleQuickQueueItem}
-            onDelete={deleteQuickQueueItem}
-            onMove={moveQuickQueueItem}
-            onClearDone={clearDoneQuickQueueItems}
-            onCreateTask={createTaskFromQuickQueueItem}
+        {view !== 'archived' && view !== 'quickQueue' && (
+          <BulkArchiveActions
+            onArchiveDone={() => taskActions.archiveTasksWithStatus('done')}
+            onArchiveCancelled={() => taskActions.archiveTasksWithStatus('cancelled')}
           />
-        ) : loading ? <div className="loading">A carregar tarefas…</div> : (
-
-          <>
-            {view === 'kanban' && (
-              <KanbanView
-                tasks={tasks}
-                allTasks={allTasks}
-                taskActions={taskCardActions}
-                hideDone={filters.hideDone}
-                hideCancelled={filters.hideCancelled}
-              />
-            )}
-            {view === 'queue' && <QueueView tasks={tasks} allTasks={allTasks} taskActions={taskCardActions} sort={queueSort} onSortChange={setQueueSort} />}
-            {view === 'archived' && <QueueView tasks={tasks} allTasks={allTasks} taskActions={taskCardActions} sort={queueSort} onSortChange={setQueueSort} />}
-            {view === 'collections' && (
-              <div className="collections-view">
-                {collectionSections.map(([title, items]) => (
-                  <section className="collection-section" key={title}>
-                    <header><h2>{title}</h2><span>{items.length}</span></header>
-                    {items.length ? <div className="queue-grid">{items.map((task) => <TaskCard key={task.id} task={task} allTasks={allTasks} {...taskCardActions} />)}</div> : <p className="empty-column">Sem tarefas nesta secção</p>}
-                  </section>
-                ))}
-              </div>
-            )}
-          </>
         )}
+
+        {view !== 'quickQueue' && (
+          <Filters
+            filters={filters}
+            tags={availableTags}
+            onChange={setFilters}
+            onDeleteTag={deleteUnusedTagFromCatalog}
+            onClear={() => setFilters(view === 'archived'
+              ? { ...EMPTY_FILTERS, tags: [], archived: true, hideDone: false, hideCancelled: false }
+              : { ...EMPTY_FILTERS, tags: [] })}
+          />
+        )}
+
+        {error && (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
+            <button type="button" onClick={() => setError('')} aria-label="Fechar">×</button>
+          </div>
+        )}
+
+        <MainView
+          view={view}
+          loading={loading}
+          tasks={tasks}
+          allTasks={allTasks}
+          filters={filters}
+          taskCardActions={taskCardActions}
+          queueSort={queueSort}
+          onQueueSortChange={setQueueSort}
+          collectionSections={collectionSections}
+          quickQueueItems={quickQueueItems}
+          onQuickQueueAdd={addQuickQueueItem}
+          onQuickQueueToggle={toggleQuickQueueItem}
+          onQuickQueueDelete={deleteQuickQueueItem}
+          onQuickQueueMove={moveQuickQueueItem}
+          onQuickQueueClearDone={clearDoneQuickQueueItems}
+          onQuickQueueCreateTask={taskForm.createTaskFromQuickQueueItem}
+        />
       </main>
 
-      {formOpen && <TaskForm task={editingTask} tasks={allTasks} availableTags={availableTags} draft={formDraft} blockingTarget={blockingTarget} onSave={saveTaskForm} onClose={closeTaskForm} onProgress={setProgressTask} saving={saving} />}
-      {progressTask && <ProgressLog task={progressTask} onClose={() => setProgressTask(null)} onAdd={saveTaskProgressEntry} onEdit={saveTaskProgressEntryEdit} saving={savingProgress} />}
-      {viewingTask && <TaskDetails task={viewingTask} allTasks={allTasks} availableTags={availableTags} onClose={() => setViewingTask(null)} onChange={updateTaskFromDetails} onOpenTask={openTaskDetails} onProgress={openProgressLogFromTaskDetails} onArchive={archiveSingleTask} onRestore={restoreArchivedTask} onToggleChecklist={updateTaskChecklistItemStatus} />}
-      {postponeTask && <PostponeDialog task={postponeTask} onClose={() => setPostponeTask(null)} onSave={postponeTaskDueDate} saving={postponing} />}
+      <AppDialogs
+        formOpen={taskForm.formOpen}
+        editingTask={taskForm.editingTask}
+        allTasks={allTasks}
+        availableTags={availableTags}
+        formDraft={taskForm.formDraft}
+        blockingTarget={taskForm.blockingTarget}
+        onSaveTaskForm={taskForm.saveTaskForm}
+        onCloseTaskForm={taskForm.closeTaskForm}
+        onOpenProgress={progressLog.setProgressTask}
+        savingTask={taskForm.saving}
+        progressTask={progressLog.progressTask}
+        onCloseProgress={() => progressLog.setProgressTask(null)}
+        onAddProgressEntry={progressLog.saveTaskProgressEntry}
+        onEditProgressEntry={progressLog.saveTaskProgressEntryEdit}
+        savingProgress={progressLog.savingProgress}
+        viewingTask={viewingTask}
+        onCloseTaskDetails={() => setViewingTask(null)}
+        onChangeTaskDetails={taskActions.updateTaskFromDetails}
+        onOpenTask={openTaskDetails}
+        onProgressFromDetails={openProgressLogFromTaskDetails}
+        onArchiveTask={taskActions.archiveSingleTask}
+        onRestoreTask={taskActions.restoreArchivedTask}
+        onToggleChecklist={taskActions.updateTaskChecklistItemStatus}
+        postponeTask={taskActions.postponeTask}
+        onClosePostpone={() => taskActions.setPostponeTask(null)}
+        onSavePostpone={taskActions.postponeTaskDueDate}
+        postponing={taskActions.postponing}
+      />
     </div>
   );
 }
