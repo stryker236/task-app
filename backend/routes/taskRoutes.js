@@ -1,14 +1,14 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
-const { filterTasksByQuery } = require('../taskFilters');
-const { buildNewTask } = require('../taskFactory');
+const { filterTasksByQuery } = require('../tasks/taskFilters');
+const { buildNewTask } = require('../tasks/taskFactory');
 const {
   normalizeString,
   createValidationError,
   validateTaskPayload,
   validateBlockedTaskIds,
   applyTaskStatusTimestamps
-} = require('../taskValidation');
+} = require('../tasks/taskValidation');
 
 function createTaskRouter({
   pool,

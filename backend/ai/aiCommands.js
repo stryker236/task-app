@@ -1,12 +1,12 @@
 const { randomUUID } = require('crypto');
-const { buildNewTask } = require('./taskFactory');
+const { buildNewTask } = require('../tasks/taskFactory');
 const {
   RELATION_TYPES,
   normalizeString,
   createValidationError,
   validateTaskPayload,
   applyTaskStatusTimestamps
-} = require('./taskValidation');
+} = require('../tasks/taskValidation');
 
 const AI_COMMAND_TYPES = ['update_task', 'add_relation', 'create_task'];
 

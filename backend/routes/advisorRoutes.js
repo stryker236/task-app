@@ -1,12 +1,12 @@
 const express = require('express');
-const { generateTaskAdvisorAdvice, generateTaskAdvisorCommands } = require('../aiAdvisor');
+const { generateTaskAdvisorAdvice, generateTaskAdvisorCommands } = require('../ai/aiAdvisor');
 const {
   getAiCommandsFromBody,
   prepareAiCommand,
   applyPreparedAiCommand,
   buildAiCommandsPreview
-} = require('../aiCommands');
-const { normalizeString, createValidationError } = require('../taskValidation');
+} = require('../ai/aiCommands');
+const { normalizeString, createValidationError } = require('../tasks/taskValidation');
 
 function createAdvisorRouter({
   fetchTasks,

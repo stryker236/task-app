@@ -13,7 +13,7 @@ const {
   fetchTags,
   deleteUnusedTag,
   checkConnection
-} = require('./database');
+} = require('./db/database');
 const { createHealthRouter } = require('./routes/healthRoutes');
 const { createTagRouter } = require('./routes/tagRoutes');
 const { createTaskRouter } = require('./routes/taskRoutes');

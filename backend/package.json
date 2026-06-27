@@ -10,8 +10,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "db:check": "node check-db.js",
-    "db:import-json": "node import-json.js"
+    "db:check": "node scripts/check-db.js",
+    "db:import-json": "node scripts/import-json.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { checkConnection, pool } = require('./database');
+const { checkConnection, pool } = require('../db/database');
 
 checkConnection()
   .then((result) => {

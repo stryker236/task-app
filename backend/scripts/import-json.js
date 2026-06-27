@@ -3,9 +3,9 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { pool, withTransaction, insertTask, insertActivity } = require('./database');
+const { pool, withTransaction, insertTask, insertActivity } = require('../db/database');
 
-const sourcePath = path.join(__dirname, 'tasks.json');
+const sourcePath = path.join(__dirname, '..', 'tasks.json');
 const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value || '');
 
 async function importTasks() {
