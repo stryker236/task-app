@@ -71,3 +71,8 @@ export const updateQuickQueueItem = (id, patch) => requestJson(`/quick-queue/${i
 export const deleteQuickQueueItem = (id) => requestJson(`/quick-queue/${id}`, { method: 'DELETE' });
 export const moveQuickQueueItem = (id, direction) => requestJson(`/quick-queue/${id}/move`, { method: 'POST', body: JSON.stringify({ direction }) });
 export const clearDoneQuickQueueItems = () => requestJson('/quick-queue/done', { method: 'DELETE' });
+
+export const getGoogleStatus = () => requestJson('/google/status');
+export const getGoogleOAuthUrl = () => requestJson('/google/oauth/url', { method: 'POST' });
+export const disconnectGoogle = () => requestJson('/google/connection', { method: 'DELETE' });
+export const getGoogleCalendarEvents = (date) => requestJson(`/google/calendar/events?date=${encodeURIComponent(date)}`);

@@ -19,6 +19,11 @@ const {
   deleteQuickQueueItem,
   clearDoneQuickQueueItems,
   moveQuickQueueItem,
+  fetchGoogleConnection,
+  saveGoogleConnection,
+  deleteGoogleConnection,
+  createGoogleOAuthState,
+  consumeGoogleOAuthState,
   checkConnection
 } = require('./db/database');
 const { createHealthRouter } = require('./routes/healthRoutes');
@@ -26,6 +31,7 @@ const { createTagRouter } = require('./routes/tagRoutes');
 const { createTaskRouter } = require('./routes/taskRoutes');
 const { createAdvisorRouter } = require('./routes/advisorRoutes');
 const { createQuickQueueRouter } = require('./routes/quickQueueRoutes');
+const { createGoogleRouter } = require('./routes/googleRoutes');
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
@@ -69,6 +75,11 @@ const routeDependencies = {
   deleteQuickQueueItem,
   clearDoneQuickQueueItems,
   moveQuickQueueItem,
+  fetchGoogleConnection,
+  saveGoogleConnection,
+  deleteGoogleConnection,
+  createGoogleOAuthState,
+  consumeGoogleOAuthState,
   checkConnection,
   findTaskById
 };
@@ -78,6 +89,7 @@ app.use(createTagRouter(routeDependencies));
 app.use(createTaskRouter(routeDependencies));
 app.use(createAdvisorRouter(routeDependencies));
 app.use(createQuickQueueRouter(routeDependencies));
+app.use(createGoogleRouter(routeDependencies));
 
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 app.use((error, req, res, next) => {

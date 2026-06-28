@@ -5,11 +5,13 @@ import AppHeader from './components/AppHeader';
 import BulkArchiveActions from './components/BulkArchiveActions';
 import DashboardCounters from './components/DashboardCounters';
 import Filters from './components/Filters';
+import GoogleDailyPanel from './components/GoogleDailyPanel';
 import MainView from './components/MainView';
 import ViewTabs from './components/ViewTabs';
 import { EMPTY_FILTERS } from './constants/tasks';
 import useAdvisorController from './hooks/useAdvisorController';
 import useDashboardData from './hooks/useDashboardData';
+import useGoogleCalendar from './hooks/useGoogleCalendar';
 import useProgressLogController from './hooks/useProgressLogController';
 import useQuickQueue from './hooks/useQuickQueue';
 import useTagActions from './hooks/useTagActions';
@@ -37,6 +39,8 @@ export default function App() {
 
   const [queueSort, setQueueSort] = useState({ field: 'priority', direction: 'desc' });
   const [viewingTask, setViewingTask] = useState(null);
+
+  const googleCalendar = useGoogleCalendar({ setError });
 
   const {
     quickQueueItems,
@@ -126,6 +130,21 @@ export default function App() {
 
       <main>
         <DashboardCounters counters={counters} />
+
+        {view !== 'quickQueue' && (
+          <GoogleDailyPanel
+            status={googleCalendar.googleStatus}
+            loading={googleCalendar.googleLoading}
+            date={googleCalendar.calendarDate}
+            events={googleCalendar.calendarEvents}
+            accountEmail={googleCalendar.calendarAccountEmail}
+            busyCount={googleCalendar.calendarBusyCount}
+            onDateChange={googleCalendar.setCalendarDate}
+            onConnect={googleCalendar.connectGoogle}
+            onDisconnect={googleCalendar.disconnectGoogleAccount}
+            onLoadEvents={googleCalendar.loadCalendarEvents}
+          />
+        )}
 
         {view !== 'archived' && view !== 'quickQueue' && (
           <AdvisorPanel

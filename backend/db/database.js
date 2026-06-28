@@ -28,6 +28,17 @@ function mapQuickQueueItem(row) {
 	};
 }
 
+function mapGoogleConnection(row) {
+	return {
+		id: String(row.id),
+		accountEmail: row.account_email,
+		scopes: row.scopes || [],
+		encryptedTokens: row.encrypted_tokens,
+		createdAt: iso(row.created_at),
+		updatedAt: iso(row.updated_at)
+	};
+}
+
 async function withTransaction(work) {
 	const client = await pool.connect();
 	try {
@@ -466,6 +477,44 @@ async function moveQuickQueueItem(db, id, direction) {
 	return fetchQuickQueueItems(db);
 }
 
+async function fetchGoogleConnection(db = pool) {
+	const result = await db.query('SELECT * FROM google_connections ORDER BY created_at DESC LIMIT 1');
+	return result.rows[0] ? mapGoogleConnection(result.rows[0]) : null;
+}
+
+async function saveGoogleConnection(db, { accountEmail, scopes, encryptedTokens }) {
+	await db.query('DELETE FROM google_connections');
+	const result = await db.query(
+		`INSERT INTO google_connections (account_email, scopes, encrypted_tokens)
+     VALUES ($1, $2, $3::jsonb)
+     RETURNING *`,
+		[accountEmail, scopes, JSON.stringify(encryptedTokens)]
+	);
+	return mapGoogleConnection(result.rows[0]);
+}
+
+async function deleteGoogleConnection(db = pool) {
+	await db.query('DELETE FROM google_connections');
+}
+
+async function createGoogleOAuthState(db, state, expiresAt) {
+	await db.query('DELETE FROM google_oauth_states WHERE expires_at < now()');
+	await db.query(
+		'INSERT INTO google_oauth_states (state, expires_at) VALUES ($1, $2)',
+		[state, expiresAt]
+	);
+}
+
+async function consumeGoogleOAuthState(db, state) {
+	const result = await db.query(
+		`DELETE FROM google_oauth_states
+     WHERE state = $1 AND expires_at > now()
+     RETURNING state`,
+		[state]
+	);
+	return result.rowCount > 0;
+}
+
 module.exports = {
 	pool,
 	withTransaction,
@@ -483,5 +532,10 @@ module.exports = {
 	deleteQuickQueueItem,
 	clearDoneQuickQueueItems,
 	moveQuickQueueItem,
+	fetchGoogleConnection,
+	saveGoogleConnection,
+	deleteGoogleConnection,
+	createGoogleOAuthState,
+	consumeGoogleOAuthState,
 	checkConnection
 };

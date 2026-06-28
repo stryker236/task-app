@@ -104,6 +104,7 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 - Editable progress history
 - Archive/restore tasks and bulk archive `done`/`cancelled` tasks
 - Database-backed Quick Queue for short-term reminders shared between clients
+- Google Calendar connection for reading daily events
 - AI Advisor with proposal buffer: accept/ignore individually or in bulk
 
 ## Structure
@@ -174,9 +175,47 @@ DATABASE_SSL=true
 CORS_ORIGIN=http://localhost:5173
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
+FRONTEND_URL=http://localhost:5173
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:4000/google/oauth/callback
+GOOGLE_TOKEN_ENCRYPTION_KEY=
 ```
 
 `OPENAI_API_KEY` is optional. Without it, `/advisor` still works with local rule-based advice, but AI-generated proposals are unavailable.
+
+`GOOGLE_*` variables are optional. Without them, the app works normally, but Google Calendar connection is unavailable.
+
+Generate `GOOGLE_TOKEN_ENCRYPTION_KEY` with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+## Google Calendar setup
+
+The current Google integration is read-only and is used as the first step toward a Daily planning mode.
+
+In Google Cloud Console:
+
+1. Create or select a project.
+2. Enable Google Calendar API.
+3. Configure the OAuth consent screen.
+4. Create an OAuth Client of type `Web application`.
+5. Add this authorized redirect URI for local development:
+
+```text
+http://localhost:4000/google/oauth/callback
+```
+
+Set the Google variables in `backend/.env`, run migrations, then restart the backend.
+
+Required scopes for this first version:
+
+```text
+https://www.googleapis.com/auth/calendar.readonly
+https://www.googleapis.com/auth/userinfo.email
+```
 
 Test database connection:
 
