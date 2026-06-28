@@ -1,30 +1,112 @@
 # Task App
 
-Aplicação de gestão de tarefas para uso pessoal/desktop, com frontend React/Vite, backend Node.js/Express e persistência PostgreSQL no Supabase.
+Task App is a personal day-to-day work agent for managing real tasks, blockers, priorities, follow-ups, deadlines, and short-term reminders.
+
+The goal is not to become a heavy project management platform. The goal is to become a practical personal agent that helps answer questions like:
+
+- What should I do now?
+- What is overdue?
+- What is blocked?
+- Which cards depend on other cards?
+- What needs follow-up?
+- Which cards can be archived?
+- Which tags, checklist items, priorities, dependencies, or deadlines are missing?
+- What can be improved automatically, while still letting me approve every change?
+
+The app is desktop-first, but the backend is designed so other clients can be added later, for example an Android app.
+
+## Product direction
+
+The long-term direction is for Task App to become a personal operating layer for daily work.
+
+Instead of only storing tasks, it should help interpret the task list, propose improvements, surface risks, suggest next actions, and reduce the amount of manual grooming needed to keep tasks useful.
+
+The AI Advisor is intentionally approval-based. It should not silently mutate data. It proposes actions into a review buffer, and the user chooses what to accept or ignore.
+
+## What the app does today
+
+The app organizes work through several views:
+
+- Kanban, for status-based work tracking.
+- Queue, for execution order and prioritization.
+- Probable follow-ups, for overdue, urgent, waiting, and no-deadline cards.
+- Quick queue, for short-term reminders that do not need database persistence.
+- Archived, for closed work.
+
+Each task can have:
+
+- title and notes;
+- priority;
+- due date;
+- reusable tags;
+- checklist;
+- relations with other cards;
+- dependencies/blockers;
+- progress history;
+- archived state;
+- favorite flag;
+- optional estimate.
+
+The AI Advisor can currently suggest:
+
+- better tags;
+- missing due dates;
+- checklist items;
+- dependencies/blockers;
+- related cards;
+- priority increases/decreases;
+- follow-up tasks.
+
+It does not apply changes automatically. Suggestions appear in a buffer where each action can be accepted or ignored individually or in bulk.
+
+## What it could become
+
+Possible future directions:
+
+- Android app or PWA using the same backend.
+- Authentication and multiple users.
+- Supabase Realtime synchronization.
+- Notifications for overdue or soon-due work.
+- Recurring tasks.
+- Calendar/timeline view.
+- Task and checklist templates.
+- Daily planning mode: "what should I do today?"
+- End-of-day review: what changed, what is still blocked, what should move to tomorrow.
+- Automatic task hygiene suggestions: missing tags, vague cards, stale waiting tasks, unprioritized work.
+- Smarter dependency analysis between cards.
+- AI Advisor that can plan multi-step improvements and ask for confirmation.
+- Natural-language commands such as "prepare my morning queue" or "show tasks blocked by client replies".
+- Personal memory/context layer for recurring people, clients, projects, and working patterns.
+- Metrics about time, tags, priority drift, blocked work, and completed work.
+- Permissions and workspaces if the app grows beyond personal use.
+
+## Technical context
+
+Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL persistence in Supabase.
 
 ## Stack
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
-- Base de dados: PostgreSQL no Supabase
+- Database: PostgreSQL on Supabase
 - Migrations: Supabase CLI
-- AI Advisor: OpenAI API opcional
-- Sem login/autenticação nesta versão
+- AI Advisor: optional OpenAI API
+- No login/authentication in this version
 
-## Funcionalidades principais
+## Main features
 
-- Vistas Kanban, Fila, Fila rápida, Cobranças prováveis e Arquivadas
-- Filtros independentes por vista
-- Tags reutilizáveis, com filtro multi-tag e remoção de tags não usadas
-- Prioridades, prazos, favoritos, checklist e estimativa opcional
-- Relações entre cartões e dependências/blockers
-- Bloqueios impedem concluir uma task enquanto dependências ou checklist estiverem pendentes
-- Histórico de progresso editável
-- Arquivar/restaurar tasks e arquivar em massa tasks `done`/`cancelled`
-- Quick queue local para lembretes de curto prazo
-- AI Advisor com buffer de propostas: aceitar/ignorar individualmente ou em massa
+- Kanban, Queue, Quick Queue, Probable Follow-ups, and Archived views
+- Independent filters per view
+- Reusable tags, multi-tag filtering, and deletion of unused tags
+- Priorities, due dates, favorites, checklist, and optional estimate
+- Relations between cards and dependencies/blockers
+- Blockers prevent completing a task while dependencies or checklist items are pending
+- Editable progress history
+- Archive/restore tasks and bulk archive `done`/`cancelled` tasks
+- Local quick queue for short-term reminders
+- AI Advisor with proposal buffer: accept/ignore individually or in bulk
 
-## Estrutura
+## Structure
 
 ```text
 task-app/
@@ -58,16 +140,16 @@ task-app/
   docker-compose.yml
 ```
 
-## Pré-requisitos
+## Prerequisites
 
 - Node.js 20+
 - npm 10+
-- Docker Desktop, apenas se usares Docker Compose ou Supabase local
-- Projeto Supabase com connection string PostgreSQL
+- Docker Desktop, only if using Docker Compose or local Supabase tooling
+- Supabase project with PostgreSQL connection string
 
-## Configuração inicial
+## Initial setup
 
-Instalar dependências da raiz, backend e frontend:
+Install root, backend, and frontend dependencies:
 
 ```bash
 npm install
@@ -77,14 +159,14 @@ cd ../frontend
 npm install
 ```
 
-Configurar backend:
+Configure backend:
 
 ```bash
 cd backend
 copy .env.example .env
 ```
 
-Define no `backend/.env`:
+Set in `backend/.env`:
 
 ```text
 DATABASE_URL=postgresql://...
@@ -94,16 +176,16 @@ OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
 ```
 
-`OPENAI_API_KEY` é opcional. Sem chave, o endpoint `/advisor` continua a funcionar com regras locais, mas as propostas AI não ficam disponíveis.
+`OPENAI_API_KEY` is optional. Without it, `/advisor` still works with local rule-based advice, but AI-generated proposals are unavailable.
 
-Testar ligação à base de dados:
+Test database connection:
 
 ```bash
 cd backend
 npm run db:check
 ```
 
-## Executar localmente
+## Run locally
 
 Terminal 1:
 
@@ -131,17 +213,17 @@ Frontend:
 http://localhost:5173
 ```
 
-Em desenvolvimento, o frontend usa `/api` e o Vite faz proxy para `http://127.0.0.1:4000`.
+In development, the frontend uses `/api` and Vite proxies requests to `http://127.0.0.1:4000`.
 
 ## Docker Compose
 
-A base de dados continua no Supabase. O Compose corre apenas frontend e backend localmente.
+The database remains in Supabase. Compose only runs frontend and backend locally.
 
 ```bash
 docker compose up --build
 ```
 
-Serviços:
+Services:
 
 ```text
 Frontend: http://localhost:5173
@@ -149,21 +231,21 @@ Backend:  http://localhost:4000
 Health:   http://localhost:4000/health
 ```
 
-Parar:
+Stop:
 
 ```bash
 docker compose down
 ```
 
-## Migrations com Supabase CLI
+## Database migrations with Supabase CLI
 
-As migrations vivem em:
+Migrations live in:
 
 ```text
 supabase/migrations/
 ```
 
-O histórico remoto já foi alinhado com as migrations existentes:
+The remote migration history has already been aligned with the existing migrations:
 
 ```text
 20260621000000_normalize_tags.sql
@@ -171,71 +253,71 @@ O histórico remoto já foi alinhado com as migrations existentes:
 20260622000100_expand_task_model.sql
 ```
 
-Login/link do projeto:
+Login/link project:
 
 ```bash
 npm run db:login
 npm run db:link
 ```
 
-Ver estado:
+Check migration state:
 
 ```bash
 npm run db:migration:list
 ```
 
-Criar nova migration:
+Create a new migration:
 
 ```bash
-npm run db:migration:new -- nome_da_migracao
+npm run db:migration:new -- migration_name
 ```
 
-Editar o ficheiro criado em `supabase/migrations/`.
+Edit the generated file in `supabase/migrations/`.
 
-Aplicar migrations pendentes na Supabase remota:
+Apply pending migrations to remote Supabase:
 
 ```bash
 npm run db:push
 ```
 
-Exportar schema remoto para consulta:
+Dump remote schema for inspection:
 
 ```bash
 npm run db:dump:file
 ```
 
-Isto cria `schema-current.sql`, que está ignorado pelo Git.
+This creates `schema-current.sql`, which is ignored by Git.
 
-Regra: evitar alterações manuais de schema no Dashboard da Supabase. Alterações de schema devem entrar como migrations SQL.
+Rule: avoid manual schema changes in the Supabase Dashboard. Schema changes should be committed as SQL migrations.
 
 ## API
 
 ### Health
 
-| Método | Endpoint | Descrição |
+| Method | Endpoint | Description |
 | --- | --- | --- |
-| `GET` | `/` | Info básica da API |
-| `GET` | `/health` | Verifica API e ligação à base de dados |
+| `GET` | `/` | Basic API info |
+| `GET` | `/health` | Checks API and database connection |
 
 ### Tasks
 
-| Método | Endpoint | Descrição |
+| Method | Endpoint | Description |
 | --- | --- | --- |
-| `GET` | `/tasks` | Listar, filtrar e ordenar tasks |
-| `POST` | `/tasks` | Criar task |
-| `GET` | `/tasks/:id` | Obter task |
-| `PUT` | `/tasks/:id` | Atualizar task |
-| `DELETE` | `/tasks/:id` | Eliminar task |
-| `POST` | `/tasks/:id/duplicate` | Duplicar task como `new` |
-| `POST` | `/tasks/:id/archive` | Arquivar task |
-| `DELETE` | `/tasks/:id/archive` | Restaurar task arquivada |
-| `POST` | `/tasks/archive-bulk` | Arquivar todas as tasks de um status |
-| `PATCH` | `/tasks/:id/checklist/:itemId` | Alternar item de checklist |
-| `POST` | `/tasks/:id/progress` | Adicionar log de progresso |
-| `PUT` | `/tasks/:id/progress/:entryId` | Editar log de progresso |
-| `POST` | `/tasks/:id/blockers` | Criar task que bloqueia a task indicada |
+| `GET` | `/tasks` | List, filter, and sort tasks |
+| `POST` | `/tasks` | Create task |
+| `GET` | `/tasks/:id` | Get task |
+| `PUT` | `/tasks/:id` | Update task |
+| `DELETE` | `/tasks/:id` | Delete task |
+| `POST` | `/tasks/:id/duplicate` | Duplicate task as `new` |
+| `POST` | `/tasks/:id/archive` | Archive task |
+| `DELETE` | `/tasks/:id/archive` | Restore archived task |
+| `POST` | `/tasks/archive-bulk` | Archive all tasks with a given status |
+| `PATCH` | `/tasks/:id/checklist/:itemId` | Toggle checklist item |
+| `POST` | `/tasks/:id/progress` | Add progress log |
+| `PUT` | `/tasks/:id/progress/:entryId` | Edit progress log |
+| `POST` | `/tasks/:id/blockers` | Create a task that blocks the selected task |
 
-Filtros de `GET /tasks`:
+Filters for `GET /tasks`:
 
 - `status=new|in_progress|waiting|done|cancelled`
 - `priority=1|2|3|4`
@@ -246,42 +328,42 @@ Filtros de `GET /tasks`:
 - `hideDone=true`
 - `hideCancelled=true`
 - `archived=true`
-- `tag=nome` pode repetir
-- `search=texto`
+- `tag=name` can be repeated
+- `search=text`
 - `sort=priority|dueDateTime|createdAt|updatedAt|requestedBy|status`
 
-Exemplos:
+Examples:
 
 ```text
 GET /tasks?status=new&sort=priority
 GET /tasks?priority=4&overdue=true
-GET /tasks?tag=excel&tag=preços
+GET /tasks?tag=excel&tag=prices
 GET /tasks?archived=true
 ```
 
 ### Tags
 
-| Método | Endpoint | Descrição |
+| Method | Endpoint | Description |
 | --- | --- | --- |
-| `GET` | `/tags` | Listar/pesquisar tags reutilizáveis |
-| `DELETE` | `/tags/:id` | Apagar tag sem uso |
+| `GET` | `/tags` | List/search reusable tags |
+| `DELETE` | `/tags/:id` | Delete unused tag |
 
 ### Advisor / AI
 
-| Método | Endpoint | Descrição |
+| Method | Endpoint | Description |
 | --- | --- | --- |
-| `GET` | `/advisor?limit=5` | Sugestão simples do que fazer a seguir |
-| `POST` | `/ai/advisor/request` | Gerar propostas AI a partir de um pedido |
-| `POST` | `/ai/commands/preview` | Validar/preview de comandos AI |
-| `POST` | `/ai/commands/apply` | Aplicar comandos AI aceites |
+| `GET` | `/advisor?limit=5` | Simple suggestion of what to do next |
+| `POST` | `/ai/advisor/request` | Generate AI proposals from a user request |
+| `POST` | `/ai/commands/preview` | Validate/preview AI commands |
+| `POST` | `/ai/commands/apply` | Apply accepted AI commands |
 
-O backend limita pedidos AI de geração a `3` requests por `10` segundos por cliente/IP.
+The backend rate-limits AI generation requests to `3` requests per `10` seconds per client/IP.
 
-O Advisor não aplica alterações sozinho. Ele gera propostas que aparecem num buffer no frontend; o utilizador aceita ou ignora cada proposta.
+The Advisor does not apply changes by itself. It generates proposals shown in the frontend buffer, where the user accepts or ignores each action.
 
-## Modelo de dados principal
+## Main data model
 
-Campos principais expostos pela API:
+Main API fields:
 
 ```js
 {
@@ -307,7 +389,7 @@ Campos principais expostos pela API:
 }
 ```
 
-Status válidos:
+Valid statuses:
 
 ```text
 new
@@ -317,25 +399,25 @@ done
 cancelled
 ```
 
-Prioridades:
+Priorities:
 
 ```text
-1 = baixa
-2 = média
-3 = alta
-4 = urgente
+1 = low
+2 = medium
+3 = high
+4 = urgent
 ```
 
-## Importação de JSON antigo
+## Import old JSON data
 
-Para importar uma vez `backend/tasks.json` para uma base vazia:
+To import `backend/tasks.json` once into an empty database:
 
 ```bash
 cd backend
 npm run db:import-json
 ```
 
-O importador recusa correr se a tabela `tasks` já tiver dados.
+The importer refuses to run if the `tasks` table already contains data.
 
 ## Build
 
@@ -357,9 +439,9 @@ node --check server.js
 
 ### Backend
 
-O `backend/Dockerfile` corre a API Express.
+`backend/Dockerfile` runs the Express API.
 
-Variáveis típicas:
+Typical environment variables:
 
 ```text
 PORT=8000
@@ -381,12 +463,12 @@ Health check:
 
 ### Frontend
 
-O `frontend/Dockerfile` compila o frontend e serve com Nginx.
+`frontend/Dockerfile` builds the frontend and serves it with Nginx.
 
-Variável:
+Variable:
 
 ```text
 BACKEND_URL=https://backend.example.com
 ```
 
-O browser usa `/api`; o Nginx encaminha para `BACKEND_URL`.
+The browser uses `/api`; Nginx proxies that path to `BACKEND_URL`.
