@@ -40,12 +40,13 @@ export default function App() {
 
   const {
     quickQueueItems,
+    quickQueueLoading,
     addQuickQueueItem,
     toggleQuickQueueItem,
     deleteQuickQueueItem,
     moveQuickQueueItem,
     clearDoneQuickQueueItems
-  } = useQuickQueue();
+  } = useQuickQueue({ setError });
 
   const taskForm = useTaskFormController({
     allTasks,
@@ -186,6 +187,7 @@ export default function App() {
           onQueueSortChange={setQueueSort}
           collectionSections={collectionSections}
           quickQueueItems={quickQueueItems}
+          quickQueueLoading={quickQueueLoading}
           onQuickQueueAdd={addQuickQueueItem}
           onQuickQueueToggle={toggleQuickQueueItem}
           onQuickQueueDelete={deleteQuickQueueItem}

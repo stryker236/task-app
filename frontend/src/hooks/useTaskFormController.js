@@ -103,7 +103,7 @@ export default function useTaskFormController({
       else await createTask(taskData);
 
       if (!editingTask && !blockingTarget && quickQueueTaskSourceId) {
-        deleteQuickQueueItem(quickQueueTaskSourceId);
+        await deleteQuickQueueItem(quickQueueTaskSourceId);
         setQuickQueueTaskSourceId(null);
       }
 

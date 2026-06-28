@@ -14,6 +14,7 @@ export default function MainView({
   onQueueSortChange,
   collectionSections,
   quickQueueItems,
+  quickQueueLoading,
   onQuickQueueAdd,
   onQuickQueueToggle,
   onQuickQueueDelete,
@@ -25,6 +26,7 @@ export default function MainView({
     return (
       <QuickQueue
         items={quickQueueItems}
+        loading={quickQueueLoading}
         onAdd={onQuickQueueAdd}
         onToggle={onQuickQueueToggle}
         onDelete={onQuickQueueDelete}

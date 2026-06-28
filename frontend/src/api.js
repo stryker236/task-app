@@ -64,3 +64,10 @@ export const toggleChecklistItem = (taskId, itemId, isDone) => requestJson(`/tas
 export const addTaskProgressEntry = (taskId, message) => requestJson(`/tasks/${taskId}/progress`, { method: 'POST', body: JSON.stringify({ message }) });
 export const editTaskProgressEntry = (taskId, entryId, message) => requestJson(`/tasks/${taskId}/progress/${entryId}`, { method: 'PUT', body: JSON.stringify({ message }) });
 export const createBlockingTask = (blockedTaskId, task) => requestJson(`/tasks/${blockedTaskId}/blockers`, { method: 'POST', body: JSON.stringify(task) });
+
+export const getQuickQueueItems = () => requestJson('/quick-queue');
+export const createQuickQueueItem = (text) => requestJson('/quick-queue', { method: 'POST', body: JSON.stringify({ text }) });
+export const updateQuickQueueItem = (id, patch) => requestJson(`/quick-queue/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+export const deleteQuickQueueItem = (id) => requestJson(`/quick-queue/${id}`, { method: 'DELETE' });
+export const moveQuickQueueItem = (id, direction) => requestJson(`/quick-queue/${id}/move`, { method: 'POST', body: JSON.stringify({ direction }) });
+export const clearDoneQuickQueueItems = () => requestJson('/quick-queue/done', { method: 'DELETE' });

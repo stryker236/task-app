@@ -17,6 +17,17 @@ pool.on('error', (error) => console.error('Unexpected PostgreSQL pool error', er
 
 const iso = (value) => value ? new Date(value).toISOString() : null;
 
+function mapQuickQueueItem(row) {
+	return {
+		id: String(row.id),
+		text: row.text,
+		done: row.is_done,
+		position: row.position,
+		createdAt: iso(row.created_at),
+		updatedAt: iso(row.updated_at)
+	};
+}
+
 async function withTransaction(work) {
 	const client = await pool.connect();
 	try {
@@ -405,6 +416,56 @@ async function checkConnection() {
 	return result.rows[0];
 }
 
+async function fetchQuickQueueItems(db = pool) {
+	const result = await db.query('SELECT * FROM quick_queue_items ORDER BY position ASC, created_at ASC');
+	return result.rows.map(mapQuickQueueItem);
+}
+
+async function createQuickQueueItem(db, text) {
+	const result = await db.query(
+		`INSERT INTO quick_queue_items (text, position)
+     VALUES ($1, COALESCE((SELECT max(position) + 1 FROM quick_queue_items), 0))
+     RETURNING *`,
+		[text]
+	);
+	return mapQuickQueueItem(result.rows[0]);
+}
+
+async function updateQuickQueueItem(db, id, patch) {
+	const result = await db.query(
+		`UPDATE quick_queue_items
+     SET text = COALESCE($2, text),
+         is_done = COALESCE($3, is_done)
+     WHERE id = $1
+     RETURNING *`,
+		[id, patch.text ?? null, typeof patch.done === 'boolean' ? patch.done : null]
+	);
+	return result.rows[0] ? mapQuickQueueItem(result.rows[0]) : null;
+}
+
+async function deleteQuickQueueItem(db, id) {
+	const result = await db.query('DELETE FROM quick_queue_items WHERE id = $1', [id]);
+	return result.rowCount > 0;
+}
+
+async function clearDoneQuickQueueItems(db) {
+	await db.query('DELETE FROM quick_queue_items WHERE is_done = true');
+	return fetchQuickQueueItems(db);
+}
+
+async function moveQuickQueueItem(db, id, direction) {
+	const items = await fetchQuickQueueItems(db);
+	const index = items.findIndex((item) => item.id === id);
+	const targetIndex = index + direction;
+	if (index < 0) return null;
+	if (targetIndex < 0 || targetIndex >= items.length) return items;
+	const current = items[index];
+	const target = items[targetIndex];
+	await db.query('UPDATE quick_queue_items SET position = $2 WHERE id = $1', [current.id, target.position]);
+	await db.query('UPDATE quick_queue_items SET position = $2 WHERE id = $1', [target.id, current.position]);
+	return fetchQuickQueueItems(db);
+}
+
 module.exports = {
 	pool,
 	withTransaction,
@@ -416,5 +477,11 @@ module.exports = {
 	fetchTags,
 	deleteUnusedTag,
 	deleteUnusedTags,
+	fetchQuickQueueItems,
+	createQuickQueueItem,
+	updateQuickQueueItem,
+	deleteQuickQueueItem,
+	clearDoneQuickQueueItems,
+	moveQuickQueueItem,
 	checkConnection
 };

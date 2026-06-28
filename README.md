@@ -30,7 +30,7 @@ The app organizes work through several views:
 - Kanban, for status-based work tracking.
 - Queue, for execution order and prioritization.
 - Probable follow-ups, for overdue, urgent, waiting, and no-deadline cards.
-- Quick queue, for short-term reminders that do not need database persistence.
+- Quick Queue, for short-term reminders synchronized through the database.
 - Archived, for closed work.
 
 Each task can have:
@@ -103,7 +103,7 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 - Blockers prevent completing a task while dependencies or checklist items are pending
 - Editable progress history
 - Archive/restore tasks and bulk archive `done`/`cancelled` tasks
-- Local quick queue for short-term reminders
+- Database-backed Quick Queue for short-term reminders shared between clients
 - AI Advisor with proposal buffer: accept/ignore individually or in bulk
 
 ## Structure

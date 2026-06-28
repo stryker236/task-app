@@ -11,7 +11,7 @@ function formatCreatedAt(value) {
   }).format(new Date(value));
 }
 
-export default function QuickQueue({ items, onAdd, onToggle, onDelete, onMove, onClearDone, onCreateTask }) {
+export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, onMove, onClearDone, onCreateTask }) {
   const [text, setText] = useState('');
 
   const counts = useMemo(() => ({
@@ -34,7 +34,7 @@ export default function QuickQueue({ items, onAdd, onToggle, onDelete, onMove, o
         <div>
           <span>Fila curta</span>
           <h2>Lembretes rápidos</h2>
-          <p>Itens temporários guardados apenas neste browser. Não entram na base de dados.</p>
+          <p>Lembretes curtos guardados na base de dados e sincronizados entre clientes.</p>
         </div>
         <div className="quick-queue-stats">
           <strong>{counts.open}</strong>
@@ -61,7 +61,9 @@ export default function QuickQueue({ items, onAdd, onToggle, onDelete, onMove, o
         </button>
       </div>
 
-      {items.length ? (
+      {loading ? (
+        <div className="loading">A carregar fila rápida…</div>
+      ) : items.length ? (
         <ol className="quick-queue-list">
           {items.map((item, index) => (
             <li className={item.done ? 'done' : ''} key={item.id}>
