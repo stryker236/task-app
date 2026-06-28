@@ -1,6 +1,7 @@
 node_modules/
 frontend/dist/
 backend/tasks.json.tmp
+schema-current.sql
 .env
 *.log
 .vscode/

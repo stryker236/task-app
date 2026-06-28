@@ -1,0 +1,2 @@
+-- Optional local seed data for Supabase CLI.
+-- Keep this empty unless you want `npm run db:reset` to insert local sample data.

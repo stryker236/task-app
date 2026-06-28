@@ -1,0 +1,20 @@
+{
+  "name": "task-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "supabase": "supabase",
+    "db:login": "supabase login",
+    "db:link": "supabase link",
+    "db:migration:new": "supabase migration new",
+    "db:migration:list": "supabase migration list",
+    "db:pull": "supabase db pull",
+    "db:push": "supabase db push",
+    "db:dump": "supabase db dump --linked --schema public",
+    "db:dump:file": "supabase db dump --linked --schema public --file schema-current.sql",
+    "db:reset": "supabase db reset"
+  },
+  "devDependencies": {
+    "supabase": "^2.108.0"
+  }
+}

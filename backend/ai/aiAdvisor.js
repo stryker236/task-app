@@ -151,7 +151,25 @@ function removeNullProperties(value) {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null && item !== undefined));
 }
 
-function createCommandContextTask(task) {
+function createCommandContextTask(task, tasksById) {
+  const relationContext = task.relations.slice(0, 12).map((relation) => {
+    const relatedTask = tasksById.get(relation.relatedTaskId);
+    return {
+      type: relation.type,
+      relatedTaskId: relation.relatedTaskId,
+      relatedTaskTitle: relatedTask?.title || '',
+      relatedTaskStatus: relatedTask?.status || ''
+    };
+  });
+  const blockedByContext = task.blockedByTaskIds.map((taskId) => {
+    const dependency = tasksById.get(taskId);
+    return {
+      taskId,
+      title: dependency?.title || '',
+      status: dependency?.status || ''
+    };
+  });
+
   return {
     id: task.id,
     title: task.title,
@@ -163,10 +181,13 @@ function createCommandContextTask(task) {
     isFavorite: task.isFavorite,
     tags: task.tags,
     blockedByTaskIds: task.blockedByTaskIds,
-    relations: task.relations,
+    blockedBy: blockedByContext,
+    relations: relationContext,
     checklistItems: task.checklistItems.map((item) => ({
+      id: item.id,
       title: item.title,
-      isDone: item.isDone
+      isDone: item.isDone,
+      position: item.position
     })),
     latestActivity: [...task.activityLog].reverse().slice(0, 3).map((entry) => ({
       type: entry.type,
@@ -176,6 +197,49 @@ function createCommandContextTask(task) {
     createdAt: task.createdAt,
     updatedAt: task.updatedAt
   };
+}
+
+function buildTaskDateContext(tasks) {
+  const activeWithDueDate = tasks
+    .filter((task) => !task.isArchived && !['done', 'cancelled'].includes(task.status) && task.dueDateTime)
+    .sort((a, b) => new Date(a.dueDateTime) - new Date(b.dueDateTime))
+    .slice(0, 80)
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      dueDateTime: task.dueDateTime,
+      estimatedMinutes: task.estimatedMinutes,
+      tags: task.tags
+    }));
+
+  const activeWithoutDueDate = tasks
+    .filter((task) => !task.isArchived && !['done', 'cancelled'].includes(task.status) && !task.dueDateTime)
+    .slice(0, 80)
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      estimatedMinutes: task.estimatedMinutes,
+      tags: task.tags
+    }));
+
+  return {
+    activeWithDueDate,
+    activeWithoutDueDate,
+    activeTaskCount: tasks.filter((task) => !task.isArchived && !['done', 'cancelled'].includes(task.status)).length
+  };
+}
+
+function advisorStatusPriority(status) {
+  const order = {
+    new: 0,
+    in_progress: 1,
+    waiting: 2
+  };
+  return order[status] ?? 3;
 }
 
 function normalizeAdvisorCommands(parsed) {
@@ -223,11 +287,16 @@ async function generateTaskAdvisorCommands({ message, tasks, tags = [] }) {
     throw error;
   }
 
+  const tasksById = buildTaskLookup(tasks);
   const activeTasks = tasks
-    .filter((task) => !task.isArchived)
-    .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
-    .slice(0, 80)
-    .map(createCommandContextTask);
+    .filter((task) => !task.isArchived && ['new', 'in_progress', 'waiting'].includes(task.status))
+    .sort((a, b) => {
+      const statusDifference = advisorStatusPriority(a.status) - advisorStatusPriority(b.status);
+      if (statusDifference) return statusDifference;
+      return new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt);
+    })
+    .slice(0, 160)
+    .map((task) => createCommandContextTask(task, tasksById));
 
   const body = {
     model: DEFAULT_MODEL,
@@ -241,7 +310,19 @@ async function generateTaskAdvisorCommands({ message, tasks, tags = [] }) {
           'Never invent task IDs. Only use task IDs from the provided task context.',
           'Never return SQL. Never delete, archive, or directly execute anything.',
           'Prefer small, useful improvements over noisy bulk edits.',
-          'For update_task, only include fields that materially improve the card.',
+          'For update_task, normally do NOT change title, notes, history/activity, status, or favorite unless the user explicitly asks.',
+          'Focus update_task proposals on: tags, dueDateTime, checklistItems, blockedByTaskIds, and priority.',
+          'Do not propose estimatedMinutes by default. Only propose estimatedMinutes if the user explicitly asks for time estimates, or if the task has a concrete checklist/scope that makes the estimate defensible.',
+          'If estimating time is explicitly requested, use conservative rounded values only: 15, 30, 45, 60, 90, 120, 180, 240, or 480 minutes. Never estimate vague tasks.',
+          'For tags, actively suggest improvements when tags are missing, inconsistent, duplicated by meaning, too broad, or useful for filtering.',
+          'Prefer reusing availableTags exactly as written. Suggest a new tag only when no existing tag fits well.',
+          'Keep tag names short, lowercase when natural, and avoid one-off noise tags.',
+          'Only consider active cards. The provided task context excludes done and cancelled cards.',
+          'When choosing which cards to improve first, prioritize status in this order: new, in_progress, waiting.',
+          'Suggest dueDateTime only when a task has no due date or the current due date is clearly wrong. Use the date context to avoid unrealistic clustering.',
+          'Suggest priority increases/decreases when urgency, due date, blockers, or scope justify it.',
+          'Suggest checklistItems when the task lacks concrete next steps. Preserve existing checklist items; return the complete desired checklist if changing it.',
+          'Use add_relation for associated cards and relationship suggestions. Use blockedByTaskIds for concrete dependencies that prevent completion.',
           'For create_task, create only clear follow-up tasks that are missing from the existing list.',
           'For add_relation, use relationType only when the relationship is strongly supported by the task data.',
           'Do not mark tasks done unless blockers and checklist are complete.',
@@ -257,7 +338,21 @@ async function generateTaskAdvisorCommands({ message, tasks, tags = [] }) {
           allowedStatuses: STATUSES,
           allowedPriorities: [1, 2, 3, 4],
           allowedRelationTypes: RELATION_TYPES,
+          statusPriorityOrder: ['new', 'in_progress', 'waiting'],
+          preferredUpdateFields: ['tags', 'dueDateTime', 'checklistItems', 'blockedByTaskIds', 'priority'],
+          estimatedMinutesPolicy: {
+            default: 'do_not_suggest',
+            requireExplicitUserRequestOrConcreteChecklist: true,
+            allowedRoundedMinutes: [15, 30, 45, 60, 90, 120, 180, 240, 480]
+          },
+          tagGuidelines: {
+            reuseExistingTagsFirst: true,
+            suggestTagsForMissingOrInconsistentTags: true,
+            avoidOneOffNoiseTags: true
+          },
+          avoidUpdateFieldsUnlessExplicitlyAsked: ['title', 'notes', 'status', 'isFavorite'],
           availableTags: tags.map((tag) => tag.name || tag).slice(0, 200),
+          dateContext: buildTaskDateContext(tasks),
           tasks: activeTasks
         })
       }

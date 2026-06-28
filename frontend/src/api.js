@@ -36,6 +36,20 @@ export function getTaskAdvisorAdvice(limit = 5) {
   return requestJson(`/advisor?limit=${encodeURIComponent(limit)}`);
 }
 
+export function requestTaskAdvisorCommands(message) {
+  return requestJson('/ai/advisor/request', {
+    method: 'POST',
+    body: JSON.stringify({ message })
+  });
+}
+
+export function applyAiCommands(commands) {
+  return requestJson('/ai/commands/apply', {
+    method: 'POST',
+    body: JSON.stringify({ commands })
+  });
+}
+
 export const deleteTag = (id) => requestJson(`/tags/${id}`, { method: 'DELETE' });
 
 export const createTask = (task) => requestJson('/tasks', { method: 'POST', body: JSON.stringify(task) });

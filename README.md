@@ -25,6 +25,83 @@ Aplicação de gestão de tarefas para desktop, com frontend React/Vite, API Nod
 
 Abra dois terminais a partir desta pasta.
 
+## Migrations da base de dados
+
+O projeto usa o fluxo oficial da Supabase CLI para gerir alterações de schema por código. As migrations vivem em:
+
+```text
+supabase/migrations/
+```
+
+Instalar dependências da raiz do projeto:
+
+```bash
+npm install
+```
+
+Primeira configuração da CLI:
+
+```bash
+npm run db:login
+npm run db:link
+```
+
+O `db:link` vai pedir para escolher/indicar o projeto Supabase. Isto cria o link local; não deve ser commitado se contiver dados sensíveis.
+
+Criar uma nova migration:
+
+```bash
+npm run db:migration:new -- nome_da_migracao
+```
+
+Isto cria um ficheiro SQL em `supabase/migrations/`. Edita esse ficheiro manualmente com o SQL necessário.
+
+Aplicar migrations pendentes na Supabase remota:
+
+```bash
+npm run db:push
+```
+
+Ver estado das migrations:
+
+```bash
+npm run db:migration:list
+```
+
+Exportar o schema remoto atual para consulta:
+
+```bash
+npm run db:dump:file
+```
+
+Se alguma alteração tiver sido feita manualmente no dashboard e precisares de a trazer para código:
+
+```bash
+npm run db:pull
+```
+
+Regra importante: depois de começares a usar migrations, evita alterar o schema diretamente no dashboard da Supabase. Faz alterações em ficheiros SQL e aplica com `npm run db:push`.
+
+### Primeiro uso com uma base Supabase já existente
+
+Se a base remota já tem alterações aplicadas manualmente, não corras `npm run db:push` às cegas. A Supabase compara os ficheiros em `supabase/migrations/` com o histórico remoto em `supabase_migrations.schema_migrations`. Se o schema já existe mas o histórico não sabe disso, o push pode falhar com erros de objetos já existentes.
+
+Fluxo seguro:
+
+```bash
+npm run db:login
+npm run db:link
+npm run db:migration:list
+npm run db:dump:file
+```
+
+Depois compara `schema-current.sql` com as migrations existentes. Se as migrations já foram aplicadas manualmente, tens duas opções:
+
+1. criar uma baseline nova com `npm run db:pull`; ou
+2. marcar migrations antigas como aplicadas com `supabase migration repair`.
+
+Neste caso pede-me ajuda antes de correr `db:push`, porque depende do estado real da tua base remota.
+
 Backend:
 
 ```bash
@@ -201,10 +278,10 @@ O backend usa as tabelas `tasks`, `task_dependencies`, `task_tags`, `task_activi
 
 ### Migração do catálogo de tags
 
-Antes de executar esta versão do backend, abra o SQL Editor do Supabase e execute uma única vez:
+Antes de executar esta versão do backend, aplica as migrations via Supabase CLI com `npm run db:push`. A migration relevante está em:
 
 ```text
-backend/migrations/20260621_normalize_tags.sql
+supabase/migrations/20260621000000_normalize_tags.sql
 ```
 
 A migração cria `tags(id, name, normalized_name)`, converte `task_tags` para usar `tag_id`, preserva as associações existentes e junta variantes que diferem apenas em maiúsculas/minúsculas ou espaços. Execute-a primeiro num ambiente de teste ou depois de criar um backup.

@@ -25,10 +25,10 @@ function normalizeChecklistItems(value, errors) {
   const now = new Date().toISOString();
   const seenIds = new Set();
   return (Array.isArray(value) ? value : []).map((item, index) => {
-    const id = item.id || randomUUID();
+    const rawId = normalizeString(item.id);
+    const id = UUID_PATTERN.test(rawId) ? rawId : randomUUID();
     const title = normalizeString(item.title);
     const isDone = item.isDone === true;
-    if (!UUID_PATTERN.test(id)) errors.push(`checklistItems[${index}].id must be a UUID`);
     if (seenIds.has(id)) errors.push(`duplicate checklist item id: ${id}`);
     seenIds.add(id);
     if (!title) errors.push(`checklistItems[${index}].title is required`);

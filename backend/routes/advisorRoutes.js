@@ -6,7 +6,14 @@ const {
   applyPreparedAiCommand,
   buildAiCommandsPreview
 } = require('../ai/aiCommands');
+const { createMemoryRateLimit } = require('../middleware/rateLimit');
 const { normalizeString, createValidationError } = require('../tasks/taskValidation');
+
+const aiRateLimit = createMemoryRateLimit({
+  windowMs: Number(process.env.AI_RATE_LIMIT_WINDOW_MS || 10000),
+  max: Number(process.env.AI_RATE_LIMIT_MAX || 3),
+  message: 'AI request rate limit exceeded'
+});
 
 function createAdvisorRouter({
   fetchTasks,
@@ -19,7 +26,7 @@ function createAdvisorRouter({
 }) {
   const router = express.Router();
 
-  router.get('/advisor', async (req, res, next) => {
+  router.get('/advisor', aiRateLimit, async (req, res, next) => {
     try {
       const requestedLimit = Number(req.query.limit || 5);
       const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 && requestedLimit <= 10 ? requestedLimit : 5;
@@ -39,7 +46,7 @@ function createAdvisorRouter({
     } catch (error) { next(error); }
   });
 
-  router.post('/ai/advisor/request', async (req, res, next) => {
+  router.post('/ai/advisor/request', aiRateLimit, async (req, res, next) => {
     try {
       const message = normalizeString(req.body.message);
       if (!message) throw createValidationError(['message is required']);

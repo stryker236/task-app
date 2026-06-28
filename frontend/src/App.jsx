@@ -58,6 +58,8 @@ export default function App() {
 
   const advisorController = useAdvisorController({
     allTasks,
+    fetchDashboardData,
+    filters,
     setError,
     setViewingTask
   });
@@ -128,7 +130,19 @@ export default function App() {
           <AdvisorPanel
             advice={advisorController.advisor}
             loading={advisorController.advisorLoading}
+            request={advisorController.advisorRequest}
+            proposals={advisorController.proposalBatch}
+            proposalStatuses={advisorController.proposalStatuses}
+            applyingProposalId={advisorController.applyingProposalId}
+            applyingAllProposals={advisorController.applyingAllProposals}
+            onRequestChange={advisorController.setAdvisorRequest}
             onRefresh={advisorController.refreshTaskAdvisorAdvice}
+            onRequestActions={advisorController.requestAdvisorActions}
+            onApplyProposal={advisorController.applyAdvisorProposal}
+            onIgnoreProposal={advisorController.ignoreAdvisorProposal}
+            onApplyAllProposals={advisorController.applyAllAdvisorProposals}
+            onIgnoreAllProposals={advisorController.ignoreAllAdvisorProposals}
+            onClearProposals={advisorController.clearAdvisorProposals}
             onOpenTask={advisorController.openAdvisorRecommendedTask}
           />
         )}

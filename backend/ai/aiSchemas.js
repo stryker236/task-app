@@ -10,6 +10,23 @@ const nullableStringArray = {
     { type: 'null' }
   ]
 };
+const checklistItemSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: nullableString,
+    title: { type: 'string' },
+    isDone: { anyOf: [{ type: 'boolean' }, { type: 'null' }] },
+    position: { anyOf: [{ type: 'integer' }, { type: 'null' }] }
+  },
+  required: ['id', 'title', 'isDone', 'position']
+};
+const nullableChecklistItems = {
+  anyOf: [
+    { type: 'array', items: checklistItemSchema },
+    { type: 'null' }
+  ]
+};
 
 const taskPatchSchema = {
   type: 'object',
@@ -23,9 +40,10 @@ const taskPatchSchema = {
     estimatedMinutes: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
     isFavorite: nullableBoolean,
     tags: nullableStringArray,
-    blockedByTaskIds: nullableStringArray
+    blockedByTaskIds: nullableStringArray,
+    checklistItems: nullableChecklistItems
   },
-  required: ['title', 'notes', 'priority', 'status', 'dueDateTime', 'estimatedMinutes', 'isFavorite', 'tags', 'blockedByTaskIds']
+  required: ['title', 'notes', 'priority', 'status', 'dueDateTime', 'estimatedMinutes', 'isFavorite', 'tags', 'blockedByTaskIds', 'checklistItems']
 };
 
 const taskCreateSchema = {
@@ -40,9 +58,10 @@ const taskCreateSchema = {
     estimatedMinutes: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
     isFavorite: nullableBoolean,
     tags: nullableStringArray,
-    blockedByTaskIds: nullableStringArray
+    blockedByTaskIds: nullableStringArray,
+    checklistItems: nullableChecklistItems
   },
-  required: ['title', 'notes', 'priority', 'status', 'dueDateTime', 'estimatedMinutes', 'isFavorite', 'tags', 'blockedByTaskIds']
+  required: ['title', 'notes', 'priority', 'status', 'dueDateTime', 'estimatedMinutes', 'isFavorite', 'tags', 'blockedByTaskIds', 'checklistItems']
 };
 
 const advisorCommandResponseSchema = {
