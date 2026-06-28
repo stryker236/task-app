@@ -12,6 +12,7 @@ const {
   syncInverseRelationships,
   fetchTags,
   deleteUnusedTag,
+  deleteUnusedTags,
   checkConnection
 } = require('./db/database');
 const { createHealthRouter } = require('./routes/healthRoutes');
@@ -54,6 +55,7 @@ const routeDependencies = {
   syncInverseRelationships,
   fetchTags,
   deleteUnusedTag,
+  deleteUnusedTags,
   checkConnection,
   findTaskById
 };

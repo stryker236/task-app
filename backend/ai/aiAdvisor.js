@@ -7,6 +7,30 @@ const {
   advisorCommandResponseSchema
 } = require('./aiSchemas');
 
+const ADVISOR_ACTIONS = {
+  improve_tasks: {
+    label: 'Improve tasks',
+    instruction: 'Improve active cards without changing titles, notes, history, status, favorite, or estimates unless truly necessary. Focus on tags, due dates, checklist, dependencies, related cards, and priority.'
+  },
+  suggest_tags: {
+    label: 'Suggest tags',
+    instruction: 'Suggest tag improvements for active cards. Reuse existing tags when possible, fix inconsistent tags, and propose new tags only when clearly useful. Do not change title, notes, status, history, or estimates. If you dont propose a change dont even return the task in the output. Feel free to propose multiple tags for a single task if they are all useful and relevant. Feel free to propose a creation of a tag if make sense'
+  },
+  create_followups: {
+    label: 'Create follow-ups',
+    instruction: 'Analyze active tasks and propose follow-up tasks only when missing work is clearly separate and useful. Avoid duplicate tasks.'
+  },
+  organize_blockers: {
+    label: 'Organize blockers',
+    instruction: 'Analyze blockers, dependencies, and related cards. Propose add_relation, blockedByTaskIds, or checklist improvements when they make the work clearer. If the relation already do not propose it again. Avoid duplicate relations.'
+  }
+};
+
+function resolveAdvisorAction(action) {
+  const key = typeof action === 'string' ? action.trim() : '';
+  return ADVISOR_ACTIONS[key] ? { key, ...ADVISOR_ACTIONS[key] } : null;
+}
+
 function isActiveTask(task) {
   return !['done', 'cancelled'].includes(task.status) && !task.isArchived;
 }
@@ -280,10 +304,17 @@ function normalizeAdvisorCommands(parsed) {
   };
 }
 
-async function generateTaskAdvisorCommands({ message, tasks, tags = [] }) {
+async function generateTaskAdvisorCommands({ action, tasks, tags = [] }) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error('OPENAI_API_KEY is required to generate AI Advisor commands');
     error.status = 503;
+    throw error;
+  }
+  const advisorAction = resolveAdvisorAction(action);
+  if (!advisorAction) {
+    const error = new Error(`Unsupported advisor action: ${action}`);
+    error.status = 400;
+    error.details = [`action must be one of: ${Object.keys(ADVISOR_ACTIONS).join(', ')}`];
     throw error;
   }
 
@@ -333,7 +364,9 @@ async function generateTaskAdvisorCommands({ message, tasks, tags = [] }) {
         role: 'user',
         content: JSON.stringify({
           today: new Date().toISOString(),
-          userRequest: message,
+          action: advisorAction.key,
+          actionLabel: advisorAction.label,
+          instruction: advisorAction.instruction,
           allowedCommands: AI_COMMAND_TYPES,
           allowedStatuses: STATUSES,
           allowedPriorities: [1, 2, 3, 4],
@@ -475,7 +508,9 @@ async function generateTaskAdvisorAdvice(tasks, limit = 5) {
 }
 
 module.exports = {
+  ADVISOR_ACTIONS,
   generateTaskAdvisorAdvice,
   generateTaskAdvisorCommands,
+  resolveAdvisorAction,
   buildRuleBasedAdvisorAdvice
 };

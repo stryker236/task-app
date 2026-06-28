@@ -1,6 +1,6 @@
 import TagFilter from './TagFilter';
 
-export default function Filters({ filters, tags, onChange, onDeleteTag, onClear }) {
+export default function Filters({ filters, tags, onChange, onDeleteTag, onDeleteTags, onClear }) {
   const set = (key) => (event) => onChange({ ...filters, [key]: event.target.type === 'checkbox' ? event.target.checked : event.target.value });
   return (
     <section className="filters" aria-label="Filtros de tarefas">
@@ -13,7 +13,15 @@ export default function Filters({ filters, tags, onChange, onDeleteTag, onClear 
         <option value="">Todas as prioridades</option>
         <option value="4">Urgente</option><option value="3">Alta</option><option value="2">Média</option><option value="1">Baixa</option>
       </select>
-      <TagFilter tags={tags} selected={filters.tags} onChange={(selectedTags) => onChange({ ...filters, tags: selectedTags })} onDelete={onDeleteTag} />
+      <TagFilter
+        tags={tags}
+        selected={filters.tags}
+        mode={filters.tagMode}
+        onChange={(selectedTags) => onChange({ ...filters, tags: selectedTags })}
+        onModeChange={(tagMode) => onChange({ ...filters, tagMode })}
+        onDelete={onDeleteTag}
+        onDeleteMany={onDeleteTags}
+      />
       <label className="check-filter"><input type="checkbox" checked={filters.overdue} onChange={set('overdue')} /> Atrasadas</label>
       <label className="check-filter"><input type="checkbox" checked={filters.today} onChange={set('today')} /> Hoje</label>
       <label className="check-filter"><input type="checkbox" checked={filters.noDueDate} onChange={set('noDueDate')} /> Sem prazo</label>

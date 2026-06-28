@@ -1,19 +1,19 @@
 const QUICK_ACTIONS = [
   {
-    label: 'Melhorar tasks',
-    message: 'Melhora os cartões ativos sem alterar títulos, notas, histórico ou estimativas salvo se for indispensável. Foca em tags, prazo, checklist, dependências, cartões associados e prioridade.'
+    key: 'improve_tasks',
+    label: 'Melhorar tasks'
   },
   {
+    key: 'suggest_tags',
     label: 'Sugerir tags',
-    message: 'Sugere melhorias de tags para os cartões ativos. Reutiliza tags existentes quando fizer sentido, corrige tags inconsistentes e propõe novas tags apenas quando forem claramente úteis. Não alteres título, notas, estado ou histórico.'
   },
   {
-    label: 'Criar follow-ups',
-    message: 'Analisa as tarefas ativas e propõe criar tarefas de follow-up quando estiver claro que falta trabalho separado.'
+    key: 'create_followups',
+    label: 'Criar follow-ups'
   },
   {
-    label: 'Organizar bloqueios',
-    message: 'Analisa bloqueios, dependências e cartões associados. Propõe relações, blockedByTaskIds ou checklist quando isso tornar o trabalho mais claro.'
+    key: 'organize_blockers',
+    label: 'Organizar bloqueios'
   }
 ];
 
@@ -58,7 +58,12 @@ function affectedCardTitle(proposal) {
   return proposal.changes?.before?.title || proposal.changes?.after?.title || proposal.taskId || 'Task';
 }
 
-function ProposalChanges({ proposal }) {
+function taskTitleFromId(allTasks, id) {
+  if (!id) return null;
+  return allTasks.find((task) => task.id === id)?.title || id;
+}
+
+function ProposalChanges({ proposal, allTasks = [] }) {
   if (proposal.type === 'create_task') {
     const task = proposal.changes?.createdTask;
     if (!task) return null;
@@ -73,11 +78,14 @@ function ProposalChanges({ proposal }) {
   }
 
   if (proposal.type === 'add_relation') {
+    const taskTitle = proposal.taskTitle || proposal.changes?.before?.title || taskTitleFromId(allTasks, proposal.taskId);
+    const relatedTaskTitle = proposal.relatedTaskTitle || taskTitleFromId(allTasks, proposal.relatedTaskId);
+
     return (
       <dl className="advisor-change-list">
         <div><dt>Relação</dt><dd>{proposal.relationType}</dd></div>
-        <div><dt>Task origem</dt><dd>{proposal.taskId}</dd></div>
-        <div><dt>Task relacionada</dt><dd>{proposal.relatedTaskId}</dd></div>
+        <div><dt>Task origem</dt><dd>{taskTitle}</dd></div>
+        <div><dt>Task relacionada</dt><dd>{relatedTaskTitle}</dd></div>
       </dl>
     );
   }
@@ -102,6 +110,7 @@ function ProposalChanges({ proposal }) {
 }
 
 function AdvisorProposalBuffer({
+  allTasks = [],
   proposals,
   proposalStatuses,
   applyingProposalId,
@@ -165,7 +174,7 @@ function AdvisorProposalBuffer({
                   <h4>{proposal.summary}</h4>
                   <p>{proposal.reason}</p>
                   {proposal.alreadyExists && <small>Esta relação já existe.</small>}
-                  <ProposalChanges proposal={proposal} />
+                  <ProposalChanges proposal={proposal} allTasks={allTasks} />
                 </div>
 
                 <div className="advisor-proposal-actions">
@@ -203,14 +212,13 @@ function AdvisorProposalBuffer({
 }
 
 export default function AdvisorPanel({
+  allTasks = [],
   advice,
   loading,
-  request,
   proposals,
   proposalStatuses,
   applyingProposalId,
   applyingAllProposals,
-  onRequestChange,
   onRefresh,
   onRequestActions,
   onApplyProposal,
@@ -236,39 +244,25 @@ export default function AdvisorPanel({
       </header>
 
       <div className="advisor-request-box">
-        <label htmlFor="advisor-request">Pedir ações ao assistente</label>
-        <textarea
-          id="advisor-request"
-          value={request}
-          onChange={(event) => onRequestChange(event.target.value)}
-          placeholder="Ex: melhora os cartões ativos, cria follow-ups e sugere relações úteis..."
-          rows={3}
-        />
+        <label>Ações do assistente</label>
         <div className="advisor-request-actions">
           {QUICK_ACTIONS.map((action) => (
             <button
-              key={action.label}
+              key={action.key}
               type="button"
               className="button secondary small"
-              onClick={() => onRequestActions(action.message)}
+              onClick={() => onRequestActions(action.key)}
               disabled={loading}
             >
               {action.label}
             </button>
           ))}
-          <button
-            type="button"
-            className="button primary small"
-            onClick={() => onRequestActions(request)}
-            disabled={loading || !request.trim()}
-          >
-            Gerar propostas
-          </button>
         </div>
         <small>Limite backend: 3 pedidos AI por 10 segundos, por cliente/IP.</small>
       </div>
 
       <AdvisorProposalBuffer
+        allTasks={allTasks}
         proposals={proposals}
         proposalStatuses={proposalStatuses}
         applyingProposalId={applyingProposalId}

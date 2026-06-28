@@ -4,7 +4,6 @@ import { applyAiCommands, getTaskAdvisorAdvice, requestTaskAdvisorCommands } fro
 export default function useAdvisorController({ allTasks, fetchDashboardData, filters, setError, setViewingTask }) {
   const [advisor, setAdvisor] = useState(null);
   const [advisorLoading, setAdvisorLoading] = useState(false);
-  const [advisorRequest, setAdvisorRequest] = useState('');
   const [proposalBatch, setProposalBatch] = useState(null);
   const [proposalStatuses, setProposalStatuses] = useState({});
   const [applyingProposalId, setApplyingProposalId] = useState(null);
@@ -21,16 +20,14 @@ export default function useAdvisorController({ allTasks, fetchDashboardData, fil
     }
   }
 
-  async function requestAdvisorActions(message) {
-    const trimmedMessage = message.trim();
-    if (!trimmedMessage) return;
+  async function requestAdvisorActions(action) {
+    if (!action) return;
 
     try {
       setAdvisorLoading(true);
-      const response = await requestTaskAdvisorCommands(trimmedMessage);
+      const response = await requestTaskAdvisorCommands(action);
       setProposalBatch(response);
       setProposalStatuses({});
-      setAdvisorRequest(trimmedMessage);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -110,12 +107,10 @@ export default function useAdvisorController({ allTasks, fetchDashboardData, fil
   return {
     advisor,
     advisorLoading,
-    advisorRequest,
     proposalBatch,
     proposalStatuses,
     applyingProposalId,
     applyingAllProposals,
-    setAdvisorRequest,
     refreshTaskAdvisorAdvice,
     requestAdvisorActions,
     applyAdvisorProposal,

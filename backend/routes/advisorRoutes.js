@@ -1,5 +1,5 @@
 const express = require('express');
-const { generateTaskAdvisorAdvice, generateTaskAdvisorCommands } = require('../ai/aiAdvisor');
+const { ADVISOR_ACTIONS, generateTaskAdvisorAdvice, generateTaskAdvisorCommands, resolveAdvisorAction } = require('../ai/aiAdvisor');
 const {
   getAiCommandsFromBody,
   prepareAiCommand,
@@ -48,12 +48,13 @@ function createAdvisorRouter({
 
   router.post('/ai/advisor/request', aiRateLimit, async (req, res, next) => {
     try {
-      const message = normalizeString(req.body.message);
-      if (!message) throw createValidationError(['message is required']);
-      if (message.length > 2000) throw createValidationError(['message must have at most 2000 characters']);
+      const action = normalizeString(req.body.action);
+      if (!resolveAdvisorAction(action)) {
+        throw createValidationError([`action must be one of: ${Object.keys(ADVISOR_ACTIONS).join(', ')}`]);
+      }
 
       const [tasks, tags] = await Promise.all([fetchTasks(), fetchTags('')]);
-      const advisor = await generateTaskAdvisorCommands({ message, tasks, tags });
+      const advisor = await generateTaskAdvisorCommands({ action, tasks, tags });
       const prepared = buildAiCommandsPreview(advisor.commands, tasks);
 
       res.json({

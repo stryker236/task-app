@@ -121,6 +121,8 @@ function prepareAiCommand(command, tasks, index) {
       ...normalized,
       taskId: task.id,
       relatedTaskId: related.id,
+      taskTitle: task.title,
+      relatedTaskTitle: related.title,
       before: task,
       after: { ...task, ...validated },
       alreadyExists: exists,
@@ -194,13 +196,16 @@ function buildAiCommandsPreview(commands, initialTasks) {
   const prepared = [];
   for (const [index, command] of commands.entries()) {
     const item = prepareAiCommand(command, tasks, index);
+    const relatedTask = item.relatedTaskId ? tasks.find((task) => task.id === item.relatedTaskId) : null;
     prepared.push({
       id: item.id,
       type: item.type,
       summary: item.summary,
       reason: item.reason,
       taskId: item.taskId || item.createdTask?.id || null,
+      taskTitle: item.before?.title || item.createdTask?.title || null,
       relatedTaskId: item.relatedTaskId || null,
+      relatedTaskTitle: item.relatedTaskTitle || relatedTask?.title || null,
       relationType: item.relationType || null,
       alreadyExists: item.alreadyExists || false,
       changes: item.type === 'create_task'

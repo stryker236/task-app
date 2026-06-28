@@ -21,7 +21,7 @@ The long-term direction is for Task App to become a personal operating layer for
 
 Instead of only storing tasks, it should help interpret the task list, propose improvements, surface risks, suggest next actions, and reduce the amount of manual grooming needed to keep tasks useful.
 
-The AI Advisor is intentionally approval-based. It should not silently mutate data. It proposes actions into a review buffer, and the user chooses what to accept or ignore.
+The AI Advisor is intentionally approval-based. It should not silently mutate data. It proposes actions into a review buffer, and the user chooses what to accept or ignore. The frontend only exposes fixed advisor buttons; the backend owns the prompts for each action.
 
 ## What the app does today
 
@@ -97,7 +97,7 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 
 - Kanban, Queue, Quick Queue, Probable Follow-ups, and Archived views
 - Independent filters per view
-- Reusable tags, multi-tag filtering, and deletion of unused tags
+- Reusable tags, multi-tag filtering, and deactivation/reactivation of unused tags
 - Priorities, due dates, favorites, checklist, and optional estimate
 - Relations between cards and dependencies/blockers
 - Blockers prevent completing a task while dependencies or checklist items are pending
@@ -329,6 +329,7 @@ Filters for `GET /tasks`:
 - `hideCancelled=true`
 - `archived=true`
 - `tag=name` can be repeated
+- `tagMode=and|or` controls whether repeated tags must all match or any match
 - `search=text`
 - `sort=priority|dueDateTime|createdAt|updatedAt|requestedBy|status`
 
@@ -338,6 +339,7 @@ Examples:
 GET /tasks?status=new&sort=priority
 GET /tasks?priority=4&overdue=true
 GET /tasks?tag=excel&tag=prices
+GET /tasks?tag=excel&tag=prices&tagMode=or
 GET /tasks?archived=true
 ```
 
@@ -346,7 +348,11 @@ GET /tasks?archived=true
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/tags` | List/search reusable tags |
-| `DELETE` | `/tags/:id` | Delete unused tag |
+| `DELETE` | `/tags/:id` | Deactivate tag when it is not used by active tasks |
+| `DELETE` | `/tags/:id?force=true` | Remove tag from active tasks and deactivate it |
+| `DELETE` | `/tags` | Deactivate multiple tags with `{ ids: [], force?: boolean }` |
+
+Tags are soft-deactivated, not physically deleted. A tag can be deactivated when it is not used by active tasks. Usage in `done`, `cancelled`, or archived tasks does not block deactivation. With `force=true`, the backend first removes the tag from active tasks and then deactivates it. If a deactivated tag is used again later, the backend reactivates it automatically.
 
 ### Advisor / AI
 
@@ -358,6 +364,15 @@ GET /tasks?archived=true
 | `POST` | `/ai/commands/apply` | Apply accepted AI commands |
 
 The backend rate-limits AI generation requests to `3` requests per `10` seconds per client/IP.
+
+The Advisor does not accept free-text chat prompts from the UI. The frontend sends one of the supported action keys, and the backend maps that action to the controlled prompt:
+
+```text
+improve_tasks
+suggest_tags
+create_followups
+organize_blockers
+```
 
 The Advisor does not apply changes by itself. It generates proposals shown in the frontend buffer, where the user accepts or ignores each action.
 

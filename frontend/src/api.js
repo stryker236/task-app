@@ -36,10 +36,10 @@ export function getTaskAdvisorAdvice(limit = 5) {
   return requestJson(`/advisor?limit=${encodeURIComponent(limit)}`);
 }
 
-export function requestTaskAdvisorCommands(message) {
+export function requestTaskAdvisorCommands(action) {
   return requestJson('/ai/advisor/request', {
     method: 'POST',
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ action })
   });
 }
 
@@ -50,7 +50,8 @@ export function applyAiCommands(commands) {
   });
 }
 
-export const deleteTag = (id) => requestJson(`/tags/${id}`, { method: 'DELETE' });
+export const deleteTag = (id, { force = false } = {}) => requestJson(`/tags/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
+export const deleteTags = (ids, { force = false } = {}) => requestJson('/tags', { method: 'DELETE', body: JSON.stringify({ ids, force }) });
 
 export const createTask = (task) => requestJson('/tasks', { method: 'POST', body: JSON.stringify(task) });
 export const updateTask = (id, task) => requestJson(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(task) });

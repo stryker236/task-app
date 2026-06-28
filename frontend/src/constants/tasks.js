@@ -3,6 +3,7 @@ export const EMPTY_FILTERS = {
   status: '',
   priority: '',
   tags: [],
+  tagMode: 'and',
   overdue: false,
   today: false,
   noDueDate: false,

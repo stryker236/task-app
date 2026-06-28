@@ -78,7 +78,7 @@ export default function App() {
     clearFormDraft: taskForm.clearFormDraft
   });
 
-  const { deleteUnusedTagFromCatalog } = useTagActions({
+  const { deleteUnusedTagFromCatalog, deleteUnusedTagsFromCatalog } = useTagActions({
     setAvailableTags,
     setError,
     setFiltersByView
@@ -128,14 +128,13 @@ export default function App() {
 
         {view !== 'archived' && view !== 'quickQueue' && (
           <AdvisorPanel
+            allTasks={allTasks}
             advice={advisorController.advisor}
             loading={advisorController.advisorLoading}
-            request={advisorController.advisorRequest}
             proposals={advisorController.proposalBatch}
             proposalStatuses={advisorController.proposalStatuses}
             applyingProposalId={advisorController.applyingProposalId}
             applyingAllProposals={advisorController.applyingAllProposals}
-            onRequestChange={advisorController.setAdvisorRequest}
             onRefresh={advisorController.refreshTaskAdvisorAdvice}
             onRequestActions={advisorController.requestAdvisorActions}
             onApplyProposal={advisorController.applyAdvisorProposal}
@@ -162,6 +161,7 @@ export default function App() {
             tags={availableTags}
             onChange={setFilters}
             onDeleteTag={deleteUnusedTagFromCatalog}
+            onDeleteTags={deleteUnusedTagsFromCatalog}
             onClear={() => setFilters(view === 'archived'
               ? { ...EMPTY_FILTERS, tags: [], archived: true, hideDone: false, hideCancelled: false }
               : { ...EMPTY_FILTERS, tags: [] })}

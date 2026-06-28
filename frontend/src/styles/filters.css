@@ -7,16 +7,29 @@
 .tag-filter-button { width: 100%; min-height: 34px; border: 1px solid #cfd5e1; border-radius: 8px; padding: 7px 28px 7px 9px; background: white; color: #5f687c; text-align: left; font-size: 12px; }
 .tag-filter-button::after { content: 'â–¾'; position: absolute; right: 10px; color: #7b8496; }
 .tag-filter-button.has-selection { border-color: #6d89f9; background: #f1f5ff; color: #3155a2; font-weight: 700; }
-.tag-filter-menu { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; width: 250px; padding: 10px; border: 1px solid #d6dce7; border-radius: 9px; background: white; box-shadow: var(--shadow); }
+.tag-filter-menu { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; width: 320px; padding: 10px; border: 1px solid #d6dce7; border-radius: 9px; background: white; box-shadow: var(--shadow); }
 .tag-filter-menu > input { margin-bottom: 7px; }
+.tag-mode-toggle { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.tag-mode-toggle span { margin-right: auto; color: #5d677a; font-size: 11px; font-weight: 700; }
+.tag-mode-toggle button { border: 1px solid #d5dbe7; border-radius: 999px; padding: 4px 9px; background: #fff; color: #667187; font-size: 10px; font-weight: 800; }
+.tag-mode-toggle button.active { border-color: #6d89f9; background: #eef3ff; color: #3155a2; }
+.tag-bulk-delete-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin-bottom: 8px; padding: 7px; border: 1px solid #edf0f5; border-radius: 8px; background: #fbfcff; }
+.tag-bulk-delete-bar label { display: flex; align-items: center; gap: 6px; color: #5d677a; font-size: 11px; }
+.tag-bulk-delete-bar input { width: auto; }
 .tag-filter-options { max-height: 230px; overflow-y: auto; }
 .tag-filter-options label { display: flex; align-items: center; gap: 7px; padding: 6px 3px; color: #455066; font-size: 12px; cursor: pointer; }
-.tag-filter-option { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; border-bottom: 1px solid #f0f2f6; }
+.tag-filter-option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 6px; border-bottom: 1px solid #f0f2f6; }
+.tag-delete-checkbox { width: auto; }
+.tag-delete-placeholder { width: 13px; height: 1px; }
 .tag-filter-option label { min-width: 0; }
 .tag-filter-option label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag-filter-option small { color: #929aaa; font-size: 9px; white-space: nowrap; }
 .delete-tag-button { display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 50%; background: #fff0f1; color: #a92f3a; font-size: 15px; line-height: 1; }
 .delete-tag-button:hover { background: #ffdfe2; }
+.delete-tag-button.force { background: #fff4e5; color: #a85c00; }
+.delete-tag-button.force:hover { background: #ffe3bd; }
+.button.danger.small { border-color: #f2c9a3; background: #fff4e5; color: #9a4f00; }
+.button.danger.small:hover { background: #ffe8c9; }
 .tag-filter-options input { width: auto; }
 .tag-filter-options p { color: #8991a1; font-size: 11px; text-align: center; }
 .tag-filter-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #edf0f4; padding-top: 8px; margin-top: 6px; }
