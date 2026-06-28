@@ -1,8 +1,5 @@
 const { google } = require('googleapis');
-
-const CALENDAR_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
-const USERINFO_EMAIL_SCOPE = 'https://www.googleapis.com/auth/userinfo.email';
-const GOOGLE_SCOPES = [CALENDAR_READONLY_SCOPE, USERINFO_EMAIL_SCOPE];
+const { GOOGLE_SCOPES } = require('../constants/googleConstants');
 
 function getGoogleConfig() {
   const clientId = process.env.GOOGLE_CLIENT_ID;

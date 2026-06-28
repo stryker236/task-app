@@ -7,8 +7,7 @@ const {
   validateTaskPayload,
   applyTaskStatusTimestamps
 } = require('../tasks/taskValidation');
-
-const AI_COMMAND_TYPES = ['update_task', 'add_relation', 'create_task'];
+const { AI_COMMAND_TYPES } = require('../constants/aiConstants');
 
 function getAiCommandsFromBody(body) {
   const commands = Array.isArray(body?.commands) ? body.commands : [];

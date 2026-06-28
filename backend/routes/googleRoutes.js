@@ -1,6 +1,7 @@
 const express = require('express');
 const { randomBytes } = require('crypto');
 const { encryptJson, decryptJson } = require('../google/tokenCrypto');
+const { parseDateOnly } = require('../utils/date');
 const {
   GOOGLE_SCOPES,
   createCalendarClient,
@@ -8,11 +9,6 @@ const {
   createOAuthClient,
   getAccountEmail
 } = require('../google/googleClient');
-
-function parseDateOnly(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
-  return String(value);
-}
 
 function toCalendarEvent(event) {
   return {

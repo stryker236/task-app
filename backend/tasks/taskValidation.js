@@ -1,24 +1,8 @@
 const { randomUUID } = require('crypto');
-
-const STATUSES = ['new', 'in_progress', 'waiting', 'done', 'cancelled'];
-const RELATION_TYPES = ['blocks', 'blocked_by', 'relates_to', 'duplicates', 'parent_of', 'child_of'];
+const { STATUSES, RELATION_TYPES } = require('../constants/taskConstants');
+const { normalizeString, normalizeArray } = require('../utils/string');
+const { createValidationError } = require('../utils/errors');
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
-
-function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function normalizeArray(value) {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.map(normalizeString).filter(Boolean))];
-}
-
-function createValidationError(details) {
-  const error = new Error('Validation failed');
-  error.status = 400;
-  error.details = details;
-  return error;
-}
 
 function normalizeChecklistItems(value, errors) {
   if (value != null && !Array.isArray(value)) errors.push('checklistItems must be an array');

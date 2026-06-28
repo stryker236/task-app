@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const { randomUUID } = require('crypto');
+const { iso } = require('../utils/date');
 
 if (!process.env.DATABASE_URL) {
 	throw new Error('DATABASE_URL is required. Copy .env.example to .env and add the Supabase PostgreSQL connection string.');
@@ -14,8 +15,6 @@ const pool = new Pool({
 });
 
 pool.on('error', (error) => console.error('Unexpected PostgreSQL pool error', error));
-
-const iso = (value) => value ? new Date(value).toISOString() : null;
 
 function mapQuickQueueItem(row) {
 	return {

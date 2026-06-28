@@ -1,6 +1,5 @@
-const STATUSES = ['new', 'in_progress', 'waiting', 'done', 'cancelled'];
-const RELATION_TYPES = ['blocks', 'blocked_by', 'relates_to', 'duplicates', 'parent_of', 'child_of'];
-const AI_COMMAND_TYPES = ['update_task', 'add_relation', 'create_task'];
+const { STATUSES, RELATION_TYPES } = require('../constants/taskConstants');
+const { AI_COMMAND_TYPES } = require('../constants/aiConstants');
 
 const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] };
 const nullableBoolean = { anyOf: [{ type: 'boolean' }, { type: 'null' }] };

@@ -1,4 +1,5 @@
-const SORT_FIELDS = ['priority', 'dueDateTime', 'createdAt', 'updatedAt', 'requestedBy', 'status'];
+const { SORT_FIELDS } = require('../constants/taskConstants');
+const { containsText } = require('../utils/string');
 
 function getLocalDayBounds() {
   const start = new Date();
@@ -7,8 +8,6 @@ function getLocalDayBounds() {
   end.setDate(end.getDate() + 1);
   return { start, end };
 }
-
-const containsText = (value, query) => String(value || '').toLocaleLowerCase().includes(query);
 
 function filterTasksByQuery(tasks, query) {
   let result = [...tasks];
