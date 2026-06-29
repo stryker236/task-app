@@ -1,0 +1,14 @@
+require('dotenv').config();
+const { checkConnection, pool } = require('../db/database');
+
+checkConnection()
+  .then((result) => {
+    console.log(`Connected to database "${result.database}" at ${new Date(result.time).toISOString()}`);
+  })
+  .catch((error: Error) => {
+    console.error(`Database connection failed: ${error.message}`);
+    process.exitCode = 1;
+  })
+  .finally(() => pool.end());
+
+export {};
