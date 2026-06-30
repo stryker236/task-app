@@ -30,6 +30,9 @@ type AppDialogsProps = {
   onArchiveTask: (task: Task) => void;
   onRestoreTask: (task: Task) => void;
   onToggleChecklist: (task: Task, item: ChecklistItem, isDone: boolean) => void;
+  onAttachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
+  onCreateSharedNote: (task: Task, title: string, body: string, tags: string[]) => Promise<Task | null>;
+  onDetachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
   postponeTask: Task | null;
   onClosePostpone: () => void;
   onSavePostpone: (task: Task, dueDateTime: string) => void;
@@ -60,6 +63,9 @@ export default function AppDialogs({
   onArchiveTask,
   onRestoreTask,
   onToggleChecklist,
+  onAttachSharedNote,
+  onCreateSharedNote,
+  onDetachSharedNote,
   postponeTask,
   onClosePostpone,
   onSavePostpone,
@@ -101,6 +107,9 @@ export default function AppDialogs({
           onArchive={onArchiveTask}
           onRestore={onRestoreTask}
           onToggleChecklist={onToggleChecklist}
+          onAttachSharedNote={onAttachSharedNote}
+          onCreateSharedNote={onCreateSharedNote}
+          onDetachSharedNote={onDetachSharedNote}
         />
       )}
       {postponeTask && (

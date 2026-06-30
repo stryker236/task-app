@@ -5,6 +5,7 @@ const TABS = [
   ['queue', 'Fila'],
   ['quickQueue', 'Fila rapida'],
   ['collections', 'Cobrancas provaveis'],
+  ['sharedNotes', 'Notas'],
   ['archived', 'Arquivadas']
 ] as const satisfies ReadonlyArray<readonly [ViewKey, string]>;
 

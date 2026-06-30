@@ -1,8 +1,10 @@
 type AppHeaderProps = {
   onCreateTask: () => void;
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
 };
 
-export default function AppHeader({ onCreateTask }: AppHeaderProps) {
+export default function AppHeader({ onCreateTask, darkMode, onToggleDarkMode }: AppHeaderProps) {
   return (
     <header className="app-header">
       <div className="brand">
@@ -12,9 +14,15 @@ export default function AppHeader({ onCreateTask }: AppHeaderProps) {
           <p>Organizacao de trabalho</p>
         </div>
       </div>
-      <button className="button primary add-task" type="button" onClick={onCreateTask}>
-        + Nova tarefa
-      </button>
+      <div className="header-actions">
+        <label className="theme-toggle">
+          <input type="checkbox" checked={darkMode} onChange={onToggleDarkMode} />
+          <span>{darkMode ? 'Light' : 'Dark'}</span>
+        </label>
+        <button className="button primary add-task" type="button" onClick={onCreateTask}>
+          + Nova tarefa
+        </button>
+      </div>
     </header>
   );
 }

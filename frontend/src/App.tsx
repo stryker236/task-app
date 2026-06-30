@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Task, TaskStatus } from '../../shared/types';
 import AdvisorPanel from './components/AdvisorPanel';
 import AppDialogs from './components/AppDialogs';
@@ -23,6 +23,12 @@ import useTaskFormController from './hooks/useTaskFormController';
 import { isOverdue, isToday } from './utils/taskDates';
 
 export default function App() {
+  const [darkMode, setDarkMode] = useState(() => {
+    const stored = localStorage.getItem('task-app:theme');
+    if (stored) return stored === 'dark';
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+  });
+
   const {
     tasks,
     allTasks,
@@ -42,6 +48,12 @@ export default function App() {
 
   const [queueSort, setQueueSort] = useState<QueueSort>({ field: 'priority', direction: 'desc' });
   const [viewingTask, setViewingTask] = useState<Task | null>(null);
+
+  useEffect(() => {
+    const theme = darkMode ? 'dark' : 'light';
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('task-app:theme', theme);
+  }, [darkMode]);
 
   const googleCalendar = useGoogleCalendar({ setError });
 
@@ -129,12 +141,12 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <AppHeader onCreateTask={taskForm.openCreateTaskForm} />
+      <AppHeader onCreateTask={taskForm.openCreateTaskForm} darkMode={darkMode} onToggleDarkMode={() => setDarkMode((current) => !current)} />
 
       <main>
         <DashboardCounters counters={counters} />
 
-        {view !== 'quickQueue' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && (
           <GoogleDailyPanel
             status={googleCalendar.googleStatus}
             loading={googleCalendar.googleLoading}
@@ -149,7 +161,7 @@ export default function App() {
           />
         )}
 
-        {view !== 'archived' && view !== 'quickQueue' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && (
           <AdvisorPanel
             allTasks={allTasks}
             advice={advisorController.advisor}
@@ -171,14 +183,14 @@ export default function App() {
 
         <ViewTabs view={view} onChange={setView} />
 
-        {view !== 'archived' && view !== 'quickQueue' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && (
           <BulkArchiveActions
             onArchiveDone={() => taskActions.archiveTasksWithStatus('done')}
             onArchiveCancelled={() => taskActions.archiveTasksWithStatus('cancelled')}
           />
         )}
 
-        {view !== 'quickQueue' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && (
           <Filters
             filters={filters}
             tags={availableTags}
@@ -216,6 +228,8 @@ export default function App() {
           onQuickQueueMove={moveQuickQueueItem}
           onQuickQueueClearDone={clearDoneQuickQueueItems}
           onQuickQueueCreateTask={taskForm.createTaskFromQuickQueueItem}
+          onOpenTask={openTaskDetails}
+          onError={setError}
         />
       </main>
 
@@ -243,6 +257,9 @@ export default function App() {
         onArchiveTask={taskActions.archiveSingleTask}
         onRestoreTask={taskActions.restoreArchivedTask}
         onToggleChecklist={taskActions.updateTaskChecklistItemStatus}
+        onAttachSharedNote={taskActions.attachTaskSharedNote}
+        onCreateSharedNote={taskActions.createTaskLinkedSharedNote}
+        onDetachSharedNote={taskActions.detachTaskSharedNote}
         postponeTask={taskActions.postponeTask}
         onClosePostpone={() => taskActions.setPostponeTask(null)}
         onSavePostpone={taskActions.postponeTaskDueDate}

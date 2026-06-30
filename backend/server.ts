@@ -14,6 +14,12 @@ const {
   insertActivity,
   syncInverseRelationships,
   fetchTags,
+  fetchSharedNotes,
+  createSharedNote,
+  updateSharedNote,
+  archiveSharedNote,
+  attachSharedNoteToTask,
+  detachSharedNoteFromTask,
   deleteUnusedTag,
   deleteUnusedTags,
   fetchQuickQueueItems,
@@ -31,6 +37,7 @@ const {
 } = require('./db/database');
 const { createHealthRouter } = require('./routes/healthRoutes');
 const { createTagRouter } = require('./routes/tagRoutes');
+const { createSharedNoteRouter } = require('./routes/sharedNoteRoutes');
 const { createTaskRouter } = require('./routes/taskRoutes');
 const { createAdvisorRouter } = require('./routes/advisorRoutes');
 const { createQuickQueueRouter } = require('./routes/quickQueueRoutes');
@@ -79,6 +86,12 @@ const routeDependencies = {
   insertActivity,
   syncInverseRelationships,
   fetchTags,
+  fetchSharedNotes,
+  createSharedNote,
+  updateSharedNote,
+  archiveSharedNote,
+  attachSharedNoteToTask,
+  detachSharedNoteFromTask,
   deleteUnusedTag,
   deleteUnusedTags,
   fetchQuickQueueItems,
@@ -98,6 +111,7 @@ const routeDependencies = {
 
 app.use(createHealthRouter(routeDependencies));
 app.use(createTagRouter(routeDependencies));
+app.use(createSharedNoteRouter(routeDependencies));
 app.use(createTaskRouter(routeDependencies));
 app.use(createAdvisorRouter(routeDependencies));
 app.use(createQuickQueueRouter(routeDependencies));

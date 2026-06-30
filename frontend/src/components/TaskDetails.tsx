@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
-import type { ChecklistItem, Tag, Task, TaskInput, TaskPriority, TaskRelation, TaskStatus } from '../../../shared/types';
+import type { ChecklistItem, SharedNote, Tag, Task, TaskInput, TaskPriority, TaskRelation, TaskStatus } from '../../../shared/types';
+import { getSharedNotes } from '../api';
 import DependencyPicker from './DependencyPicker';
 import RelationPicker, { RELATION_LABELS } from './RelationPicker';
 import TagPicker from './TagPicker';
@@ -37,6 +38,9 @@ type TaskDetailsProps = {
   onArchive: (task: Task) => void;
   onRestore: (task: Task) => void;
   onToggleChecklist: (task: Task, item: ChecklistItem, isDone: boolean) => void;
+  onAttachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
+  onCreateSharedNote: (task: Task, title: string, body: string, tags: string[]) => Promise<Task | null>;
+  onDetachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
 };
 
 function formatDate(value?: string | null) {
@@ -75,12 +79,20 @@ export default function TaskDetails({
   onProgress,
   onArchive,
   onRestore,
-  onToggleChecklist
+  onToggleChecklist,
+  onAttachSharedNote,
+  onCreateSharedNote,
+  onDetachSharedNote
 }: TaskDetailsProps) {
   const [draft, setDraft] = useState<EditableTask>(() => editableTaskFromTask(task));
   const [dueDate, setDueDate] = useState(() => localDeadline(task.dueDateTime).date);
   const [dueTime, setDueTime] = useState(() => localDeadline(task.dueDateTime).time);
   const [newChecklistTitle, setNewChecklistTitle] = useState('');
+  const [availableSharedNotes, setAvailableSharedNotes] = useState<SharedNote[]>([]);
+  const [selectedSharedNoteId, setSelectedSharedNoteId] = useState('');
+  const [newSharedNoteTitle, setNewSharedNoteTitle] = useState('');
+  const [newSharedNoteBody, setNewSharedNoteBody] = useState('');
+  const [newSharedNoteTags, setNewSharedNoteTags] = useState('');
   const [savingField, setSavingField] = useState('');
   const dependencies = (draft.blockedByTaskIds || []).map((id) => allTasks.find((item) => item.id === id)).filter((item): item is Task => Boolean(item));
   const unfinishedDependencies = dependencies.filter((item) => item.status !== 'done');
@@ -89,6 +101,8 @@ export default function TaskDetails({
   const blockedTaskIds = allTasks.filter((item) => (item.blockedByTaskIds || []).includes(task.id)).map((item) => item.id);
   const genericRelations = (draft.relations || []).filter((relation) => relation.type in RELATION_LABELS) as Array<TaskRelation & { type: keyof typeof RELATION_LABELS }>;
   const activity = [...(draft.activityLog || [])].reverse();
+  const linkedSharedNotes = draft.sharedNotes || [];
+  const attachableSharedNotes = availableSharedNotes.filter((note) => !linkedSharedNotes.some((linked) => linked.id === note.id));
   const draftKey = `task-app:view-draft:${task.id}`;
 
   useEffect(() => {
@@ -104,6 +118,20 @@ export default function TaskDetails({
     setDueDate(deadline.date);
     setDueTime(deadline.time);
   }, [task]);
+
+  useEffect(() => {
+    let ignore = false;
+    getSharedNotes()
+      .then((notes) => {
+        if (!ignore) setAvailableSharedNotes(notes);
+      })
+      .catch(() => {
+        if (!ignore) setAvailableSharedNotes([]);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [task.id]);
 
   useEffect(() => {
     if (task.isArchived) return;
@@ -130,6 +158,39 @@ export default function TaskDetails({
   function saveDeadline() {
     const dueDateTime = dueDate ? new Date(`${dueDate}T${dueTime || '23:59'}`).toISOString() : null;
     commit('dueDateTime', { dueDateTime });
+  }
+
+  async function attachSharedNote() {
+    if (!selectedSharedNoteId) return;
+    setSavingField('sharedNotes');
+    const updated = await onAttachSharedNote(task, selectedSharedNoteId);
+    if (updated) {
+      setDraft(editableTaskFromTask(updated));
+      setSelectedSharedNoteId('');
+    }
+    setSavingField('');
+  }
+
+  async function createSharedNote() {
+    if (!newSharedNoteTitle.trim()) return;
+    setSavingField('sharedNotes');
+    const tags = [...new Set(newSharedNoteTags.split(',').map((tag) => tag.trim()).filter(Boolean))];
+    const updated = await onCreateSharedNote(task, newSharedNoteTitle.trim(), newSharedNoteBody.trim(), tags);
+    if (updated) {
+      setDraft(editableTaskFromTask(updated));
+      setNewSharedNoteTitle('');
+      setNewSharedNoteBody('');
+      setNewSharedNoteTags('');
+      setAvailableSharedNotes(await getSharedNotes().catch(() => []));
+    }
+    setSavingField('');
+  }
+
+  async function detachSharedNote(noteId: string) {
+    setSavingField('sharedNotes');
+    const updated = await onDetachSharedNote(task, noteId);
+    if (updated) setDraft(editableTaskFromTask(updated));
+    setSavingField('');
   }
 
   const savingText = useMemo(() => savingField ? 'A guardar...' : 'Alteracoes guardadas por campo', [savingField]);
@@ -173,6 +234,41 @@ export default function TaskDetails({
             {task.isArchived
               ? <p className="details-description">{draft.notes || 'Sem notas.'}</p>
               : <textarea className="details-notes-input" rows={6} maxLength={50000} value={draft.notes || ''} placeholder="Adicionar notas..." onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} onBlur={() => draft.notes !== task.notes && commit('notes', { notes: draft.notes })} />}
+          </section>
+
+          <section className="details-section shared-notes-section">
+            <h3>Notas partilhadas <span>{linkedSharedNotes.length}</span></h3>
+            {linkedSharedNotes.length ? (
+              <div className="shared-notes-list">
+                {linkedSharedNotes.map((note) => (
+                  <article key={note.id}>
+                    <div>
+                      <strong>{note.title}</strong>
+                      {note.body ? <p>{note.body}</p> : <p className="details-empty">Sem conteudo.</p>}
+                      {note.tags.length ? <div className="tag-list shared-note-tags">{note.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div> : null}
+                    </div>
+                    {!task.isArchived && <button type="button" className="inline-remove" onClick={() => detachSharedNote(note.id)}>x</button>}
+                  </article>
+                ))}
+              </div>
+            ) : <p className="details-empty">Sem notas partilhadas.</p>}
+            {!task.isArchived && (
+              <div className="shared-notes-controls">
+                <div className="inline-add-row">
+                  <select value={selectedSharedNoteId} onChange={(event) => setSelectedSharedNoteId(event.target.value)}>
+                    <option value="">Anexar nota existente</option>
+                    {attachableSharedNotes.map((note) => <option value={note.id} key={note.id}>{note.title}</option>)}
+                  </select>
+                  <button type="button" className="button secondary small" disabled={!selectedSharedNoteId || savingField === 'sharedNotes'} onClick={attachSharedNote}>Anexar</button>
+                </div>
+                <div className="shared-note-create">
+                  <input value={newSharedNoteTitle} maxLength={200} placeholder="Titulo da nota partilhada" onChange={(event) => setNewSharedNoteTitle(event.target.value)} />
+                  <textarea rows={3} maxLength={50000} value={newSharedNoteBody} placeholder="Conteudo reutilizavel..." onChange={(event) => setNewSharedNoteBody(event.target.value)} />
+                  <input value={newSharedNoteTags} maxLength={500} placeholder="Tags separadas por virgula" onChange={(event) => setNewSharedNoteTags(event.target.value)} />
+                  <button type="button" className="button secondary small" disabled={!newSharedNoteTitle.trim() || savingField === 'sharedNotes'} onClick={createSharedNote}>Criar e anexar</button>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="details-section">

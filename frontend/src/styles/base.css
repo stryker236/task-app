@@ -8,15 +8,44 @@
   --line: #dde2ec;
   --muted: #677189;
   --danger: #c93642;
+  --page: #f4f6fa;
+  --surface: #ffffff;
+  --surface-soft: #f8f9fb;
+  --surface-muted: #edf0f5;
+  --text: #172033;
+  --text-strong: #283247;
+  --text-soft: #4d586d;
+  --field: #ffffff;
+  --field-border: #cfd5e1;
   --shadow: 0 8px 28px rgba(34, 43, 69, 0.08);
 }
 
+:root[data-theme="dark"] {
+  color: #e7edf7;
+  background: #101522;
+  --navy: #0c111d;
+  --blue: #7aa2ff;
+  --line: #2a3448;
+  --muted: #9ca8ba;
+  --danger: #ff7681;
+  --page: #101522;
+  --surface: #171e2d;
+  --surface-soft: #1d2637;
+  --surface-muted: #253147;
+  --text: #e7edf7;
+  --text-strong: #f3f6fb;
+  --text-soft: #c4ccda;
+  --field: #111827;
+  --field-border: #38445a;
+  --shadow: 0 10px 32px rgba(0, 0, 0, .32);
+}
+
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 1100px; min-height: 100vh; }
+body { margin: 0; min-width: 1100px; min-height: 100vh; background: var(--page); color: var(--text); }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 input, select, textarea {
-  width: 100%; border: 1px solid #cfd5e1; border-radius: 8px; background: white; color: #172033;
+  width: 100%; border: 1px solid var(--field-border); border-radius: 8px; background: var(--field); color: var(--text);
   padding: 9px 11px; outline: none; transition: border-color .15s, box-shadow .15s;
 }
 input:focus, select:focus, textarea:focus { border-color: #6d89f9; box-shadow: 0 0 0 3px rgba(49, 94, 251, .11); }
@@ -25,8 +54,157 @@ textarea { resize: vertical; }
 .button { border: 1px solid transparent; border-radius: 8px; padding: 9px 14px; font-weight: 650; }
 .button.primary { background: var(--blue); color: white; }
 .button.primary:hover { background: #244fe0; }
-.button.secondary { background: #fff; border-color: #cfd5e1; color: #364056; }
-.button.ghost { background: transparent; border-color: #cfd5e1; color: #5f687c; }
+.button.secondary { background: var(--surface); border-color: var(--field-border); color: var(--text-soft); }
+.button.ghost { background: transparent; border-color: var(--field-border); color: var(--muted); }
 .button.small { padding: 6px 9px; font-size: 12px; }
 .button:disabled { opacity: .55; cursor: wait; }
 .add-task { padding: 10px 17px; }
+
+:root[data-theme="dark"] .filters,
+:root[data-theme="dark"] .task-card,
+:root[data-theme="dark"] .dialog,
+:root[data-theme="dark"] .dialog-header,
+:root[data-theme="dark"] .dialog-actions,
+:root[data-theme="dark"] .advisor-panel,
+:root[data-theme="dark"] .advisor-buffer,
+:root[data-theme="dark"] .advisor-request-box,
+:root[data-theme="dark"] .google-daily-panel,
+:root[data-theme="dark"] .quick-queue-view,
+:root[data-theme="dark"] .quick-queue-header,
+:root[data-theme="dark"] .tag-filter-menu,
+:root[data-theme="dark"] .shared-note-card,
+:root[data-theme="dark"] .shared-note-composer,
+:root[data-theme="dark"] .details-section,
+:root[data-theme="dark"] .details-summary-grid > div,
+:root[data-theme="dark"] .details-summary-grid > label,
+:root[data-theme="dark"] .collection-section {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .task-card.is-archived,
+:root[data-theme="dark"] .editable-summary select,
+:root[data-theme="dark"] .editable-summary input[type="number"],
+:root[data-theme="dark"] .details-title-input,
+:root[data-theme="dark"] .details-notes-input,
+:root[data-theme="dark"] .checklist-title-inline,
+:root[data-theme="dark"] .relation-candidate,
+:root[data-theme="dark"] .advisor-action,
+:root[data-theme="dark"] .advisor-blocker,
+:root[data-theme="dark"] .advisor-proposal,
+:root[data-theme="dark"] .google-event-list li,
+:root[data-theme="dark"] .kanban-column,
+:root[data-theme="dark"] .quick-queue-item-actions button,
+:root[data-theme="dark"] .progress-locked,
+:root[data-theme="dark"] .latest-progress,
+:root[data-theme="dark"] .dependency-summary,
+:root[data-theme="dark"] .blocking-summary,
+:root[data-theme="dark"] .shared-notes-list article,
+:root[data-theme="dark"] .shared-note-card textarea,
+:root[data-theme="dark"] .priority-stepper button,
+:root[data-theme="dark"] .tag-filter-button,
+:root[data-theme="dark"] .tag-mode-toggle button,
+:root[data-theme="dark"] .tag-bulk-delete-bar {
+  background: var(--surface-soft);
+  border-color: var(--line);
+  color: var(--text);
+}
+
+:root[data-theme="dark"] h1,
+:root[data-theme="dark"] h2,
+:root[data-theme="dark"] h3,
+:root[data-theme="dark"] strong,
+:root[data-theme="dark"] .task-card h3,
+:root[data-theme="dark"] .details-title-input,
+:root[data-theme="dark"] .shared-note-card input,
+:root[data-theme="dark"] .shared-notes-toolbar h2 {
+  color: var(--text-strong);
+}
+
+:root[data-theme="dark"] p,
+:root[data-theme="dark"] small,
+:root[data-theme="dark"] time,
+:root[data-theme="dark"] .task-description,
+:root[data-theme="dark"] .task-meta,
+:root[data-theme="dark"] .details-description,
+:root[data-theme="dark"] .details-empty,
+:root[data-theme="dark"] .shared-note-card footer,
+:root[data-theme="dark"] .shared-note-links p,
+:root[data-theme="dark"] .advisor-summary,
+:root[data-theme="dark"] .advisor-action span,
+:root[data-theme="dark"] .advisor-blocker span,
+:root[data-theme="dark"] .advisor-buffer p,
+:root[data-theme="dark"] .advisor-proposal-main > p,
+:root[data-theme="dark"] .google-daily-panel p,
+:root[data-theme="dark"] .quick-queue-header p,
+:root[data-theme="dark"] .quick-queue-stats,
+:root[data-theme="dark"] .quick-queue-actions,
+:root[data-theme="dark"] .quick-queue-list label,
+:root[data-theme="dark"] .activity-entry p,
+:root[data-theme="dark"] .queue-toolbar label,
+:root[data-theme="dark"] .kanban-toolbar > span,
+:root[data-theme="dark"] .check-filter,
+:root[data-theme="dark"] .form-grid label,
+:root[data-theme="dark"] .postpone-fields label,
+:root[data-theme="dark"] .field-heading,
+:root[data-theme="dark"] .tag-filter-options label {
+  color: var(--text-soft);
+}
+
+:root[data-theme="dark"] .tag-list span,
+:root[data-theme="dark"] .dependency-chip,
+:root[data-theme="dark"] .checklist-progress,
+:root[data-theme="dark"] .priority-badge,
+:root[data-theme="dark"] .archived-badge,
+:root[data-theme="dark"] .icon-button,
+:root[data-theme="dark"] .favorite-button {
+  background: var(--surface-muted);
+  color: var(--text-soft);
+}
+
+:root[data-theme="dark"] .kanban-column.drop-target {
+  background: #203052;
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+:root[data-theme="dark"] .advisor-proposal.is-accepted {
+  background: #193426;
+  border-color: #356f4b;
+}
+
+:root[data-theme="dark"] .advisor-proposal.is-ignored {
+  background: #1a2130;
+}
+
+:root[data-theme="dark"] .advisor-command-type,
+:root[data-theme="dark"] .latest-progress,
+:root[data-theme="dark"] .tag-filter-button.has-selection {
+  background: #203052;
+  color: #b9ccff;
+}
+
+:root[data-theme="dark"] .dependency-summary,
+:root[data-theme="dark"] .checklist-progress.blocking {
+  background: #332818;
+  color: #f0c987;
+}
+
+:root[data-theme="dark"] .blocking-summary {
+  background: #2b2140;
+  color: #d4bcff;
+}
+
+:root[data-theme="dark"] .delete-tag-button,
+:root[data-theme="dark"] .button.danger.small {
+  background: #3a2027;
+  border-color: #68333f;
+  color: #ff9aa4;
+}
+
+:root[data-theme="dark"] .error-banner,
+:root[data-theme="dark"] .counter-grid .counter-alert {
+  background: #321b24;
+  border-color: #66303d;
+  color: #ffb5bd;
+}

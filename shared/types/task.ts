@@ -62,6 +62,7 @@ export interface Task {
   requestedBy?: string;
   needToAsk?: string[];
   blockedReason?: string;
+  sharedNotes?: import('./sharedNotes').SharedNote[];
 }
 
 export type TaskInput = Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'completedAt' | 'cancelledAt' | 'activityLog'> &

@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Tag, Task } from '../../../shared/types';
 import { getTags, getTasks, type TaskFilters } from '../api';
-import { createViewFilters, type ViewKey } from '../constants/tasks';
+import { createViewFilters, VIEW_KEYS, type ViewKey } from '../constants/tasks';
 import { isOverdue, isToday } from '../utils/taskDates';
+
+const VIEW_STORAGE_KEY = 'task-app:last-view';
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function getInitialView(fallback: ViewKey): ViewKey {
+  const stored = localStorage.getItem(VIEW_STORAGE_KEY);
+  return VIEW_KEYS.includes(stored as ViewKey) ? stored as ViewKey : fallback;
 }
 
 export default function useDashboardData(initialView: ViewKey = 'kanban') {
@@ -13,7 +20,7 @@ export default function useDashboardData(initialView: ViewKey = 'kanban') {
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [filtersByView, setFiltersByView] = useState(createViewFilters);
-  const [view, setView] = useState(initialView);
+  const [view, setView] = useState<ViewKey>(() => getInitialView(initialView));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -45,6 +52,10 @@ export default function useDashboardData(initialView: ViewKey = 'kanban') {
     const timer = setTimeout(() => fetchDashboardData(filters), 180);
     return () => clearTimeout(timer);
   }, [filters, fetchDashboardData]);
+
+  useEffect(() => {
+    localStorage.setItem(VIEW_STORAGE_KEY, view);
+  }, [view]);
 
   const counters = useMemo(() => {
     const visibleTasks = allTasks.filter((task) => !task.isArchived);

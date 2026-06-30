@@ -5,6 +5,7 @@ import KanbanView from './KanbanView';
 import QueueView from './QueueView';
 import type { QueueSort } from './QueueView';
 import QuickQueue from './QuickQueue';
+import SharedNotesView from './SharedNotesView';
 import TaskCard from './TaskCard';
 import type { TaskCardActions } from './TaskCard';
 
@@ -28,6 +29,8 @@ type MainViewProps = {
   onQuickQueueMove: (id: string, direction: 1 | -1) => void;
   onQuickQueueClearDone: () => void;
   onQuickQueueCreateTask: (item: QuickQueueItem) => void;
+  onOpenTask: (task: Task) => void;
+  onError: (message: string) => void;
 };
 
 export default function MainView({
@@ -47,7 +50,9 @@ export default function MainView({
   onQuickQueueDelete,
   onQuickQueueMove,
   onQuickQueueClearDone,
-  onQuickQueueCreateTask
+  onQuickQueueCreateTask,
+  onOpenTask,
+  onError
 }: MainViewProps) {
   if (view === 'quickQueue') {
     return (
@@ -62,6 +67,10 @@ export default function MainView({
         onCreateTask={onQuickQueueCreateTask}
       />
     );
+  }
+
+  if (view === 'sharedNotes') {
+    return <SharedNotesView allTasks={allTasks} onOpenTask={onOpenTask} onError={onError} />;
   }
 
   if (loading) return <div className="loading">A carregar tarefas...</div>;

@@ -1,4 +1,4 @@
-import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
+import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -113,6 +113,14 @@ export function applyAiCommands(commands: AiCommand[]) {
 
 export const deleteTag = (id: string, { force = false } = {}) => requestJson<void>(`/tags/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
 export const deleteTags = (ids: string[], { force = false } = {}) => requestJson<DeleteTagsResult>('/tags', { method: 'DELETE', body: JSON.stringify({ ids, force }) });
+
+export const getSharedNotes = (search = '') => requestJson<SharedNote[]>(`/shared-notes${search ? `?search=${encodeURIComponent(search)}` : ''}`);
+export const createSharedNote = (note: SharedNoteInput) => requestJson<SharedNote>('/shared-notes', { method: 'POST', body: JSON.stringify(note) });
+export const updateSharedNote = (id: string, note: Partial<SharedNoteInput>) => requestJson<SharedNote>(`/shared-notes/${id}`, { method: 'PUT', body: JSON.stringify(note) });
+export const archiveSharedNote = (id: string) => requestJson<void>(`/shared-notes/${id}`, { method: 'DELETE' });
+export const attachSharedNoteToTask = (taskId: string, noteId: string) => requestJson<Task>(`/tasks/${taskId}/shared-notes`, { method: 'POST', body: JSON.stringify({ noteId }) });
+export const createTaskSharedNote = (taskId: string, note: SharedNoteInput) => requestJson<Task>(`/tasks/${taskId}/shared-notes/create`, { method: 'POST', body: JSON.stringify(note) });
+export const detachSharedNoteFromTask = (taskId: string, noteId: string) => requestJson<Task>(`/tasks/${taskId}/shared-notes/${noteId}`, { method: 'DELETE' });
 
 export const createTask = (task: TaskMutationPayload) => requestJson<Task>('/tasks', { method: 'POST', body: JSON.stringify(task) });
 export const updateTask = (id: string, task: TaskMutationPayload) => requestJson<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(task) });

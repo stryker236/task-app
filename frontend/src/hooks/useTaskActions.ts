@@ -2,9 +2,12 @@ import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { ChecklistItem, Task, TaskPriority, TaskStatus } from '../../../shared/types';
 import {
+  attachSharedNoteToTask,
   archiveTask,
   archiveTasksByStatus,
+  createTaskSharedNote,
   deleteTask,
+  detachSharedNoteFromTask,
   duplicateTask,
   restoreTask,
   toggleChecklistItem,
@@ -127,6 +130,42 @@ export default function useTaskActions({
     }
   }
 
+  async function attachTaskSharedNote(task: Task, noteId: string) {
+    try {
+      const updated = await attachSharedNoteToTask(task.id, noteId);
+      setViewingTask(updated);
+      await fetchDashboardData(filters);
+      return updated;
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+      return null;
+    }
+  }
+
+  async function createTaskLinkedSharedNote(task: Task, title: string, body: string, tags: string[] = []) {
+    try {
+      const updated = await createTaskSharedNote(task.id, { title, body, tags });
+      setViewingTask(updated);
+      await fetchDashboardData(filters);
+      return updated;
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+      return null;
+    }
+  }
+
+  async function detachTaskSharedNote(task: Task, noteId: string) {
+    try {
+      const updated = await detachSharedNoteFromTask(task.id, noteId);
+      setViewingTask(updated);
+      await fetchDashboardData(filters);
+      return updated;
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+      return null;
+    }
+  }
+
   async function updateTaskFromDetails(task: Task, changes: TaskDetailsChange) {
     try {
       const updated = await updateTask(task.id, { ...task, ...changes });
@@ -166,6 +205,9 @@ export default function useTaskActions({
     restoreArchivedTask,
     archiveTasksWithStatus,
     updateTaskChecklistItemStatus,
+    attachTaskSharedNote,
+    createTaskLinkedSharedNote,
+    detachTaskSharedNote,
     updateTaskFromDetails,
     postponeTaskDueDate
   };

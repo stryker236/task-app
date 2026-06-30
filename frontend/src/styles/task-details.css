@@ -18,6 +18,14 @@
 .details-section h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; font-size: 13px; }
 .details-section h3 > span { padding: 2px 7px; border-radius: 99px; background: #edf0f5; color: #697286; font-size: 10px; }
 .details-description { margin: 0; color: #4d586d; white-space: pre-wrap; line-height: 1.5; font-size: 13px; }
+.shared-notes-list { display: flex; flex-direction: column; gap: 8px; }
+.shared-notes-list article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 10px; border: 1px solid #edf0f4; border-radius: 7px; background: #fbfcfe; }
+.shared-notes-list strong { display: block; margin-bottom: 5px; color: #3e485c; font-size: 12px; }
+.shared-notes-list p { margin: 0; color: #596579; white-space: pre-wrap; line-height: 1.45; font-size: 12px; }
+.shared-notes-controls { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.shared-note-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.shared-note-create input, .shared-note-create textarea { grid-column: 1 / 2; }
+.shared-note-create button { grid-column: 2 / 3; grid-row: 1 / 4; align-self: stretch; }
 .details-checklist { display: flex; flex-direction: column; gap: 5px; }
 .details-checklist > div { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #edf0f4; color: #4d586d; }
 .details-checklist input { width: auto; }
@@ -44,3 +52,21 @@
 .details-activity article { display: grid; grid-template-columns: 16px 1fr; gap: 8px; padding: 7px 0; }
 .details-activity p { margin: 0 0 2px; color: #465166; white-space: pre-wrap; font-size: 12px; }
 .details-activity time { color: #8b93a3; font-size: 10px; }
+
+.shared-notes-view { display: flex; flex-direction: column; gap: 14px; }
+.shared-notes-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.shared-notes-toolbar h2 { margin: 0 0 2px; color: #293349; font-size: 18px; }
+.shared-notes-toolbar p { margin: 0; color: #7a8496; font-size: 12px; }
+.shared-notes-toolbar input { width: min(360px, 100%); }
+.shared-note-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; padding: 14px; border: 1px solid #dfe5ef; border-radius: 8px; background: #f8fafc; }
+.shared-note-composer textarea { grid-column: 1 / 2; resize: vertical; }
+.shared-note-composer button { grid-column: 2 / 3; grid-row: 1 / 4; align-self: stretch; }
+.shared-notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+.shared-note-card { display: flex; flex-direction: column; gap: 8px; padding: 13px; border: 1px solid #dfe5ef; border-radius: 8px; background: #fff; }
+.shared-note-card input { border: 0; border-bottom: 1px solid transparent; border-radius: 0; padding: 2px 0; color: #334057; font-size: 14px; font-weight: 750; }
+.shared-note-card textarea { min-height: 210px; resize: vertical; border: 1px solid #e4e9f1; background: #fbfcfe; color: #4b566b; line-height: 1.5; font-size: 13px; }
+.shared-note-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #858fa0; font-size: 10px; }
+.shared-note-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid #edf0f4; }
+.shared-note-links strong { width: 100%; color: #6d7687; font-size: 10px; text-transform: uppercase; }
+.shared-note-links button { border: 1px solid #d8e0ee; border-radius: 999px; padding: 4px 8px; background: #f7f9fc; color: #42506a; font-size: 11px; }
+.shared-note-links p { margin: 0; color: #8b94a5; font-size: 12px; }
