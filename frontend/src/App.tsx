@@ -154,7 +154,7 @@ export default function App() {
       <main>
         <DashboardCounters counters={counters} />
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && (
           <GoogleDailyPanel
             status={googleCalendar.googleStatus}
             loading={googleCalendar.googleLoading}
@@ -169,7 +169,7 @@ export default function App() {
           />
         )}
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && (
           <AdvisorPanel
             allTasks={allTasks}
             advice={advisorController.advisor}
@@ -191,14 +191,14 @@ export default function App() {
 
         <ViewTabs view={view} onChange={setView} />
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && (
           <BulkArchiveActions
             onArchiveDone={() => taskActions.archiveTasksWithStatus('done')}
             onArchiveCancelled={() => taskActions.archiveTasksWithStatus('cancelled')}
           />
         )}
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && (
           <Filters
             filters={filters}
             tags={availableTags}
@@ -240,6 +240,20 @@ export default function App() {
           onError={setError}
           onTasksChanged={() => fetchDashboardData(filters)}
           focusedSharedNoteId={focusedSharedNoteId}
+          googleStatus={googleCalendar.googleStatus}
+          googleLoading={googleCalendar.googleLoading}
+          calendarWeekStart={googleCalendar.calendarWeekStart}
+          calendarWeekEnd={googleCalendar.calendarWeekEnd}
+          weeklyCalendarEvents={googleCalendar.weeklyCalendarEvents}
+          googleCalendars={googleCalendar.googleCalendars}
+          selectedCalendarIds={googleCalendar.selectedCalendarIds}
+          calendarAccountEmail={googleCalendar.calendarAccountEmail}
+          weeklyCalendarBusyCount={googleCalendar.weeklyCalendarBusyCount}
+          onCalendarWeekChange={googleCalendar.setCalendarWeekStart}
+          onCalendarFilterChange={googleCalendar.setSelectedCalendarIds}
+          onConnectGoogle={googleCalendar.connectGoogle}
+          onDisconnectGoogle={googleCalendar.disconnectGoogleAccount}
+          onLoadCalendarWeekEvents={googleCalendar.loadCalendarWeekEvents}
         />
       </main>
 

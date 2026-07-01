@@ -1,14 +1,43 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
+import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
 import {
   disconnectGoogle,
+  getGoogleCalendars,
   getGoogleCalendarEvents,
+  getGoogleCalendarEventsRange,
   getGoogleOAuthUrl,
   getGoogleStatus
 } from '../api';
 
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function dateFromInputValue(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return new Date();
+  return new Date(year, month - 1, day);
+}
+
+function inputValueFromDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function startOfWeekInputValue(value: string) {
+  const date = dateFromInputValue(value);
+  const day = date.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + mondayOffset);
+  return inputValueFromDate(date);
+}
+
+function addDaysInputValue(value: string, days: number) {
+  const date = dateFromInputValue(value);
+  date.setDate(date.getDate() + days);
+  return inputValueFromDate(date);
 }
 
 function errorMessage(error: unknown) {
@@ -24,9 +53,19 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
   const [googleLoading, setGoogleLoading] = useState(false);
   const [calendarDate, setCalendarDate] = useState(todayInputValue);
   const [calendarEvents, setCalendarEvents] = useState<GoogleCalendarEvent[]>([]);
+  const [calendarWeekStart, setCalendarWeekStartState] = useState(() => startOfWeekInputValue(todayInputValue()));
+  const [weeklyCalendarEvents, setWeeklyCalendarEvents] = useState<GoogleCalendarEvent[]>([]);
+  const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendar[]>([]);
+  const [selectedCalendarIds, setSelectedCalendarIds] = useState<string[]>([]);
   const [calendarAccountEmail, setCalendarAccountEmail] = useState<string | null>(null);
 
   const calendarBusyCount = useMemo(() => calendarEvents.length, [calendarEvents]);
+  const calendarWeekEnd = useMemo(() => addDaysInputValue(calendarWeekStart, 6), [calendarWeekStart]);
+  const weeklyCalendarBusyCount = useMemo(() => weeklyCalendarEvents.length, [weeklyCalendarEvents]);
+
+  function setCalendarWeekStart(value: string) {
+    setCalendarWeekStartState(startOfWeekInputValue(value));
+  }
 
   async function refreshGoogleStatus() {
     try {
@@ -56,6 +95,9 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       await disconnectGoogle();
       setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
       setCalendarEvents([]);
+      setWeeklyCalendarEvents([]);
+      setGoogleCalendars([]);
+      setSelectedCalendarIds([]);
       setCalendarAccountEmail(null);
     } catch (error) {
       setError?.(errorMessage(error));
@@ -64,19 +106,70 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     }
   }
 
-  async function loadCalendarEvents(date = calendarDate) {
-    if (!googleStatus.connected) return;
+  async function loadGoogleCalendars() {
+    if (!googleStatus.connected) return [];
     setGoogleLoading(true);
     setError?.('');
     try {
-      const data = await getGoogleCalendarEvents(date);
+      const data = await getGoogleCalendars();
+      const calendars = data.calendars || [];
+      setGoogleCalendars(calendars);
+      setSelectedCalendarIds((current) => current.length ? current.filter((id) => calendars.some((calendar) => calendar.id === id)) : calendars.map((calendar) => calendar.id));
+      setCalendarAccountEmail(data.accountEmail || null);
+      return calendars;
+    } catch (error) {
+      setError?.(errorMessage(error));
+      return [];
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
+  async function loadCalendarEvents(date = calendarDate, calendarIds = selectedCalendarIds) {
+    if (!googleStatus.connected) return;
+    if (!calendarIds.length) {
+      setCalendarEvents([]);
+      return;
+    }
+    setGoogleLoading(true);
+    setError?.('');
+    try {
+      const data = await getGoogleCalendarEvents(date, calendarIds);
       setCalendarEvents(data.events || []);
-      setCalendarAccountEmail(null);
+      setCalendarAccountEmail(data.accountEmail || null);
     } catch (error) {
       setError?.(errorMessage(error));
     } finally {
       setGoogleLoading(false);
     }
+  }
+
+  async function loadCalendarWeekEvents(start = calendarWeekStart, calendarIds = selectedCalendarIds) {
+    if (!googleStatus.connected) return;
+    const normalizedStart = startOfWeekInputValue(start);
+    const end = addDaysInputValue(normalizedStart, 6);
+    if (!calendarIds.length) {
+      setCalendarWeekStartState(normalizedStart);
+      setWeeklyCalendarEvents([]);
+      return;
+    }
+    setGoogleLoading(true);
+    setError?.('');
+    setCalendarWeekStartState(normalizedStart);
+    try {
+      const data = await getGoogleCalendarEventsRange(normalizedStart, end, calendarIds);
+      setWeeklyCalendarEvents(data.events || []);
+      setCalendarAccountEmail(data.accountEmail || null);
+    } catch (error) {
+      setError?.(errorMessage(error));
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
+  function changeSelectedCalendarIds(calendarIds: string[]) {
+    setSelectedCalendarIds(calendarIds);
+    loadCalendarWeekEvents(calendarWeekStart, calendarIds);
   }
 
   useEffect(() => {
@@ -84,7 +177,13 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
   }, []);
 
   useEffect(() => {
-    if (googleStatus.connected) loadCalendarEvents(calendarDate);
+    if (googleStatus.connected) {
+      loadGoogleCalendars().then((calendars) => {
+        const calendarIds = calendars.map((calendar) => calendar.id);
+        loadCalendarEvents(calendarDate, calendarIds);
+        loadCalendarWeekEvents(calendarWeekStart, calendarIds);
+      });
+    }
   }, [googleStatus.connected]);
 
   return {
@@ -93,11 +192,21 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     calendarDate,
     setCalendarDate,
     calendarEvents,
+    calendarWeekStart,
+    calendarWeekEnd,
+    setCalendarWeekStart,
+    weeklyCalendarEvents,
+    googleCalendars,
+    selectedCalendarIds,
+    setSelectedCalendarIds: changeSelectedCalendarIds,
     calendarAccountEmail,
     calendarBusyCount,
+    weeklyCalendarBusyCount,
     refreshGoogleStatus,
     connectGoogle,
     disconnectGoogleAccount,
-    loadCalendarEvents
+    loadGoogleCalendars,
+    loadCalendarEvents,
+    loadCalendarWeekEvents
   };
 }

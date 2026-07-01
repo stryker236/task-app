@@ -1,4 +1,4 @@
-import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
+import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendar, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -9,7 +9,7 @@ export type TaskFilters = {
   status?: TaskStatus | '';
   priority?: number | '';
   tags?: string[];
-  tagMode?: 'and' | 'or' | 'not' | 'nor' | 'nand';
+  tagMode?: 'and' | 'or' | 'not' | 'nand';
   overdue?: boolean;
   today?: boolean;
   noDueDate?: boolean;
@@ -144,4 +144,24 @@ export const clearDoneQuickQueueItems = () => requestJson<QuickQueueItem[]>('/qu
 export const getGoogleStatus = () => requestJson<GoogleStatus>('/google/status');
 export const getGoogleOAuthUrl = () => requestJson<{ url: string; expiresAt: string }>('/google/oauth/url', { method: 'POST' });
 export const disconnectGoogle = () => requestJson<void>('/google/connection', { method: 'DELETE' });
-export const getGoogleCalendarEvents = (date: string) => requestJson<{ date: string; events: GoogleCalendarEvent[] }>(`/google/calendar/events?date=${encodeURIComponent(date)}`);
+export const getGoogleCalendars = () => requestJson<{ accountEmail: string | null; calendars: GoogleCalendar[] }>('/google/calendars');
+
+function calendarIdsQuery(calendarIds: string[] = []) {
+  const params = new URLSearchParams();
+  calendarIds.forEach((calendarId) => params.append('calendarId', calendarId));
+  return params.toString();
+}
+
+export const getGoogleCalendarEvents = (date: string, calendarIds: string[] = []) => {
+  const query = calendarIdsQuery(calendarIds);
+  return requestJson<{ date: string; accountEmail: string | null; events: GoogleCalendarEvent[] }>(
+    `/google/calendar/events?date=${encodeURIComponent(date)}${query ? `&${query}` : ''}`
+  );
+};
+
+export const getGoogleCalendarEventsRange = (start: string, end: string, calendarIds: string[] = []) => {
+  const query = calendarIdsQuery(calendarIds);
+  return requestJson<{ start: string; end: string; accountEmail: string | null; events: GoogleCalendarEvent[] }>(
+    `/google/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}${query ? `&${query}` : ''}`
+  );
+};

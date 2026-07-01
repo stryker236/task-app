@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Tag } from '../../../shared/types';
 
-type TagMode = 'and' | 'or' | 'not' | 'nor' | 'nand';
+type TagMode = 'and' | 'or' | 'not' | 'nand';
 
 const TAG_MODES: Array<{ value: TagMode; label: string }> = [
   { value: 'and', label: 'AND' },
   { value: 'or', label: 'OR' },
   { value: 'not', label: 'NOT' },
-  { value: 'nor', label: 'NOR' },
   { value: 'nand', label: 'NAND' }
 ];
 

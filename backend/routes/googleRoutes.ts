@@ -10,9 +10,25 @@ const {
   getAccountEmail
 } = require('../google/googleClient');
 
-function toCalendarEvent(event) {
+function toCalendar(calendar) {
   return {
-    id: event.id,
+    id: calendar.id,
+    summary: calendar.summary || '(Sem nome)',
+    description: calendar.description || '',
+    backgroundColor: calendar.backgroundColor || null,
+    foregroundColor: calendar.foregroundColor || null,
+    primary: Boolean(calendar.primary),
+    selected: calendar.selected !== false,
+    accessRole: calendar.accessRole || null
+  };
+}
+
+function toCalendarEvent(event, sourceCalendar) {
+  return {
+    id: `${sourceCalendar.id}:${event.id}`,
+    calendarId: sourceCalendar.id,
+    calendarSummary: sourceCalendar.summary,
+    calendarColor: sourceCalendar.backgroundColor,
     summary: event.summary || '(Sem título)',
     description: event.description || '',
     location: event.location || '',
@@ -112,25 +128,68 @@ function createGoogleRouter({
     }
   });
 
-  router.get('/google/calendar/events', async (req, res, next) => {
+  router.get('/google/calendars', async (req, res, next) => {
     try {
-      const date = parseDateOnly(req.query.date) || new Date().toISOString().slice(0, 10);
-      const timeMin = new Date(`${date}T00:00:00`).toISOString();
-      const timeMax = new Date(`${date}T23:59:59.999`).toISOString();
       const { connection, authClient } = await getAuthorizedClient();
       const calendar = createCalendarClient(authClient);
-      const result = await calendar.events.list({
-        calendarId: 'primary',
-        timeMin,
-        timeMax,
-        singleEvents: true,
-        orderBy: 'startTime'
+      const result = await calendar.calendarList.list({
+        minAccessRole: 'reader',
+        showDeleted: false,
+        showHidden: false
       });
 
       res.json({
-        date,
         accountEmail: connection.accountEmail,
-        events: (result.data.items || []).map(toCalendarEvent)
+        calendars: (result.data.items || []).map(toCalendar)
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/google/calendar/events', async (req, res, next) => {
+    try {
+      const start = parseDateOnly(req.query.start);
+      const end = parseDateOnly(req.query.end);
+      const date = parseDateOnly(req.query.date) || new Date().toISOString().slice(0, 10);
+      const rangeStart = start || date;
+      const rangeEnd = end || date;
+      const timeMin = new Date(`${rangeStart}T00:00:00`).toISOString();
+      const timeMax = new Date(`${rangeEnd}T23:59:59.999`).toISOString();
+      const { connection, authClient } = await getAuthorizedClient();
+      const calendar = createCalendarClient(authClient);
+      const requestedCalendarIds = Array.isArray(req.query.calendarId)
+        ? req.query.calendarId.map(String).filter(Boolean)
+        : req.query.calendarId ? [String(req.query.calendarId)] : ['primary'];
+      const calendarListResult = await calendar.calendarList.list({
+        minAccessRole: 'reader',
+        showDeleted: false,
+        showHidden: false
+      });
+      const calendars = (calendarListResult.data.items || []).map(toCalendar);
+      const calendarsById = new Map(calendars.map((item) => [item.id, item]));
+      const requestedCalendars = requestedCalendarIds
+        .map((calendarId) => calendarsById.get(calendarId) || (calendarId === 'primary' ? calendars.find((item) => item.primary) : null))
+        .filter(Boolean);
+      const eventResults = await Promise.all(requestedCalendars.map(async (sourceCalendar) => {
+        const result = await calendar.events.list({
+          calendarId: sourceCalendar.id,
+          timeMin,
+          timeMax,
+          singleEvents: true,
+          orderBy: 'startTime'
+        });
+        return (result.data.items || []).map((event) => toCalendarEvent(event, sourceCalendar));
+      }));
+      const events = eventResults.flat().sort((left, right) => String(left.start || '').localeCompare(String(right.start || '')));
+
+      res.json({
+        date: start && end ? undefined : date,
+        start: rangeStart,
+        end: rangeEnd,
+        accountEmail: connection.accountEmail,
+        calendars: requestedCalendars,
+        events
       });
     } catch (error) {
       next(error);
