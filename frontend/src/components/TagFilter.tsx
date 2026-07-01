@@ -1,7 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Tag } from '../../../shared/types';
 
-type TagMode = 'and' | 'or';
+type TagMode = 'and' | 'or' | 'not' | 'nor' | 'nand';
+
+const TAG_MODES: Array<{ value: TagMode; label: string }> = [
+  { value: 'and', label: 'AND' },
+  { value: 'or', label: 'OR' },
+  { value: 'not', label: 'NOT' },
+  { value: 'nor', label: 'NOR' },
+  { value: 'nand', label: 'NAND' }
+];
 
 type TagFilterProps = {
   tags: Tag[];
@@ -35,11 +43,21 @@ export default function TagFilter({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedForDelete, setSelectedForDelete] = useState<string[]>([]);
+  const controlRef = useRef<HTMLDivElement | null>(null);
   const selectedKeys = new Set(selected.map(normalize));
   const visible = tags.filter((tag) => normalize(tag.name).includes(normalize(search.trim())));
   const deleteSelection = new Set(selectedForDelete);
   const selectedTagsForDeactivation = tags.filter((tag) => deleteSelection.has(tag.id));
   const selectedActiveUsage = selectedTagsForDeactivation.reduce((sum, tag) => sum + tagUsage(tag), 0);
+
+  useEffect(() => {
+    if (!open) return;
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (!controlRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+  }, [open]);
 
   function toggle(name: string) {
     const key = normalize(name);
@@ -69,7 +87,7 @@ export default function TagFilter({
   }
 
   return (
-    <div className="tag-filter-control">
+    <div className="tag-filter-control" ref={controlRef}>
       <button type="button" className={selected.length ? 'tag-filter-button has-selection' : 'tag-filter-button'} onClick={() => setOpen((value) => !value)}>
         {selected.length ? `Tags (${selected.length}, ${mode.toUpperCase()})` : 'Todas as tags'}
       </button>
@@ -79,12 +97,11 @@ export default function TagFilter({
 
           <div className="tag-mode-toggle" aria-label="Modo de combinacao de tags">
             <span>Combinar tags</span>
-            <button type="button" className={mode !== 'or' ? 'active' : ''} onClick={() => onModeChange('and')}>
-              AND
-            </button>
-            <button type="button" className={mode === 'or' ? 'active' : ''} onClick={() => onModeChange('or')}>
-              OR
-            </button>
+            {TAG_MODES.map((tagMode) => (
+              <button type="button" className={mode === tagMode.value ? 'active' : ''} onClick={() => onModeChange(tagMode.value)} key={tagMode.value}>
+                {tagMode.label}
+              </button>
+            ))}
           </div>
 
           <div className="tag-bulk-delete-bar">

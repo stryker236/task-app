@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { MouseEvent } from 'react';
-import type { ChecklistItem, SharedNote, Tag, Task, TaskInput, TaskPriority, TaskRelation, TaskStatus } from '../../../shared/types';
+import type { FormEvent, MouseEvent } from 'react';
+import type { ActivityLogEntry, ChecklistItem, SharedNote, Tag, Task, TaskInput, TaskPriority, TaskRelation, TaskStatus } from '../../../shared/types';
 import { getSharedNotes } from '../api';
 import DependencyPicker from './DependencyPicker';
 import RelationPicker, { RELATION_LABELS } from './RelationPicker';
@@ -38,9 +38,12 @@ type TaskDetailsProps = {
   onArchive: (task: Task) => void;
   onRestore: (task: Task) => void;
   onToggleChecklist: (task: Task, item: ChecklistItem, isDone: boolean) => void;
+  onAddProgressEntry: (task: Task, message: string) => Promise<Task | null>;
+  onEditProgressEntry: (task: Task, entryId: string, message: string) => Promise<Task | null>;
   onAttachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
   onCreateSharedNote: (task: Task, title: string, body: string, tags: string[]) => Promise<Task | null>;
   onDetachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
+  onOpenSharedNote: (note: SharedNote) => void;
 };
 
 function formatDate(value?: string | null) {
@@ -69,6 +72,13 @@ function stopDialogMouseDown(event: MouseEvent<HTMLElement>) {
   event.stopPropagation();
 }
 
+function activityText(entry: ActivityLogEntry) {
+  if (entry.type === 'status') {
+    return `Status changed from ${entry.fromStatus || ''} to ${entry.toStatus || ''}`;
+  }
+  return entry.message;
+}
+
 export default function TaskDetails({
   task,
   allTasks,
@@ -80,19 +90,25 @@ export default function TaskDetails({
   onArchive,
   onRestore,
   onToggleChecklist,
+  onAddProgressEntry,
+  onEditProgressEntry,
   onAttachSharedNote,
   onCreateSharedNote,
-  onDetachSharedNote
+  onDetachSharedNote,
+  onOpenSharedNote
 }: TaskDetailsProps) {
   const [draft, setDraft] = useState<EditableTask>(() => editableTaskFromTask(task));
   const [dueDate, setDueDate] = useState(() => localDeadline(task.dueDateTime).date);
   const [dueTime, setDueTime] = useState(() => localDeadline(task.dueDateTime).time);
   const [newChecklistTitle, setNewChecklistTitle] = useState('');
   const [availableSharedNotes, setAvailableSharedNotes] = useState<SharedNote[]>([]);
-  const [selectedSharedNoteId, setSelectedSharedNoteId] = useState('');
+  const [sharedNoteSearch, setSharedNoteSearch] = useState('');
   const [newSharedNoteTitle, setNewSharedNoteTitle] = useState('');
   const [newSharedNoteBody, setNewSharedNoteBody] = useState('');
   const [newSharedNoteTags, setNewSharedNoteTags] = useState('');
+  const [newProgressMessage, setNewProgressMessage] = useState('');
+  const [editingEntryId, setEditingEntryId] = useState('');
+  const [editingEntryMessage, setEditingEntryMessage] = useState('');
   const [savingField, setSavingField] = useState('');
   const dependencies = (draft.blockedByTaskIds || []).map((id) => allTasks.find((item) => item.id === id)).filter((item): item is Task => Boolean(item));
   const unfinishedDependencies = dependencies.filter((item) => item.status !== 'done');
@@ -103,6 +119,13 @@ export default function TaskDetails({
   const activity = [...(draft.activityLog || [])].reverse();
   const linkedSharedNotes = draft.sharedNotes || [];
   const attachableSharedNotes = availableSharedNotes.filter((note) => !linkedSharedNotes.some((linked) => linked.id === note.id));
+  const visibleAttachableSharedNotes = attachableSharedNotes.filter((note) => {
+    const term = sharedNoteSearch.trim().toLocaleLowerCase();
+    if (!term) return true;
+    return note.title.toLocaleLowerCase().includes(term)
+      || note.body.toLocaleLowerCase().includes(term)
+      || note.tags.some((tag) => tag.toLocaleLowerCase().includes(term));
+  });
   const draftKey = `task-app:view-draft:${task.id}`;
 
   useEffect(() => {
@@ -160,13 +183,12 @@ export default function TaskDetails({
     commit('dueDateTime', { dueDateTime });
   }
 
-  async function attachSharedNote() {
-    if (!selectedSharedNoteId) return;
+  async function attachSharedNote(noteId: string) {
     setSavingField('sharedNotes');
-    const updated = await onAttachSharedNote(task, selectedSharedNoteId);
+    const updated = await onAttachSharedNote(task, noteId);
     if (updated) {
       setDraft(editableTaskFromTask(updated));
-      setSelectedSharedNoteId('');
+      setSharedNoteSearch('');
     }
     setSavingField('');
   }
@@ -190,6 +212,33 @@ export default function TaskDetails({
     setSavingField('sharedNotes');
     const updated = await onDetachSharedNote(task, noteId);
     if (updated) setDraft(editableTaskFromTask(updated));
+    setSavingField('');
+  }
+
+  async function addProgressEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = newProgressMessage.trim();
+    if (!message || task.status === 'new' || task.isArchived) return;
+    setSavingField('progress');
+    const updated = await onAddProgressEntry(task, message);
+    if (updated) {
+      setDraft(editableTaskFromTask(updated));
+      setNewProgressMessage('');
+    }
+    setSavingField('');
+  }
+
+  async function saveProgressEntryEdit(event: FormEvent<HTMLFormElement>, entry: ActivityLogEntry) {
+    event.preventDefault();
+    const message = editingEntryMessage.trim();
+    if (!message || task.isArchived) return;
+    setSavingField('progress');
+    const updated = await onEditProgressEntry(task, entry.id, message);
+    if (updated) {
+      setDraft(editableTaskFromTask(updated));
+      setEditingEntryId('');
+      setEditingEntryMessage('');
+    }
     setSavingField('');
   }
 
@@ -239,28 +288,35 @@ export default function TaskDetails({
           <section className="details-section shared-notes-section">
             <h3>Notas partilhadas <span>{linkedSharedNotes.length}</span></h3>
             {linkedSharedNotes.length ? (
-              <div className="shared-notes-list">
+              <div className="task-note-references">
                 {linkedSharedNotes.map((note) => (
-                  <article key={note.id}>
-                    <div>
-                      <strong>{note.title}</strong>
-                      {note.body ? <p>{note.body}</p> : <p className="details-empty">Sem conteudo.</p>}
-                      {note.tags.length ? <div className="tag-list shared-note-tags">{note.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div> : null}
-                    </div>
-                    {!task.isArchived && <button type="button" className="inline-remove" onClick={() => detachSharedNote(note.id)}>x</button>}
-                  </article>
+                  <span className="task-note-reference" key={note.id}>
+                    <button type="button" onClick={() => onOpenSharedNote(note)}>{note.title}</button>
+                    {!task.isArchived && <button type="button" aria-label={`Remover ${note.title}`} onClick={() => detachSharedNote(note.id)}>x</button>}
+                  </span>
                 ))}
               </div>
             ) : <p className="details-empty">Sem notas partilhadas.</p>}
             {!task.isArchived && (
               <div className="shared-notes-controls">
-                <div className="inline-add-row">
-                  <select value={selectedSharedNoteId} onChange={(event) => setSelectedSharedNoteId(event.target.value)}>
-                    <option value="">Anexar nota existente</option>
-                    {attachableSharedNotes.map((note) => <option value={note.id} key={note.id}>{note.title}</option>)}
-                  </select>
-                  <button type="button" className="button secondary small" disabled={!selectedSharedNoteId || savingField === 'sharedNotes'} onClick={attachSharedNote}>Anexar</button>
-                </div>
+                <details className="task-note-attach">
+                  <summary>Anexar nota existente</summary>
+                  <input value={sharedNoteSearch} placeholder="Pesquisar nota por titulo, texto ou tag..." onChange={(event) => setSharedNoteSearch(event.target.value)} />
+                  {visibleAttachableSharedNotes.length ? (
+                    <div className="task-note-options">
+                      {visibleAttachableSharedNotes.map((note) => (
+                        <article key={note.id}>
+                          <div>
+                            <strong>{note.title}</strong>
+                            {note.body ? <p>{note.body}</p> : <p className="details-empty">Sem conteudo.</p>}
+                            {note.tags.length ? <div className="tag-list shared-note-tags">{note.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div> : null}
+                          </div>
+                          <button type="button" className="button secondary small" disabled={savingField === 'sharedNotes'} onClick={() => attachSharedNote(note.id)}>Anexar</button>
+                        </article>
+                      ))}
+                    </div>
+                  ) : <p className="details-empty">{attachableSharedNotes.length ? 'Sem notas para essa pesquisa.' : 'Todas as notas disponiveis ja estao associadas.'}</p>}
+                </details>
                 <div className="shared-note-create">
                   <input value={newSharedNoteTitle} maxLength={200} placeholder="Titulo da nota partilhada" onChange={(event) => setNewSharedNoteTitle(event.target.value)} />
                   <textarea rows={3} maxLength={50000} value={newSharedNoteBody} placeholder="Conteudo reutilizavel..." onChange={(event) => setNewSharedNoteBody(event.target.value)} />
@@ -293,12 +349,47 @@ export default function TaskDetails({
 
           <section className="details-section">
             <h3>Historico <span>{activity.length}</span></h3>
-            <div className="details-activity">{activity.map((entry) => <article key={entry.id}><span className={`activity-dot activity-dot-${entry.type}`} /><div><p>{entry.message}</p><time>{formatDate(entry.createdAt)}{entry.editedAt ? ' - Editado' : ''}</time></div></article>)}</div>
+            {!task.isArchived && task.status !== 'new' && (
+              <form className="details-progress-form" onSubmit={addProgressEntry}>
+                <textarea
+                  rows={3}
+                  maxLength={2000}
+                  value={newProgressMessage}
+                  placeholder="Nova entrada no historico..."
+                  onChange={(event) => setNewProgressMessage(event.target.value)}
+                />
+                <div>
+                  <small>{newProgressMessage.length}/2000</small>
+                  <button type="submit" className="button primary small" disabled={savingField === 'progress' || !newProgressMessage.trim()}>
+                    Registar
+                  </button>
+                </div>
+              </form>
+            )}
+            {task.status === 'new' && !task.isArchived && <p className="details-empty">Muda o estado da task antes de registar progresso.</p>}
+            <div className="details-activity">{activity.map((entry) => <article key={entry.id}><span className={`activity-dot activity-dot-${entry.type}`} /><div>
+              {editingEntryId === entry.id ? (
+                <form className="details-progress-edit" onSubmit={(event) => saveProgressEntryEdit(event, entry)}>
+                  <textarea autoFocus rows={3} maxLength={2000} value={editingEntryMessage} onChange={(event) => setEditingEntryMessage(event.target.value)} />
+                  <div>
+                    <button type="button" className="button ghost small" onClick={() => { setEditingEntryId(''); setEditingEntryMessage(''); }}>Cancelar</button>
+                    <button type="submit" className="button primary small" disabled={savingField === 'progress' || !editingEntryMessage.trim()}>Guardar</button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <p>{activityText(entry)}</p>
+                  <div className="activity-meta">
+                    <time>{formatDate(entry.createdAt)}{entry.editedAt ? ' - Editado' : ''}</time>
+                    {!task.isArchived && entry.type === 'note' && <button type="button" onClick={() => { setEditingEntryId(entry.id); setEditingEntryMessage(entry.message); }}>Editar</button>}
+                  </div>
+                </>
+              )}
+            </div></article>)}</div>
           </section>
         </div>
 
         <div className="dialog-actions">
-          <button type="button" className="button secondary" onClick={() => onProgress(task)}>Abrir historico</button>
           {task.isArchived ? <button type="button" className="button primary" onClick={() => onRestore(task)}>Restaurar</button> : <button type="button" className="button secondary" onClick={() => onArchive(task)}>Arquivar</button>}
           <button type="button" className="button primary" onClick={onClose}>Fechar</button>
         </div>

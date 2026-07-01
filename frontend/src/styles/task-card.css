@@ -31,6 +31,9 @@
 .task-meta strong { color: #4e586c; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .tag-list span { font-size: 10px; color: #4b628f; background: #edf2fa; border-radius: 4px; padding: 2px 5px; }
+.card-shared-notes { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 9px; padding: 7px; border-radius: 7px; background: #eef6ff; color: #415a79; }
+.card-shared-notes strong { width: 100%; color: #3e6394; font-size: 9px; text-transform: uppercase; }
+.card-shared-notes span, .card-shared-notes small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 999px; background: #fff; padding: 3px 7px; font-size: 10px; }
 .dependency-summary { margin-top: 9px; background: #fff7e9; border-radius: 7px; padding: 7px; display: flex; flex-direction: column; gap: 4px; }
 .dependency-summary > strong { color: #8c5c1b; font-size: 10px; text-transform: uppercase; }
 .dependency-summary button { border: 0; padding: 0; text-align: left; background: transparent; color: #62491f; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -43,6 +46,9 @@
 .latest-progress { width: 100%; margin-top: 8px; padding: 7px; border: 0; border-radius: 6px; background: #edf5ff; color: #405775; text-align: left; display: flex; flex-direction: column; gap: 2px; }
 .latest-progress strong { color: #3e6394; font-size: 9px; text-transform: uppercase; }
 .latest-progress span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+.card-progress-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-top: 8px; }
+.card-progress-form input { min-height: 31px; padding: 6px 8px; font-size: 12px; }
+.card-progress-form .button { min-height: 31px; white-space: nowrap; }
 .card-actions { display: flex; flex-wrap: wrap; gap: 9px; border-top: 1px solid #edf0f4; padding-top: 8px; margin-top: 9px; }
 .card-actions button { border: 0; background: transparent; color: #3d5fa9; padding: 0; font-size: 10px; font-weight: 700; }
 .card-actions .postpone-action { color: #a55a13; }

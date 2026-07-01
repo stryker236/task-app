@@ -22,7 +22,19 @@
 .shared-notes-list article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 10px; border: 1px solid #edf0f4; border-radius: 7px; background: #fbfcfe; }
 .shared-notes-list strong { display: block; margin-bottom: 5px; color: #3e485c; font-size: 12px; }
 .shared-notes-list p { margin: 0; color: #596579; white-space: pre-wrap; line-height: 1.45; font-size: 12px; }
+.task-note-references { display: flex; flex-wrap: wrap; gap: 7px; }
+.task-note-reference { display: inline-flex; align-items: center; border: 1px solid #d8e0ee; border-radius: 999px; overflow: hidden; background: #f7f9fc; }
+.task-note-reference button { border: 0; background: transparent; color: #42506a; padding: 5px 9px; font-size: 12px; }
+.task-note-reference button:first-child:hover { text-decoration: underline; }
+.task-note-reference button + button { border-left: 1px solid #d8e0ee; color: #ae4650; }
 .shared-notes-controls { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.task-note-attach { border: 1px solid #edf0f4; border-radius: 8px; padding: 10px; background: #fbfcfe; }
+.task-note-attach summary { width: fit-content; cursor: pointer; color: #3d5fa9; font-size: 12px; font-weight: 750; }
+.task-note-attach > input { margin-top: 9px; }
+.task-note-options { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow: auto; margin-top: 9px; }
+.task-note-options article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px; border: 1px solid #edf0f4; border-radius: 7px; background: #fff; }
+.task-note-options strong { display: block; margin-bottom: 4px; color: #3e485c; font-size: 12px; }
+.task-note-options p { margin: 0; color: #596579; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; line-height: 1.4; }
 .shared-note-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
 .shared-note-create input, .shared-note-create textarea { grid-column: 1 / 2; }
 .shared-note-create button { grid-column: 2 / 3; grid-row: 1 / 4; align-self: stretch; }
@@ -52,6 +64,12 @@
 .details-activity article { display: grid; grid-template-columns: 16px 1fr; gap: 8px; padding: 7px 0; }
 .details-activity p { margin: 0 0 2px; color: #465166; white-space: pre-wrap; font-size: 12px; }
 .details-activity time { color: #8b93a3; font-size: 10px; }
+.details-progress-form, .details-progress-edit { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.details-progress-form textarea, .details-progress-edit textarea { width: 100%; resize: vertical; }
+.details-progress-form > div, .details-progress-edit > div { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.details-progress-form small { margin-right: auto; color: #8b94a5; font-size: 11px; }
+.details-activity .activity-meta { display: flex; align-items: center; gap: 8px; }
+.details-activity .activity-meta button { border: 0; padding: 0; background: transparent; color: #3d5fa9; font-size: 10px; font-weight: 700; }
 
 .shared-notes-view { display: flex; flex-direction: column; gap: 14px; }
 .shared-notes-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
@@ -61,7 +79,7 @@
 .shared-note-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; padding: 14px; border: 1px solid #dfe5ef; border-radius: 8px; background: #f8fafc; }
 .shared-note-composer textarea { grid-column: 1 / 2; resize: vertical; }
 .shared-note-composer button { grid-column: 2 / 3; grid-row: 1 / 4; align-self: stretch; }
-.shared-notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+.shared-notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .shared-note-card { display: flex; flex-direction: column; gap: 8px; padding: 13px; border: 1px solid #dfe5ef; border-radius: 8px; background: #fff; }
 .shared-note-card input { border: 0; border-bottom: 1px solid transparent; border-radius: 0; padding: 2px 0; color: #334057; font-size: 14px; font-weight: 750; }
 .shared-note-card textarea { min-height: 210px; resize: vertical; border: 1px solid #e4e9f1; background: #fbfcfe; color: #4b566b; line-height: 1.5; font-size: 13px; }
@@ -70,3 +88,17 @@
 .shared-note-links strong { width: 100%; color: #6d7687; font-size: 10px; text-transform: uppercase; }
 .shared-note-links button { border: 1px solid #d8e0ee; border-radius: 999px; padding: 4px 8px; background: #f7f9fc; color: #42506a; font-size: 11px; }
 .shared-note-links p { margin: 0; color: #8b94a5; font-size: 12px; }
+.shared-note-dialog { width: min(720px, calc(100vw - 56px)); }
+.shared-note-dialog-body { padding: 20px 22px; }
+.shared-note-dialog-body p { margin: 0; color: #4d586d; white-space: pre-wrap; line-height: 1.55; font-size: 14px; }
+.shared-note-task-link { display: inline-flex; align-items: center; border: 1px solid #d8e0ee; border-radius: 999px; overflow: hidden; background: #f7f9fc; }
+.shared-note-task-link button { border: 0; border-radius: 0; background: transparent; }
+.shared-note-task-link button + button { border-left: 1px solid #d8e0ee; color: #ae4650; }
+.shared-note-attach { border-top: 1px solid #edf0f4; padding-top: 8px; }
+.shared-note-attach summary { width: fit-content; cursor: pointer; color: #3d5fa9; font-size: 12px; font-weight: 750; }
+.shared-note-attach > input { margin-top: 8px; }
+.shared-note-task-options { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; margin-top: 8px; }
+.shared-note-task-options > div { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 7px; border: 1px solid #edf0f4; border-radius: 7px; background: #fbfcfe; }
+.shared-note-task-options span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.shared-note-task-options strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #3e485c; font-size: 12px; }
+.shared-note-task-options small { color: #8991a1; font-size: 10px; text-transform: capitalize; }

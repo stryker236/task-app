@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SharedNote, Task } from '../../../shared/types';
-import { archiveSharedNote, createSharedNote, getSharedNotes, updateSharedNote } from '../api';
+import { archiveSharedNote, attachSharedNoteToTask, createSharedNote, detachSharedNoteFromTask, getSharedNotes, updateSharedNote } from '../api';
 
 type SharedNotesViewProps = {
   allTasks: Task[];
   onOpenTask: (task: Task) => void;
   onError: (message: string) => void;
+  onTasksChanged: () => Promise<void>;
+  focusedNoteId: string;
 };
 
 function errorMessage(error: unknown) {
@@ -28,7 +30,12 @@ function parseTags(value: string) {
   return [...new Set(value.split(',').map((tag) => tag.trim()).filter(Boolean))];
 }
 
-export default function SharedNotesView({ allTasks, onOpenTask, onError }: SharedNotesViewProps) {
+function fitTextareaToContent(textarea: HTMLTextAreaElement) {
+  textarea.style.height = 'auto';
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+export default function SharedNotesView({ allTasks, onOpenTask, onError, onTasksChanged, focusedNoteId }: SharedNotesViewProps) {
   const [notes, setNotes] = useState<SharedNote[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -37,13 +44,25 @@ export default function SharedNotesView({ allTasks, onOpenTask, onError }: Share
   const [newBody, setNewBody] = useState('');
   const [newTags, setNewTags] = useState('');
   const [drafts, setDrafts] = useState<Record<string, { title: string; body: string; tags: string }>>({});
+  const [taskSearchByNote, setTaskSearchByNote] = useState<Record<string, string>>({});
 
   const tasksById = useMemo(() => new Map(allTasks.map((task) => [task.id, task])), [allTasks]);
+  const linkableTasks = useMemo(() => allTasks.filter((task) => !task.isArchived), [allTasks]);
 
-  async function loadNotes(query = search) {
+  const filteredNotes = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase();
+    if (!term) return notes;
+    return notes.filter((note) => {
+      const linkedTasks = (note.linkedTaskIds || []).map((id) => tasksById.get(id)).filter((task): task is Task => Boolean(task));
+      return note.title.toLocaleLowerCase().includes(term)
+        || linkedTasks.some((task) => task.title.toLocaleLowerCase().includes(term));
+    });
+  }, [notes, search, tasksById]);
+
+  async function loadNotes() {
     setLoading(true);
     try {
-      const nextNotes = await getSharedNotes(query);
+      const nextNotes = await getSharedNotes();
       setNotes(nextNotes);
       setDrafts(Object.fromEntries(nextNotes.map((note) => [note.id, { title: note.title, body: note.body, tags: note.tags.join(', ') }])));
     } catch (error) {
@@ -54,9 +73,15 @@ export default function SharedNotesView({ allTasks, onOpenTask, onError }: Share
   }
 
   useEffect(() => {
-    const timer = window.setTimeout(() => loadNotes(search), 180);
-    return () => window.clearTimeout(timer);
-  }, [search]);
+    loadNotes();
+  }, []);
+
+  useEffect(() => {
+    if (!focusedNoteId || loading || !notes.some((note) => note.id === focusedNoteId)) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById(`shared-note-${focusedNoteId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [focusedNoteId, loading, notes]);
 
   async function createNote() {
     if (!newTitle.trim()) return;
@@ -66,7 +91,7 @@ export default function SharedNotesView({ allTasks, onOpenTask, onError }: Share
       setNewTitle('');
       setNewBody('');
       setNewTags('');
-      await loadNotes('');
+      await loadNotes();
       setSearch('');
     } catch (error) {
       onError(errorMessage(error));
@@ -102,16 +127,40 @@ export default function SharedNotesView({ allTasks, onOpenTask, onError }: Share
     }
   }
 
+  async function attachTask(note: SharedNote, taskId: string) {
+    setSavingId(note.id);
+    try {
+      await attachSharedNoteToTask(taskId, note.id);
+      await Promise.all([loadNotes(), onTasksChanged()]);
+    } catch (error) {
+      onError(errorMessage(error));
+    } finally {
+      setSavingId('');
+    }
+  }
+
+  async function detachTask(note: SharedNote, taskId: string) {
+    setSavingId(note.id);
+    try {
+      await detachSharedNoteFromTask(taskId, note.id);
+      await Promise.all([loadNotes(), onTasksChanged()]);
+    } catch (error) {
+      onError(errorMessage(error));
+    } finally {
+      setSavingId('');
+    }
+  }
+
   return (
     <section className="shared-notes-view">
       <header className="shared-notes-toolbar">
         <div>
           <h2>Notas partilhadas</h2>
-          <p>{notes.length} notas reutilizaveis</p>
+          <p>{filteredNotes.length} de {notes.length} notas reutilizaveis</p>
         </div>
         <input
           value={search}
-          placeholder="Pesquisar notas..."
+          placeholder="Pesquisar por titulo da nota ou task..."
           onChange={(event) => setSearch(event.target.value)}
         />
       </header>
@@ -143,12 +192,15 @@ export default function SharedNotesView({ allTasks, onOpenTask, onError }: Share
 
       {loading ? <div className="loading">A carregar notas...</div> : (
         <div className="shared-notes-grid">
-          {notes.map((note) => {
+          {filteredNotes.map((note) => {
             const draft = drafts[note.id] || { title: note.title, body: note.body, tags: note.tags.join(', ') };
             const linkedTasks = (note.linkedTaskIds || []).map((id) => tasksById.get(id)).filter((task): task is Task => Boolean(task));
+            const availableTasks = linkableTasks.filter((task) => !linkedTasks.some((linkedTask) => linkedTask.id === task.id));
+            const taskSearch = taskSearchByNote[note.id] || '';
+            const visibleTasks = availableTasks.filter((task) => task.title.toLocaleLowerCase().includes(taskSearch.toLocaleLowerCase()));
             const changed = draft.title !== note.title || draft.body !== note.body || draft.tags !== note.tags.join(', ');
             return (
-              <article className="shared-note-card" key={note.id}>
+              <article className={note.id === focusedNoteId ? 'shared-note-card is-focused' : 'shared-note-card'} id={`shared-note-${note.id}`} key={note.id}>
                 <input
                   value={draft.title}
                   maxLength={200}
@@ -160,6 +212,8 @@ export default function SharedNotesView({ allTasks, onOpenTask, onError }: Share
                   maxLength={50000}
                   rows={5}
                   onChange={(event) => setDrafts((current) => ({ ...current, [note.id]: { ...draft, body: event.target.value } }))}
+                  onInput={(event) => fitTextareaToContent(event.currentTarget)}
+                  onFocus={(event) => fitTextareaToContent(event.currentTarget)}
                   onBlur={() => changed && saveNote(note)}
                 />
                 <input
@@ -179,15 +233,42 @@ export default function SharedNotesView({ allTasks, onOpenTask, onError }: Share
                 <div className="shared-note-links">
                   <strong>Tasks</strong>
                   {linkedTasks.length ? linkedTasks.map((task) => (
-                    <button type="button" key={task.id} onClick={() => onOpenTask(task)}>
-                      {task.title}
-                    </button>
+                    <span className="shared-note-task-link" key={task.id}>
+                      <button type="button" onClick={() => onOpenTask(task)}>{task.title}</button>
+                      <button type="button" aria-label={`Remover ${task.title}`} onClick={() => detachTask(note, task.id)}>x</button>
+                    </span>
                   )) : <p>Sem tasks ligadas.</p>}
                 </div>
+                <details className="shared-note-attach">
+                  <summary>Associar task</summary>
+                  <input
+                    value={taskSearch}
+                    placeholder="Pesquisar task por titulo..."
+                    onChange={(event) => setTaskSearchByNote((current) => ({ ...current, [note.id]: event.target.value }))}
+                  />
+                  {visibleTasks.length ? (
+                    <div className="shared-note-task-options">
+                      {visibleTasks.map((task) => (
+                        <div key={task.id}>
+                          <span>
+                            <strong>{task.title}</strong>
+                            <small>{task.status.replace('_', ' ')}</small>
+                          </span>
+                          <button type="button" className="button secondary small" onClick={() => onOpenTask(task)}>
+                            Ver
+                          </button>
+                          <button type="button" className="button secondary small" disabled={savingId === note.id} onClick={() => attachTask(note, task.id)}>
+                            Associar
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="details-empty">{availableTasks.length ? 'Sem tasks com esse titulo.' : 'Todas as tasks disponiveis ja estao associadas.'}</p>}
+                </details>
               </article>
             );
           })}
-          {!notes.length && <p className="empty-column">Sem notas partilhadas.</p>}
+          {!filteredNotes.length && <p className="empty-column">{notes.length ? 'Sem notas para essa pesquisa.' : 'Sem notas partilhadas.'}</p>}
         </div>
       )}
     </section>

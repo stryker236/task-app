@@ -27,12 +27,13 @@ function filterTasksByQuery(tasks: TaskLike[], query: QueryLike) {
     const selectedTags = (Array.isArray(query.tag) ? query.tag : [query.tag])
       .map((tag) => String(tag).trim().toLocaleLowerCase())
       .filter(Boolean);
-    const tagMode = query.tagMode === 'or' ? 'or' : 'and';
+    const tagMode = ['or', 'not', 'nor', 'nand'].includes(query.tagMode) ? query.tagMode : 'and';
     result = result.filter((task) => {
       const taskTags = new Set(task.tags.map((tag) => tag.toLocaleLowerCase()));
-      return tagMode === 'or'
-        ? selectedTags.some((tag) => taskTags.has(tag))
-        : selectedTags.every((tag) => taskTags.has(tag));
+      if (tagMode === 'or') return selectedTags.some((tag) => taskTags.has(tag));
+      if (tagMode === 'not' || tagMode === 'nor') return selectedTags.every((tag) => !taskTags.has(tag));
+      if (tagMode === 'nand') return !selectedTags.every((tag) => taskTags.has(tag));
+      return selectedTags.every((tag) => taskTags.has(tag));
     });
   }
   if (query.noDueDate === 'true') result = result.filter((task) => !task.dueDateTime);

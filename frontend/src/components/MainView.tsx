@@ -31,6 +31,8 @@ type MainViewProps = {
   onQuickQueueCreateTask: (item: QuickQueueItem) => void;
   onOpenTask: (task: Task) => void;
   onError: (message: string) => void;
+  onTasksChanged: () => Promise<void>;
+  focusedSharedNoteId: string;
 };
 
 export default function MainView({
@@ -52,7 +54,9 @@ export default function MainView({
   onQuickQueueClearDone,
   onQuickQueueCreateTask,
   onOpenTask,
-  onError
+  onError,
+  onTasksChanged,
+  focusedSharedNoteId
 }: MainViewProps) {
   if (view === 'quickQueue') {
     return (
@@ -70,7 +74,7 @@ export default function MainView({
   }
 
   if (view === 'sharedNotes') {
-    return <SharedNotesView allTasks={allTasks} onOpenTask={onOpenTask} onError={onError} />;
+    return <SharedNotesView allTasks={allTasks} onOpenTask={onOpenTask} onError={onError} onTasksChanged={onTasksChanged} focusedNoteId={focusedSharedNoteId} />;
   }
 
   if (loading) return <div className="loading">A carregar tarefas...</div>;

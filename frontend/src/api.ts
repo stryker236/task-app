@@ -9,7 +9,7 @@ export type TaskFilters = {
   status?: TaskStatus | '';
   priority?: number | '';
   tags?: string[];
-  tagMode?: 'and' | 'or';
+  tagMode?: 'and' | 'or' | 'not' | 'nor' | 'nand';
   overdue?: boolean;
   today?: boolean;
   noDueDate?: boolean;

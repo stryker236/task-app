@@ -98,8 +98,14 @@ textarea { resize: vertical; }
 :root[data-theme="dark"] .quick-queue-item-actions button,
 :root[data-theme="dark"] .progress-locked,
 :root[data-theme="dark"] .latest-progress,
+:root[data-theme="dark"] .card-shared-notes,
 :root[data-theme="dark"] .dependency-summary,
 :root[data-theme="dark"] .blocking-summary,
+:root[data-theme="dark"] .shared-note-task-options > div,
+:root[data-theme="dark"] .task-note-attach,
+:root[data-theme="dark"] .task-note-options article,
+:root[data-theme="dark"] .task-note-reference,
+:root[data-theme="dark"] .shared-note-task-link,
 :root[data-theme="dark"] .shared-notes-list article,
 :root[data-theme="dark"] .shared-note-card textarea,
 :root[data-theme="dark"] .priority-stepper button,
@@ -120,6 +126,16 @@ textarea { resize: vertical; }
 :root[data-theme="dark"] .shared-note-card input,
 :root[data-theme="dark"] .shared-notes-toolbar h2 {
   color: var(--text-strong);
+}
+
+:root[data-theme="dark"] .task-note-reference button,
+:root[data-theme="dark"] .shared-note-task-link button,
+:root[data-theme="dark"] .shared-note-links button,
+:root[data-theme="dark"] .shared-note-attach summary,
+:root[data-theme="dark"] .task-note-attach summary,
+:root[data-theme="dark"] .card-actions button,
+:root[data-theme="dark"] .dependency-chip .chip-task-link {
+  color: #b9ccff;
 }
 
 :root[data-theme="dark"] p,
@@ -152,6 +168,15 @@ textarea { resize: vertical; }
   color: var(--text-soft);
 }
 
+:root[data-theme="dark"] .task-note-options p,
+:root[data-theme="dark"] .task-note-options small,
+:root[data-theme="dark"] .shared-note-task-options small,
+:root[data-theme="dark"] .shared-note-dialog-body p,
+:root[data-theme="dark"] .card-shared-notes span,
+:root[data-theme="dark"] .card-shared-notes small {
+  color: var(--text-soft);
+}
+
 :root[data-theme="dark"] .tag-list span,
 :root[data-theme="dark"] .dependency-chip,
 :root[data-theme="dark"] .checklist-progress,
@@ -161,6 +186,22 @@ textarea { resize: vertical; }
 :root[data-theme="dark"] .favorite-button {
   background: var(--surface-muted);
   color: var(--text-soft);
+}
+
+:root[data-theme="dark"] .card-shared-notes span,
+:root[data-theme="dark"] .card-shared-notes small {
+  background: var(--surface);
+}
+
+:root[data-theme="dark"] .task-note-reference button + button,
+:root[data-theme="dark"] .shared-note-task-link button + button {
+  border-left-color: var(--line);
+  color: #ff9aa4;
+}
+
+:root[data-theme="dark"] .shared-note-card.is-focused {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(122, 162, 255, .22), var(--shadow);
 }
 
 :root[data-theme="dark"] .kanban-column.drop-target {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Task, TaskStatus } from '../../shared/types';
+import type { SharedNote, Task, TaskStatus } from '../../shared/types';
 import AdvisorPanel from './components/AdvisorPanel';
 import AppDialogs from './components/AppDialogs';
 import AppHeader from './components/AppHeader';
@@ -48,6 +48,7 @@ export default function App() {
 
   const [queueSort, setQueueSort] = useState<QueueSort>({ field: 'priority', direction: 'desc' });
   const [viewingTask, setViewingTask] = useState<Task | null>(null);
+  const [focusedSharedNoteId, setFocusedSharedNoteId] = useState('');
 
   useEffect(() => {
     const theme = darkMode ? 'dark' : 'light';
@@ -112,6 +113,12 @@ export default function App() {
     progressLog.openProgressLogFromTaskDetails(task, setViewingTask);
   }
 
+  function openSharedNoteInNotesView(note: SharedNote) {
+    setViewingTask(null);
+    setFocusedSharedNoteId(note.id);
+    setView('sharedNotes');
+  }
+
   const taskCardActions: TaskCardActions & { onStatusChange: (task: Task, status: TaskStatus) => void } = {
     onEdit: taskForm.openEditTaskForm,
     onDelete: taskActions.deleteSingleTask,
@@ -121,6 +128,7 @@ export default function App() {
     onFavoriteChange: taskActions.updateTaskFavoriteFlag,
     onOpenTask: openTaskDetails,
     onProgress: progressLog.setProgressTask,
+    onAddProgressEntry: progressLog.saveTaskProgressEntry,
     onAddBlocker: taskForm.openCreateBlockingTaskForm,
     onPostpone: taskActions.setPostponeTask,
     onArchive: taskActions.archiveSingleTask,
@@ -230,6 +238,8 @@ export default function App() {
           onQuickQueueCreateTask={taskForm.createTaskFromQuickQueueItem}
           onOpenTask={openTaskDetails}
           onError={setError}
+          onTasksChanged={() => fetchDashboardData(filters)}
+          focusedSharedNoteId={focusedSharedNoteId}
         />
       </main>
 
@@ -257,9 +267,12 @@ export default function App() {
         onArchiveTask={taskActions.archiveSingleTask}
         onRestoreTask={taskActions.restoreArchivedTask}
         onToggleChecklist={taskActions.updateTaskChecklistItemStatus}
+        onAddProgressFromDetails={taskActions.addTaskProgressFromDetails}
+        onEditProgressFromDetails={taskActions.editTaskProgressFromDetails}
         onAttachSharedNote={taskActions.attachTaskSharedNote}
         onCreateSharedNote={taskActions.createTaskLinkedSharedNote}
         onDetachSharedNote={taskActions.detachTaskSharedNote}
+        onOpenSharedNote={openSharedNoteInNotesView}
         postponeTask={taskActions.postponeTask}
         onClosePostpone={() => taskActions.setPostponeTask(null)}
         onSavePostpone={taskActions.postponeTaskDueDate}

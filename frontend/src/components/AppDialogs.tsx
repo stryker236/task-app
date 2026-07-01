@@ -1,4 +1,4 @@
-import type { ChecklistItem, Tag, Task, TaskInput } from '../../../shared/types';
+import type { ChecklistItem, SharedNote, Tag, Task, TaskInput } from '../../../shared/types';
 import PostponeDialog from './PostponeDialog';
 import ProgressLog from './ProgressLog';
 import TaskDetails from './TaskDetails';
@@ -30,9 +30,12 @@ type AppDialogsProps = {
   onArchiveTask: (task: Task) => void;
   onRestoreTask: (task: Task) => void;
   onToggleChecklist: (task: Task, item: ChecklistItem, isDone: boolean) => void;
+  onAddProgressFromDetails: (task: Task, message: string) => Promise<Task | null>;
+  onEditProgressFromDetails: (task: Task, entryId: string, message: string) => Promise<Task | null>;
   onAttachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
   onCreateSharedNote: (task: Task, title: string, body: string, tags: string[]) => Promise<Task | null>;
   onDetachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
+  onOpenSharedNote: (note: SharedNote) => void;
   postponeTask: Task | null;
   onClosePostpone: () => void;
   onSavePostpone: (task: Task, dueDateTime: string) => void;
@@ -63,9 +66,12 @@ export default function AppDialogs({
   onArchiveTask,
   onRestoreTask,
   onToggleChecklist,
+  onAddProgressFromDetails,
+  onEditProgressFromDetails,
   onAttachSharedNote,
   onCreateSharedNote,
   onDetachSharedNote,
+  onOpenSharedNote,
   postponeTask,
   onClosePostpone,
   onSavePostpone,
@@ -107,9 +113,12 @@ export default function AppDialogs({
           onArchive={onArchiveTask}
           onRestore={onRestoreTask}
           onToggleChecklist={onToggleChecklist}
+          onAddProgressEntry={onAddProgressFromDetails}
+          onEditProgressEntry={onEditProgressFromDetails}
           onAttachSharedNote={onAttachSharedNote}
           onCreateSharedNote={onCreateSharedNote}
           onDetachSharedNote={onDetachSharedNote}
+          onOpenSharedNote={onOpenSharedNote}
         />
       )}
       {postponeTask && (

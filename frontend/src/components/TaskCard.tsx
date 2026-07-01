@@ -1,4 +1,5 @@
-import type { DragEvent, KeyboardEvent, MouseEvent } from 'react';
+import type { DragEvent, FormEvent, KeyboardEvent, MouseEvent } from 'react';
+import { useState } from 'react';
 import type { Task, TaskPriority } from '../../../shared/types';
 
 const PRIORITIES: Record<TaskPriority, string> = { 1: 'Baixa', 2: 'Media', 3: 'Alta', 4: 'Urgente' };
@@ -11,6 +12,7 @@ export type TaskCardActions = {
   onFavoriteChange: (task: Task, isFavorite: boolean) => void;
   onOpenTask: (task: Task) => void;
   onProgress: (task: Task) => void;
+  onAddProgressEntry: (task: Task, message: string) => Promise<boolean>;
   onAddBlocker: (task: Task) => void;
   onPostpone: (task: Task) => void;
   onArchive: (task: Task) => void;
@@ -55,7 +57,7 @@ export default function TaskCard({
   onPriorityChange,
   onFavoriteChange,
   onOpenTask,
-  onProgress,
+  onAddProgressEntry,
   onAddBlocker,
   onPostpone,
   onArchive,
@@ -64,6 +66,8 @@ export default function TaskCard({
   onDragStart,
   onDragEnd
 }: TaskCardProps) {
+  const [progressMessage, setProgressMessage] = useState('');
+  const [savingProgress, setSavingProgress] = useState(false);
   const dependencies = task.blockedByTaskIds.map((id) => allTasks.find((item) => item.id === id)).filter((item): item is Task => Boolean(item));
   const unfinished = dependencies.filter((item) => item.status !== 'done');
   const unfinishedChecklist = (task.checklistItems || []).filter((item) => !item.isDone);
@@ -87,6 +91,16 @@ export default function TaskCard({
       event.preventDefault();
       onOpenTask(task);
     }
+  }
+
+  async function submitProgress(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = progressMessage.trim();
+    if (!message || savingProgress) return;
+    setSavingProgress(true);
+    const saved = await onAddProgressEntry(task, message);
+    if (saved) setProgressMessage('');
+    setSavingProgress(false);
   }
 
   return (
@@ -149,6 +163,13 @@ export default function TaskCard({
         </div>
       )}
       {task.tags.length > 0 && <div className="tag-list">{task.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>}
+      {(task.sharedNotes || []).length > 0 && (
+        <div className="card-shared-notes">
+          <strong>Notas {task.sharedNotes?.length}</strong>
+          {(task.sharedNotes || []).slice(0, 3).map((note) => <span key={note.id}>{note.title}</span>)}
+          {(task.sharedNotes || []).length > 3 && <small>+{(task.sharedNotes || []).length - 3}</small>}
+        </div>
+      )}
       {dependencies.length > 0 && (
         <div className="dependency-summary">
           <strong>{unfinished.length ? `Bloqueada por ${unfinished.length}` : 'Ready'}</strong>
@@ -170,17 +191,29 @@ export default function TaskCard({
         </div>
       )}
       {latestProgress && (
-        <button type="button" className="latest-progress" onClick={() => onProgress(task)}>
+        <div className="latest-progress">
           <strong>Ultimo progresso</strong>
           <span>{latestProgress.message}</span>
-        </button>
+        </div>
+      )}
+      {!task.isArchived && task.status !== 'new' && (
+        <form className="card-progress-form" onSubmit={submitProgress}>
+          <input
+            value={progressMessage}
+            maxLength={2000}
+            placeholder="Registar progresso..."
+            onChange={(event) => setProgressMessage(event.target.value)}
+          />
+          <button type="submit" className="button secondary small" disabled={!progressMessage.trim() || savingProgress}>
+            {savingProgress ? 'A guardar...' : 'Registar'}
+          </button>
+        </form>
       )}
       <div className="card-actions">
         {task.isArchived ? (
           <button type="button" onClick={() => onRestore(task)}>Restaurar</button>
         ) : (<>
           {timing === 'overdue' && <button type="button" className="postpone-action" onClick={() => onPostpone(task)}>Adiar</button>}
-          <button type="button" onClick={() => onProgress(task)}>{task.status === 'new' ? 'Historico' : 'Progresso'} ({(task.activityLog || []).length})</button>
           {!['done', 'cancelled'].includes(task.status) && <button type="button" onClick={() => onAddBlocker(task)}>+ Bloqueio</button>}
           <button type="button" onClick={() => onDuplicate(task)}>Duplicar</button>
           <button type="button" onClick={() => onArchive(task)}>Arquivar</button>

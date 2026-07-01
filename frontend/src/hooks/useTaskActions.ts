@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { ChecklistItem, Task, TaskPriority, TaskStatus } from '../../../shared/types';
 import {
+  addTaskProgressEntry,
   attachSharedNoteToTask,
   archiveTask,
   archiveTasksByStatus,
@@ -9,6 +10,7 @@ import {
   deleteTask,
   detachSharedNoteFromTask,
   duplicateTask,
+  editTaskProgressEntry,
   restoreTask,
   toggleChecklistItem,
   updateTask,
@@ -130,6 +132,30 @@ export default function useTaskActions({
     }
   }
 
+  async function addTaskProgressFromDetails(task: Task, message: string) {
+    try {
+      const result = await addTaskProgressEntry(task.id, message);
+      setViewingTask(result.task);
+      await fetchDashboardData(filters);
+      return result.task;
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+      return null;
+    }
+  }
+
+  async function editTaskProgressFromDetails(task: Task, entryId: string, message: string) {
+    try {
+      const result = await editTaskProgressEntry(task.id, entryId, message);
+      setViewingTask(result.task);
+      await fetchDashboardData(filters);
+      return result.task;
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+      return null;
+    }
+  }
+
   async function attachTaskSharedNote(task: Task, noteId: string) {
     try {
       const updated = await attachSharedNoteToTask(task.id, noteId);
@@ -205,6 +231,8 @@ export default function useTaskActions({
     restoreArchivedTask,
     archiveTasksWithStatus,
     updateTaskChecklistItemStatus,
+    addTaskProgressFromDetails,
+    editTaskProgressFromDetails,
     attachTaskSharedNote,
     createTaskLinkedSharedNote,
     detachTaskSharedNote,
