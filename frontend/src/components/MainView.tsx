@@ -49,6 +49,7 @@ type MainViewProps = {
   onConnectGoogle: () => void;
   onDisconnectGoogle: () => void;
   onLoadCalendarWeekEvents: (date: string, calendarIds?: string[]) => void;
+  onLoadCalendarRangeEvents: (start: string, end: string, calendarIds?: string[]) => void;
   onSendDailyTaskEmail: () => Promise<{ to: string; todayCount: number; overdueCount: number } | null>;
   advisorMemoryRules: AdvisorMemoryRule[];
   advisorMemoryLoading: boolean;
@@ -92,6 +93,7 @@ export default function MainView({
   onConnectGoogle,
   onDisconnectGoogle,
   onLoadCalendarWeekEvents,
+  onLoadCalendarRangeEvents,
   onSendDailyTaskEmail,
   advisorMemoryRules,
   advisorMemoryLoading,
@@ -134,6 +136,7 @@ export default function MainView({
         onConnect={onConnectGoogle}
         onDisconnect={onDisconnectGoogle}
         onLoadEvents={onLoadCalendarWeekEvents}
+        onLoadRangeEvents={onLoadCalendarRangeEvents}
         onSendDailyTaskEmail={onSendDailyTaskEmail}
       />
     );

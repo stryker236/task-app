@@ -127,6 +127,9 @@ export type AdvisorFeedbackInput = {
     taskAgeImportance?: 'too_much' | 'too_little' | 'ok';
     overdueImportance?: 'too_much' | 'too_little' | 'ok';
     dueDateDirection?: 'too_early' | 'too_late' | 'ok';
+    calendarDurationDirection?: 'too_short' | 'too_long' | 'ok';
+    unnecessaryEvent?: boolean;
+    wrongCalendar?: boolean;
     shouldBeUrgent?: boolean;
     shouldBeLowerPriority?: boolean;
     missingContext: boolean;
@@ -152,6 +155,9 @@ export type AdvisorMemoryRule = {
     taskAgeImportance?: 'too_much' | 'too_little' | 'ok';
     overdueImportance?: 'too_much' | 'too_little' | 'ok';
     dueDateDirection?: 'too_early' | 'too_late' | 'ok';
+    calendarDurationDirection?: 'too_short' | 'too_long' | 'ok';
+    unnecessaryEvent?: boolean;
+    wrongCalendar?: boolean;
     shouldBeUrgent?: boolean;
     shouldBeLowerPriority?: boolean;
   };

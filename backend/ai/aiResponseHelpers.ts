@@ -45,6 +45,13 @@ function normalizeAdvisorCommands(parsed) {
           task: removeNullProperties(command.task)
         };
       }
+      if (type === 'create_calendar_event') {
+        return {
+          ...base,
+          taskId: command.taskId || null,
+          event: removeNullProperties(command.event)
+        };
+      }
       return base;
     })
   };

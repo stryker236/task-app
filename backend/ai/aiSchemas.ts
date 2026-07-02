@@ -63,6 +63,21 @@ const taskCreateSchema = {
   required: ['title', 'notes', 'priority', 'status', 'dueDateTime', 'estimatedMinutes', 'isFavorite', 'tags', 'blockedByTaskIds', 'checklistItems']
 };
 
+const calendarEventSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    summary: { type: 'string' },
+    description: nullableString,
+    location: nullableString,
+    start: { type: 'string' },
+    end: { type: 'string' },
+    timeZone: nullableString,
+    calendarId: nullableString
+  },
+  required: ['summary', 'description', 'location', 'start', 'end', 'timeZone', 'calendarId']
+};
+
 const advisorCommandResponseSchema = {
   type: 'object',
   additionalProperties: false,
@@ -83,9 +98,10 @@ const advisorCommandResponseSchema = {
           relatedTaskId: nullableString,
           relationType: { anyOf: [{ type: 'string', enum: RELATION_TYPES }, { type: 'null' }] },
           patch: { anyOf: [taskPatchSchema, { type: 'null' }] },
-          task: { anyOf: [taskCreateSchema, { type: 'null' }] }
+          task: { anyOf: [taskCreateSchema, { type: 'null' }] },
+          event: { anyOf: [calendarEventSchema, { type: 'null' }] }
         },
-        required: ['id', 'type', 'label', 'reason', 'taskId', 'relatedTaskId', 'relationType', 'patch', 'task']
+        required: ['id', 'type', 'label', 'reason', 'taskId', 'relatedTaskId', 'relationType', 'patch', 'task', 'event']
       }
     }
   },
@@ -97,6 +113,7 @@ module.exports = {
   RELATION_TYPES,
   STATUSES,
   advisorCommandResponseSchema,
+  calendarEventSchema,
   taskCreateSchema,
   taskPatchSchema
 };

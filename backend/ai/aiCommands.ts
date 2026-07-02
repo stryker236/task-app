@@ -1,5 +1,7 @@
 const { randomUUID } = require('crypto');
 const { buildNewTask } = require('../tasks/taskFactory');
+const { CALENDAR_SCOPE, createCalendarClient, createOAuthClient } = require('../google/googleClient');
+const { decryptJson } = require('../google/tokenCrypto');
 const {
   RELATION_TYPES,
   normalizeString,
@@ -46,6 +48,35 @@ function normalizeAiCommand(command, index) {
   if (type === 'create_task') {
     normalized.task = command.task && typeof command.task === 'object' && !Array.isArray(command.task) ? command.task : null;
     if (!normalized.task) errors.push(`commands[${index}].task must be an object`);
+  }
+
+  if (type === 'create_calendar_event') {
+    normalized.taskId = normalizeString(command.taskId);
+    normalized.event = command.event && typeof command.event === 'object' && !Array.isArray(command.event) ? command.event : null;
+    if (!normalized.event) {
+      errors.push(`commands[${index}].event must be an object`);
+    } else {
+      const summary = normalizeString(normalized.event.summary);
+      const start = normalizeString(normalized.event.start);
+      const end = normalizeString(normalized.event.end);
+      const startTime = Date.parse(start);
+      const endTime = Date.parse(end);
+      if (!summary) errors.push(`commands[${index}].event.summary is required`);
+      if (!start || Number.isNaN(startTime)) errors.push(`commands[${index}].event.start must be a valid ISO date-time`);
+      if (!end || Number.isNaN(endTime)) errors.push(`commands[${index}].event.end must be a valid ISO date-time`);
+      if (!Number.isNaN(startTime) && !Number.isNaN(endTime) && endTime <= startTime) {
+        errors.push(`commands[${index}].event.end must be after event.start`);
+      }
+      normalized.event = {
+        summary,
+        description: normalizeString(normalized.event.description),
+        location: normalizeString(normalized.event.location),
+        start,
+        end,
+        timeZone: normalizeString(normalized.event.timeZone),
+        calendarId: normalizeString(normalized.event.calendarId) || 'primary'
+      };
+    }
   }
 
   if (errors.length) throw createValidationError(errors);
@@ -149,7 +180,71 @@ function prepareAiCommand(command, tasks, index) {
     };
   }
 
+  if (normalized.type === 'create_calendar_event') {
+    const sourceTask = normalized.taskId ? tasks.find((task) => task.id === normalized.taskId) : null;
+    if (normalized.taskId && !tasks.some((task) => task.id === normalized.taskId)) {
+      const error = new Error(`Task not found for command ${normalized.id}`);
+      (error as any).status = 404;
+      throw error;
+    }
+    return {
+      ...normalized,
+      sourceTaskTitle: sourceTask?.title || null,
+      calendarEvent: normalized.event,
+      summary: normalized.label || `Create calendar event: ${normalized.event.summary}`
+    };
+  }
+
   throw createValidationError([`Unsupported command type: ${normalized.type}`]);
+}
+
+async function insertGoogleCalendarEvent(prepared, dependencies) {
+  const { pool, fetchGoogleConnection, saveGoogleConnection } = dependencies;
+  if (!fetchGoogleConnection || !saveGoogleConnection || !pool) {
+    const error = new Error('Google Calendar dependencies are not configured');
+    (error as any).status = 503;
+    throw error;
+  }
+  const connection = await fetchGoogleConnection();
+  if (!connection) {
+    const error = new Error('Google Calendar is not connected');
+    (error as any).status = 409;
+    throw error;
+  }
+  if (!connection.scopes?.includes(CALENDAR_SCOPE)) {
+    const error = new Error('Google Calendar write permission is required. Reconnect Google to grant calendar event access.');
+    (error as any).status = 409;
+    throw error;
+  }
+  const storedTokens = decryptJson(connection.encryptedTokens);
+  const authClient = createOAuthClient(storedTokens);
+  authClient.on('tokens', (tokens) => {
+    saveGoogleConnection(pool, {
+      accountEmail: connection.accountEmail,
+      scopes: connection.scopes,
+      encryptedTokens: { ...storedTokens, ...tokens },
+      expiresAt: connection.expiresAt
+    }).catch((error) => console.error('Failed to persist refreshed Google tokens:', error.message));
+  });
+  const calendar = createCalendarClient(authClient);
+  const event = prepared.calendarEvent;
+  const result = await calendar.events.insert({
+    calendarId: event.calendarId || 'primary',
+    requestBody: {
+      summary: event.summary,
+      description: event.description || prepared.reason || '',
+      location: event.location || '',
+      start: {
+        dateTime: event.start,
+        ...(event.timeZone ? { timeZone: event.timeZone } : {})
+      },
+      end: {
+        dateTime: event.end,
+        ...(event.timeZone ? { timeZone: event.timeZone } : {})
+      }
+    }
+  });
+  return result.data;
 }
 
 async function applyPreparedAiCommand(client, prepared, allTasks, now, dependencies) {
@@ -187,6 +282,22 @@ async function applyPreparedAiCommand(client, prepared, allTasks, now, dependenc
     return { commandId: prepared.id, type: prepared.type, task: await findTaskById(client, created.id) };
   }
 
+  if (prepared.type === 'create_calendar_event') {
+    const event = await insertGoogleCalendarEvent(prepared, dependencies);
+    return {
+      commandId: prepared.id,
+      type: prepared.type,
+      event: {
+        id: event.id,
+        calendarId: prepared.calendarEvent.calendarId || 'primary',
+        summary: event.summary || prepared.calendarEvent.summary,
+        start: event.start?.dateTime || event.start?.date || null,
+        end: event.end?.dateTime || event.end?.date || null,
+        htmlLink: event.htmlLink || null
+      }
+    };
+  }
+
   throw createValidationError([`Unsupported command type: ${prepared.type}`]);
 }
 
@@ -202,14 +313,16 @@ function buildAiCommandsPreview(commands, initialTasks) {
       summary: item.summary,
       reason: item.reason,
       taskId: item.taskId || item.createdTask?.id || null,
-      taskTitle: item.before?.title || item.createdTask?.title || null,
+      taskTitle: item.before?.title || item.createdTask?.title || item.sourceTaskTitle || item.calendarEvent?.summary || null,
       relatedTaskId: item.relatedTaskId || null,
       relatedTaskTitle: item.relatedTaskTitle || relatedTask?.title || null,
       relationType: item.relationType || null,
       alreadyExists: item.alreadyExists || false,
       changes: item.type === 'create_task'
         ? { createdTask: item.createdTask }
-        : { before: item.before, after: item.after }
+        : item.type === 'create_calendar_event'
+          ? { calendarEvent: item.calendarEvent }
+          : { before: item.before, after: item.after }
     });
     if (item.type === 'create_task') tasks = [...tasks, item.createdTask];
     if (item.type === 'update_task' || item.type === 'add_relation') {

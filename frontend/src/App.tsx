@@ -183,8 +183,10 @@ export default function App() {
             memoryLoading={advisorController.advisorMemoryLoading}
             applyingProposalId={advisorController.applyingProposalId}
             applyingAllProposals={advisorController.applyingAllProposals}
+            googleStatus={googleCalendar.googleStatus}
             onRefresh={advisorController.refreshTaskAdvisorAdvice}
             onRequestActions={advisorController.requestAdvisorActions}
+            onConnectGoogle={googleCalendar.connectGoogle}
             onApplyProposal={advisorController.applyAdvisorProposal}
             onIgnoreProposal={advisorController.ignoreAdvisorProposal}
             onApplyAllProposals={advisorController.applyAllAdvisorProposals}
@@ -263,6 +265,7 @@ export default function App() {
           onConnectGoogle={googleCalendar.connectGoogle}
           onDisconnectGoogle={googleCalendar.disconnectGoogleAccount}
           onLoadCalendarWeekEvents={googleCalendar.loadCalendarWeekEvents}
+          onLoadCalendarRangeEvents={googleCalendar.loadCalendarRangeEvents}
           onSendDailyTaskEmail={googleCalendar.sendDailyTaskEmail}
           advisorMemoryRules={advisorController.advisorMemoryRules}
           advisorMemoryLoading={advisorController.advisorMemoryLoading}

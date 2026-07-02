@@ -70,7 +70,7 @@ function selectCommandContextTasks({ action, tasks }) {
     .slice(0, 160);
 }
 
-function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
+function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], calendars = [] }) {
   const advisorAction = resolveAdvisorAction(action);
   if (!advisorAction) {
     const error = new Error(`Unsupported advisor action: ${action}`);
@@ -83,6 +83,18 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
   const selectedTasks = selectCommandContextTasks({ action: advisorAction.key, tasks });
   const activeTasks = selectedTasks
     .map((task) => createCommandContextTask(task, tasksById));
+  const availableCalendars = calendars
+    .map((calendar) => ({
+      id: String(calendar.id || ''),
+      summary: String(calendar.summary || ''),
+      description: String(calendar.description || ''),
+      primary: calendar.primary === true,
+      accessRole: String(calendar.accessRole || ''),
+      timeZone: calendar.timeZone || null
+    }))
+    .filter((calendar) => calendar.id)
+    .slice(0, 50);
+  const allowedCalendarIds = availableCalendars.map((calendar) => calendar.id);
 
   return {
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
@@ -92,7 +104,7 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
         content: [
           'You are the Task App AI Advisor.',
           'Return only JSON that matches the provided schema.',
-          'You may propose only these command types: update_task, add_relation, create_task.',
+          'You may propose only these command types: update_task, add_relation, create_task, create_calendar_event.',
           'Never invent task IDs. Only use task IDs from the provided task context.',
           'Never return SQL. Never delete, archive, or directly execute anything.',
           'Prefer small, useful improvements over noisy bulk edits.',
@@ -103,6 +115,7 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
           'For tag suggestions, respect avoidTags, preferTags, and tagVolume when relevant.',
           'For priority_management, respect priority_suggestion memory, including priorityDirection, taskAgeImportance, overdueImportance, shouldBeUrgent, and shouldBeLowerPriority.',
           'For suggest_due_dates, respect due_date_suggestion memory, including dueDateDirection and reviewDeadline.',
+          'For schedule_calendar_events, respect calendar_event_suggestion memory, including calendarDurationDirection, unnecessaryEvent, wrongCalendar, dueDateDirection, reviewDeadline, and askForMoreContext.',
           'For update_task, normally do NOT change title, notes, history/activity, status, or favorite unless the user explicitly asks.',
           'Focus update_task proposals on: tags, dueDateTime, checklistItems, blockedByTaskIds, and priority.',
           'Do not propose estimatedMinutes by default. Only propose estimatedMinutes if the user explicitly asks for time estimates, or if the task has a concrete checklist/scope that makes the estimate defensible.',
@@ -119,6 +132,7 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
           'Suggest checklistItems when the task lacks concrete next steps. Preserve existing checklist items; return the complete desired checklist if changing it.',
           'Use add_relation for associated cards and relationship suggestions. Use blockedByTaskIds for concrete dependencies that prevent completion.',
           'For create_task, create only clear follow-up tasks that are missing from the existing list.',
+          'For create_calendar_event, propose a Google Calendar event only when the task has enough scheduling context. Use the source taskId when the event comes from a task. Use ISO date-time strings with explicit offsets when possible. Choose calendarId from availableCalendars by matching the task topic, project, owner, or calendar description. Use concise summaries and include the task title in the event summary.',
           'For add_relation, use relationType only when the relationship is strongly supported by the task data.',
           'Do not mark tasks done unless blockers and checklist are complete.',
           'Keep reasons short and concrete.'
@@ -169,6 +183,21 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
             avoidUnrealisticClustering: true,
             sortContextBy: ['missing_due_date_desc', 'overdue_duration_desc', 'priority_desc', 'dueDateTime_asc']
           },
+          calendarEventPolicy: {
+            onlyForAction: 'schedule_calendar_events',
+            allowedCommands: ['create_calendar_event'],
+            allowedCalendarIds,
+            defaultCalendarId: allowedCalendarIds.includes('primary') ? 'primary' : allowedCalendarIds[0] || 'primary',
+            chooseCalendarFromAvailableCalendars: true,
+            requireCalendarIdFromAllowedCalendarIds: true,
+            useTaskDueDateTimeWhenAvailable: true,
+            defaultDurationMinutes: 30,
+            minimumDurationMinutes: 15,
+            maximumDurationMinutes: 240,
+            avoidPastEvents: true,
+            requireConcreteTiming: true
+          },
+          availableCalendars,
           advisorMemory: memory,
           avoidUpdateFieldsUnlessExplicitlyAsked: ['title', 'notes', 'status', 'isFavorite'],
           availableTags: tags.map((tag) => tag.name || tag).slice(0, 200),

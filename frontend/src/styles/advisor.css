@@ -18,6 +18,7 @@
 .advisor-request-box label { display: block; margin-bottom: 6px; color: #35435d; font-size: 12px; font-weight: 800; }
 .advisor-request-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; }
 .advisor-request-box small { display: block; margin-top: 8px; color: #7d8798; font-size: 10px; }
+.advisor-permission-warning { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; padding: 8px 9px; border: 1px solid #efd29b; border-radius: 8px; background: #fff8ea; color: #76551a; font-size: 11px; font-weight: 650; }
 .advisor-memory { margin: 12px 0 14px; padding: 12px; border: 1px solid #e1e7f2; border-radius: 10px; background: #fff; }
 .advisor-memory summary { cursor: pointer; color: #35435d; font-size: 12px; font-weight: 800; }
 .advisor-memory-actions { margin-top: 9px; }

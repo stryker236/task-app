@@ -1,5 +1,5 @@
 const { google } = require('googleapis');
-const { GMAIL_SEND_SCOPE, GOOGLE_SCOPES } = require('../constants/googleConstants');
+const { CALENDAR_SCOPE, GMAIL_SEND_SCOPE, GOOGLE_SCOPES } = require('../constants/googleConstants');
 
 import type { OAuth2Client } from 'google-auth-library';
 import type { Credentials } from 'google-auth-library/build/src/auth/credentials';
@@ -53,6 +53,7 @@ function createGmailClient(authClient: OAuth2Client) {
 }
 
 module.exports = {
+  CALENDAR_SCOPE,
   GMAIL_SEND_SCOPE,
   GOOGLE_SCOPES,
   createOAuthClient,

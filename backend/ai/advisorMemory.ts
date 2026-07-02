@@ -3,6 +3,7 @@ const STOP_WORDS = new Set([
   'o', 'os', 'para', 'por', 'que', 'the', 'to', 'of', 'and'
 ]);
 
+// Convert free text into stable comparison tokens used by fingerprints.
 function normalizeWord(value: string) {
   return value
     .normalize('NFD')
@@ -11,6 +12,7 @@ function normalizeWord(value: string) {
     .replace(/[^a-z0-9_-]/g, '');
 }
 
+// Build a compact topic key from a task/event title so feedback can match similar future suggestions.
 function titleFingerprint(title = '') {
   return [...new Set(String(title)
     .split(/\s+/)
@@ -20,11 +22,13 @@ function titleFingerprint(title = '') {
     .join(' ');
 }
 
+// Keep user-provided tag feedback bounded and deduplicated before storing it.
 function sanitizeStringList(value: unknown) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 20);
 }
 
+// Normalize frontend feedback into the exact shape the memory inference code expects.
 function sanitizeAdvisorFeedback(value: Record<string, any> = {}) {
   const overall = ['useful', 'not_useful', 'mixed'].includes(value.overall) ? value.overall : 'mixed';
   const tagVolume = ['more', 'less', 'ok'].includes(value.tagVolume) ? value.tagVolume : 'ok';
@@ -32,6 +36,7 @@ function sanitizeAdvisorFeedback(value: Record<string, any> = {}) {
   const taskAgeImportance = ['too_much', 'too_little', 'ok'].includes(value.taskAgeImportance) ? value.taskAgeImportance : 'ok';
   const overdueImportance = ['too_much', 'too_little', 'ok'].includes(value.overdueImportance) ? value.overdueImportance : 'ok';
   const dueDateDirection = ['too_early', 'too_late', 'ok'].includes(value.dueDateDirection) ? value.dueDateDirection : 'ok';
+  const calendarDurationDirection = ['too_short', 'too_long', 'ok'].includes(value.calendarDurationDirection) ? value.calendarDurationDirection : 'ok';
   return {
     overall,
     tagVolume,
@@ -44,19 +49,19 @@ function sanitizeAdvisorFeedback(value: Record<string, any> = {}) {
     taskAgeImportance,
     overdueImportance,
     dueDateDirection,
+    calendarDurationDirection,
+    unnecessaryEvent: value.unnecessaryEvent === true,
+    wrongCalendar: value.wrongCalendar === true,
     shouldBeUrgent: value.shouldBeUrgent === true,
     shouldBeLowerPriority: value.shouldBeLowerPriority === true,
     missingContext: value.missingContext === true
   };
 }
 
+// Turn feedback on one proposal into a reusable rule for future Advisor requests.
 function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<string, any>) {
   const changes = commandPreview?.changes && typeof commandPreview.changes === 'object' ? commandPreview.changes : {};
-  const title = commandPreview?.taskTitle
-    || changes?.after?.title
-    || changes?.before?.title
-    || changes?.createdTask?.title
-    || '';
+  const title = advisorPreviewTitle(commandPreview);
   const fingerprint = titleFingerprint(title);
   const rule: Record<string, any> = {
     titleKeywords: fingerprint.split(' ').filter(Boolean),
@@ -72,6 +77,9 @@ function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<str
     taskAgeImportance: feedback.taskAgeImportance,
     overdueImportance: feedback.overdueImportance,
     dueDateDirection: feedback.dueDateDirection,
+    calendarDurationDirection: feedback.calendarDurationDirection,
+    unnecessaryEvent: feedback.unnecessaryEvent,
+    wrongCalendar: feedback.wrongCalendar,
     shouldBeUrgent: feedback.shouldBeUrgent,
     shouldBeLowerPriority: feedback.shouldBeLowerPriority,
     askForMoreContext: feedback.missingContext
@@ -85,6 +93,8 @@ function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<str
       ? 'priority_suggestion'
       : action === 'suggest_due_dates'
       ? 'due_date_suggestion'
+      : action === 'schedule_calendar_events'
+      ? 'calendar_event_suggestion'
       : commandPreview?.type === 'update_task' && (feedback.goodTags.length || feedback.badTags.length || feedback.tagVolume !== 'ok')
       ? 'tag_suggestion'
       : 'advisor_suggestion',
@@ -94,6 +104,7 @@ function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<str
   };
 }
 
+// Turn feedback on a whole Advisor batch into an action-level preference.
 function inferAdvisorInteractionMemoryRule({ action, interaction, feedback }: Record<string, any>) {
   const rule: Record<string, any> = {
     action,
@@ -107,6 +118,9 @@ function inferAdvisorInteractionMemoryRule({ action, interaction, feedback }: Re
     taskAgeImportance: feedback.taskAgeImportance,
     overdueImportance: feedback.overdueImportance,
     dueDateDirection: feedback.dueDateDirection,
+    calendarDurationDirection: feedback.calendarDurationDirection,
+    unnecessaryEvent: feedback.unnecessaryEvent,
+    wrongCalendar: feedback.wrongCalendar,
     shouldBeUrgent: feedback.shouldBeUrgent,
     shouldBeLowerPriority: feedback.shouldBeLowerPriority,
     askForMoreContext: feedback.missingContext,
@@ -123,6 +137,7 @@ function inferAdvisorInteractionMemoryRule({ action, interaction, feedback }: Re
   };
 }
 
+// Convert database rows into a compact, prompt-safe memory block for the AI request.
 function buildAdvisorMemoryContext(rules: any[] = []) {
   return rules
     .filter((item) => item?.rule && Object.keys(item.rule).length)
@@ -143,6 +158,9 @@ function buildAdvisorMemoryContext(rules: any[] = []) {
       taskAgeImportance: item.rule.taskAgeImportance || 'ok',
       overdueImportance: item.rule.overdueImportance || 'ok',
       dueDateDirection: item.rule.dueDateDirection || 'ok',
+      calendarDurationDirection: item.rule.calendarDurationDirection || 'ok',
+      unnecessaryEvent: item.rule.unnecessaryEvent === true,
+      wrongCalendar: item.rule.wrongCalendar === true,
       shouldBeUrgent: item.rule.shouldBeUrgent === true,
       shouldBeLowerPriority: item.rule.shouldBeLowerPriority === true,
       askForMoreContext: item.rule.askForMoreContext === true,
@@ -152,10 +170,12 @@ function buildAdvisorMemoryContext(rules: any[] = []) {
     }));
 }
 
+// Normalize lists before comparing tags/title keywords across user feedback and previews.
 function normalizedSet(values: unknown[] = []) {
   return new Set(values.map((value) => normalizeWord(String(value || ''))).filter(Boolean));
 }
 
+// Decide whether a stored rule is relevant to this task/event title.
 function titleMatchesRule(title: string, rule: Record<string, any>) {
   const titleWords = normalizedSet(titleFingerprint(title).split(' '));
   const ruleWords = normalizedSet(rule.titleKeywords || []);
@@ -164,15 +184,24 @@ function titleMatchesRule(title: string, rule: Record<string, any>) {
   return overlap >= Math.min(2, ruleWords.size);
 }
 
+// Public wrapper used by memory filtering to get the best title for any proposal type.
 function previewTitle(preview: Record<string, any>) {
+  return advisorPreviewTitle(preview);
+}
+
+// Resolve the title affected by a proposal, including calendar events that do not edit a task.
+function advisorPreviewTitle(preview: Record<string, any>) {
   const changes = preview?.changes && typeof preview.changes === 'object' ? preview.changes : {};
   return preview?.taskTitle
     || changes?.after?.title
     || changes?.before?.title
     || changes?.createdTask?.title
+    || changes?.calendarEvent?.summary
+    || preview?.summary
     || '';
 }
 
+// Extract only newly proposed tags so "avoid tag" feedback does not match existing tags.
 function previewAddedTags(preview: Record<string, any>) {
   const changes = preview?.changes && typeof preview.changes === 'object' ? preview.changes : {};
   const beforeTags = normalizedSet(changes?.before?.tags || []);
@@ -182,6 +211,7 @@ function previewAddedTags(preview: Record<string, any>) {
   return afterTags.map(String).filter((tag) => !beforeTags.has(normalizeWord(tag)));
 }
 
+// Apply learned "do not show this again" style rules before proposals reach the UI.
 function shouldSuppressPreviewByMemory(preview: Record<string, any>, memory: any[] = [], action = '') {
   const title = previewTitle(preview);
   const addedTags = previewAddedTags(preview);
@@ -202,6 +232,7 @@ function shouldSuppressPreviewByMemory(preview: Record<string, any>, memory: any
   });
 }
 
+// Keep raw commands and their previews in sync while removing memory-suppressed proposals.
 function filterAdvisorCommandPairsByMemory({ commands = [], previews = [], memory = [], action = '' }: Record<string, any>) {
   const keptCommands = [];
   const keptPreviews = [];
@@ -214,6 +245,7 @@ function filterAdvisorCommandPairsByMemory({ commands = [], previews = [], memor
 }
 
 module.exports = {
+  advisorPreviewTitle,
   titleFingerprint,
   sanitizeAdvisorFeedback,
   inferAdvisorMemoryRule,

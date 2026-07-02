@@ -9,13 +9,13 @@ const {
   buildAdvisorCommandRequest,
   buildAdvisorAdviceRequest
 } = require('./aiAdvisorPrompts');
-async function generateTaskAdvisorCommands({ action, tasks, tags = [], memory = [] }) {
+async function generateTaskAdvisorCommands({ action, tasks, tags = [], memory = [], calendars = [] }) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error('OPENAI_API_KEY is required to generate AI Advisor commands');
     (error as any).status = 503;
     throw error;
   }
-  const body = buildAdvisorCommandRequest({ action, tasks, tags, memory });
+  const body = buildAdvisorCommandRequest({ action, tasks, tags, memory, calendars });
 
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: 'POST',

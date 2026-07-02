@@ -1,6 +1,17 @@
+import { useState, type CSSProperties } from 'react';
 import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
 
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+const DAY_START_HOUR = 0;
+const DAY_END_HOUR = 24;
+const HOUR_HEIGHT = 56;
+const HOURS = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, index) => DAY_START_HOUR + index);
+
+type CalendarEventLayout = {
+  event: GoogleCalendarEvent;
+  lane: number;
+  laneCount: number;
+};
 
 type CalendarWeekViewProps = {
   status: GoogleStatus;
@@ -17,6 +28,7 @@ type CalendarWeekViewProps = {
   onConnect: () => void;
   onDisconnect: () => void;
   onLoadEvents: (date: string, calendarIds?: string[]) => void;
+  onLoadRangeEvents: (start: string, end: string, calendarIds?: string[]) => void;
   onSendDailyTaskEmail: () => Promise<{ to: string; todayCount: number; overdueCount: number } | null>;
 };
 
@@ -39,6 +51,46 @@ function addDays(value: string, days: number) {
   return inputValueFromDate(date);
 }
 
+function addMonths(value: string, months: number) {
+  const date = dateFromInputValue(value);
+  date.setMonth(date.getMonth() + months);
+  return inputValueFromDate(date);
+}
+
+function startOfWeek(value: string) {
+  const date = dateFromInputValue(value);
+  const day = date.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + mondayOffset);
+  return inputValueFromDate(date);
+}
+
+function startOfMonth(value: string) {
+  const date = dateFromInputValue(value);
+  return inputValueFromDate(new Date(date.getFullYear(), date.getMonth(), 1));
+}
+
+function endOfMonth(value: string) {
+  const date = dateFromInputValue(value);
+  return inputValueFromDate(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+}
+
+function monthGridRange(value: string) {
+  const start = startOfWeek(startOfMonth(value));
+  const end = addDays(startOfWeek(endOfMonth(value)), 6);
+  return { start, end };
+}
+
+function daysBetween(start: string, end: string) {
+  const days = [];
+  let current = start;
+  while (current <= end) {
+    days.push(current);
+    current = addDays(current, 1);
+  }
+  return days;
+}
+
 function dateKeyFromEventValue(value: string | null) {
   if (!value) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -49,15 +101,23 @@ function dateKeyFromEventValue(value: string | null) {
 
 function formatDayLabel(value: string) {
   return new Intl.DateTimeFormat('pt-PT', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short'
+    weekday: 'short'
+  }).format(dateFromInputValue(value));
+}
+
+function formatDayNumber(value: string) {
+  return new Intl.DateTimeFormat('pt-PT', {
+    day: '2-digit'
   }).format(dateFromInputValue(value));
 }
 
 function formatWeekRange(start: string, end: string) {
   const formatter = new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' });
   return `${formatter.format(dateFromInputValue(start))} - ${formatter.format(dateFromInputValue(end))}`;
+}
+
+function formatMonthLabel(value: string) {
+  return new Intl.DateTimeFormat('pt-PT', { month: 'long', year: 'numeric' }).format(dateFromInputValue(value));
 }
 
 function formatEventTime(value: string | null) {
@@ -72,11 +132,106 @@ function formatEventTime(value: string | null) {
   }).format(date);
 }
 
+function isAllDayEvent(event: GoogleCalendarEvent) {
+  return Boolean(event.start && /^\d{4}-\d{2}-\d{2}$/.test(event.start));
+}
+
+function eventStartDate(event: GoogleCalendarEvent) {
+  return event.start ? new Date(event.start) : null;
+}
+
+function eventEndDate(event: GoogleCalendarEvent) {
+  return event.end ? new Date(event.end) : null;
+}
+
+function getEventPlacement(event: GoogleCalendarEvent) {
+  const start = eventStartDate(event);
+  if (!start || Number.isNaN(start.getTime())) return null;
+  const end = eventEndDate(event);
+  const startMinutes = start.getHours() * 60 + start.getMinutes();
+  const endMinutes = end && !Number.isNaN(end.getTime()) ? end.getHours() * 60 + end.getMinutes() : startMinutes + 30;
+  const clampedStart = Math.max(DAY_START_HOUR * 60, Math.min(DAY_END_HOUR * 60, startMinutes));
+  const clampedEnd = Math.max(clampedStart + 20, Math.min(DAY_END_HOUR * 60, endMinutes));
+  return {
+    top: ((clampedStart - DAY_START_HOUR * 60) / 60) * HOUR_HEIGHT,
+    height: Math.max(24, ((clampedEnd - clampedStart) / 60) * HOUR_HEIGHT)
+  };
+}
+
+function eventStartMinutes(event: GoogleCalendarEvent) {
+  const start = eventStartDate(event);
+  if (!start || Number.isNaN(start.getTime())) return 0;
+  return start.getHours() * 60 + start.getMinutes();
+}
+
+function eventEndMinutes(event: GoogleCalendarEvent) {
+  const end = eventEndDate(event);
+  if (!end || Number.isNaN(end.getTime())) return eventStartMinutes(event) + 30;
+  return Math.max(eventStartMinutes(event) + 20, end.getHours() * 60 + end.getMinutes());
+}
+
+function layoutOverlappingEvents(events: GoogleCalendarEvent[]): CalendarEventLayout[] {
+  const sorted = [...events].sort((a, b) => eventStartMinutes(a) - eventStartMinutes(b));
+  const groups: GoogleCalendarEvent[][] = [];
+  let currentGroup: GoogleCalendarEvent[] = [];
+  let currentGroupEnd = -1;
+
+  sorted.forEach((event) => {
+    const start = eventStartMinutes(event);
+    const end = eventEndMinutes(event);
+    if (!currentGroup.length || start < currentGroupEnd) {
+      currentGroup.push(event);
+      currentGroupEnd = Math.max(currentGroupEnd, end);
+      return;
+    }
+    groups.push(currentGroup);
+    currentGroup = [event];
+    currentGroupEnd = end;
+  });
+  if (currentGroup.length) groups.push(currentGroup);
+
+  return groups.flatMap((group) => {
+    const laneEnds: number[] = [];
+    const layouts = group.map((event) => {
+      const start = eventStartMinutes(event);
+      const lane = laneEnds.findIndex((end) => end <= start);
+      const resolvedLane = lane === -1 ? laneEnds.length : lane;
+      laneEnds[resolvedLane] = eventEndMinutes(event);
+      return { event, lane: resolvedLane, laneCount: 1 };
+    });
+    const laneCount = Math.max(1, laneEnds.length);
+    return layouts.map((layout) => ({ ...layout, laneCount }));
+  });
+}
+
+function groupTimedEventsByDay(days: string[], events: GoogleCalendarEvent[]) {
+  const grouped = new Map(days.map((day) => [day, [] as GoogleCalendarEvent[]]));
+  events.forEach((event) => {
+    if (isAllDayEvent(event)) return;
+    const key = dateKeyFromEventValue(event.start);
+    grouped.get(key)?.push(event);
+  });
+  return new Map([...grouped.entries()].map(([day, dayEvents]) => [day, layoutOverlappingEvents(dayEvents)]));
+}
+
+function groupAllDayEventsByDay(days: string[], events: GoogleCalendarEvent[]) {
+  const grouped = new Map(days.map((day) => [day, [] as GoogleCalendarEvent[]]));
+  events.forEach((event) => {
+    if (!isAllDayEvent(event)) return;
+    const key = dateKeyFromEventValue(event.start);
+    grouped.get(key)?.push(event);
+  });
+  return grouped;
+}
+
 function groupEventsByDay(days: string[], events: GoogleCalendarEvent[]) {
   const grouped = new Map(days.map((day) => [day, [] as GoogleCalendarEvent[]]));
   events.forEach((event) => {
     const key = dateKeyFromEventValue(event.start);
     grouped.get(key)?.push(event);
+  });
+  grouped.forEach((dayEvents) => {
+    dayEvents.sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')));
   });
   return grouped;
 }
@@ -102,11 +257,31 @@ export default function CalendarWeekView({
   onConnect,
   onDisconnect,
   onLoadEvents,
+  onLoadRangeEvents,
   onSendDailyTaskEmail
 }: CalendarWeekViewProps) {
+  const [calendarMode, setCalendarMode] = useState<'week' | 'month'>('week');
+  const [monthAnchor, setMonthAnchor] = useState(weekStart);
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
-  const groupedEvents = groupEventsByDay(days, events);
+  const monthRange = monthGridRange(monthAnchor);
+  const monthDays = daysBetween(monthRange.start, monthRange.end);
+  const timedEventsByDay = groupTimedEventsByDay(days, events);
+  const allDayEventsByDay = groupAllDayEventsByDay(days, events);
+  const monthEventsByDay = groupEventsByDay(monthDays, events);
   const canSendEmail = status.scopes.includes(GMAIL_SEND_SCOPE);
+  const today = inputValueFromDate(new Date());
+  const currentMonth = dateFromInputValue(monthAnchor).getMonth();
+
+  function loadMonth(value = monthAnchor, calendarIds = selectedCalendarIds) {
+    const range = monthGridRange(value);
+    setMonthAnchor(value);
+    onLoadRangeEvents(range.start, range.end, calendarIds);
+  }
+
+  function changeCalendarIds(calendarIds: string[]) {
+    onCalendarFilterChange(calendarIds);
+    if (calendarMode === 'month') loadMonth(monthAnchor, calendarIds);
+  }
 
   return (
     <section className="calendar-week-view" aria-label="Google Calendar semanal">
@@ -157,24 +332,54 @@ export default function CalendarWeekView({
       {status.connected && (
         <>
           <div className="calendar-week-controls">
-            <button type="button" className="button secondary small" onClick={() => onLoadEvents(addDays(weekStart, -7))} disabled={loading}>
-              Semana anterior
-            </button>
-            <label>
-              Semana
-              <input
-                type="date"
-                value={weekStart}
-                onChange={(event) => {
-                  onWeekChange(event.target.value);
-                  onLoadEvents(event.target.value);
-                }}
-              />
-            </label>
-            <button type="button" className="button secondary small" onClick={() => onLoadEvents(addDays(weekStart, 7))} disabled={loading}>
-              Semana seguinte
-            </button>
-            <button type="button" className="button primary small" onClick={() => onLoadEvents(weekStart)} disabled={loading}>
+            <div className="calendar-mode-toggle" aria-label="Modo de calendario">
+              <button type="button" className={calendarMode === 'week' ? 'is-active' : ''} onClick={() => { setCalendarMode('week'); onLoadEvents(weekStart); }}>
+                Semana
+              </button>
+              <button type="button" className={calendarMode === 'month' ? 'is-active' : ''} onClick={() => { setCalendarMode('month'); loadMonth(monthAnchor); }}>
+                Mes
+              </button>
+            </div>
+            {calendarMode === 'week' ? (
+              <>
+                <button type="button" className="button secondary small" onClick={() => onLoadEvents(addDays(weekStart, -7))} disabled={loading}>
+                  Semana anterior
+                </button>
+                <label>
+                  Semana
+                  <input
+                    type="date"
+                    value={weekStart}
+                    onChange={(event) => {
+                      onWeekChange(event.target.value);
+                      onLoadEvents(event.target.value);
+                    }}
+                  />
+                </label>
+                <button type="button" className="button secondary small" onClick={() => onLoadEvents(addDays(weekStart, 7))} disabled={loading}>
+                  Semana seguinte
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="button secondary small" onClick={() => loadMonth(addMonths(monthAnchor, -1))} disabled={loading}>
+                  Mes anterior
+                </button>
+                <label>
+                  Mes
+                  <input
+                    type="month"
+                    value={monthAnchor.slice(0, 7)}
+                    onChange={(event) => loadMonth(`${event.target.value}-01`)}
+                  />
+                </label>
+                <button type="button" className="button secondary small" onClick={() => loadMonth(addMonths(monthAnchor, 1))} disabled={loading}>
+                  Mes seguinte
+                </button>
+                <strong className="calendar-current-range">{formatMonthLabel(monthAnchor)}</strong>
+              </>
+            )}
+            <button type="button" className="button primary small" onClick={() => calendarMode === 'month' ? loadMonth(monthAnchor) : onLoadEvents(weekStart)} disabled={loading}>
               {loading ? 'A carregar...' : 'Atualizar'}
             </button>
           </div>
@@ -188,7 +393,7 @@ export default function CalendarWeekView({
               <button
                 type="button"
                 className="button secondary small"
-                onClick={() => onCalendarFilterChange(calendars.map((calendar) => calendar.id))}
+                onClick={() => changeCalendarIds(calendars.map((calendar) => calendar.id))}
                 disabled={loading || selectedCalendarIds.length === calendars.length}
               >
                 Todos
@@ -196,7 +401,7 @@ export default function CalendarWeekView({
               <button
                 type="button"
                 className="button ghost small"
-                onClick={() => onCalendarFilterChange([])}
+                onClick={() => changeCalendarIds([])}
                 disabled={loading || selectedCalendarIds.length === 0}
               >
                 Limpar
@@ -206,7 +411,7 @@ export default function CalendarWeekView({
                   <input
                     type="checkbox"
                     checked={selectedCalendarIds.includes(calendar.id)}
-                    onChange={() => onCalendarFilterChange(toggleCalendarId(selectedCalendarIds, calendar.id))}
+                    onChange={() => changeCalendarIds(toggleCalendarId(selectedCalendarIds, calendar.id))}
                   />
                   <span style={{ backgroundColor: calendar.backgroundColor || undefined }} aria-hidden="true" />
                   {calendar.summary}
@@ -215,40 +420,126 @@ export default function CalendarWeekView({
             </div>
           </div>
 
-          <div className="calendar-week-grid">
-            {days.map((day) => {
-              const dayEvents = groupedEvents.get(day) || [];
-              return (
-                <article className="calendar-day" key={day}>
-                  <header>
-                    <time dateTime={day}>{formatDayLabel(day)}</time>
-                    <span>{dayEvents.length}</span>
-                  </header>
-                  {dayEvents.length ? (
-                    <ol>
-                      {dayEvents.map((event) => (
-                        <li key={event.id}>
-                          <time>{formatEventTime(event.start)}{event.end ? ` - ${formatEventTime(event.end)}` : ''}</time>
-                          <span className="calendar-event-source">
-                            <i style={{ backgroundColor: event.calendarColor || undefined }} aria-hidden="true" />
-                            {event.calendarSummary}
-                          </span>
-                          {event.htmlLink ? (
-                            <a href={event.htmlLink} target="_blank" rel="noreferrer">{event.summary}</a>
-                          ) : (
-                            <strong>{event.summary}</strong>
-                          )}
-                          {event.location && <span>{event.location}</span>}
-                        </li>
+          {calendarMode === 'month' ? (
+            <div className="calendar-month-grid">
+              {['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'].map((day) => <strong key={day}>{day}</strong>)}
+              {monthDays.map((day) => {
+                const dayEvents = monthEventsByDay.get(day) || [];
+                const isOutsideMonth = dateFromInputValue(day).getMonth() !== currentMonth;
+                return (
+                  <article className={`calendar-month-day ${day === today ? 'is-today' : ''} ${isOutsideMonth ? 'is-outside-month' : ''}`} key={day}>
+                    <header>
+                      <time dateTime={day}>{formatDayNumber(day)}</time>
+                      <span>{dayEvents.length}</span>
+                    </header>
+                    <div>
+                      {dayEvents.slice(0, 5).map((event) => (
+                        <a
+                          className="calendar-month-event"
+                          href={event.htmlLink || undefined}
+                          target={event.htmlLink ? '_blank' : undefined}
+                          rel={event.htmlLink ? 'noreferrer' : undefined}
+                          key={event.id}
+                          style={{ '--event-color': event.calendarColor || '#315efb' } as CSSProperties}
+                        >
+                          <i aria-hidden="true" />
+                          <span>{isAllDayEvent(event) ? 'Todo o dia' : formatEventTime(event.start)}</span>
+                          <strong>{event.summary || '(Sem titulo)'}</strong>
+                        </a>
                       ))}
-                    </ol>
-                  ) : (
-                    <p>Sem eventos</p>
-                  )}
-                </article>
-              );
-            })}
+                      {dayEvents.length > 5 && <em>+{dayEvents.length - 5} mais</em>}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+          <div className="calendar-schedule" style={{ '--hour-height': `${HOUR_HEIGHT}px` } as CSSProperties}>
+            <div className="calendar-schedule-scroll">
+              <div className="calendar-day-header-row">
+                <div className="calendar-time-gutter" aria-hidden="true" />
+                {days.map((day) => {
+                  const dayEventCount = (timedEventsByDay.get(day)?.length || 0) + (allDayEventsByDay.get(day)?.length || 0);
+                  return (
+                    <div className={`calendar-day-header ${day === today ? 'is-today' : ''}`} key={day}>
+                      <time dateTime={day}>
+                        <span>{formatDayLabel(day)}</span>
+                        <strong>{formatDayNumber(day)}</strong>
+                      </time>
+                      <em>{dayEventCount}</em>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="calendar-all-day-row">
+                <div className="calendar-all-day-label">Todo o dia</div>
+                {days.map((day) => {
+                  const dayEvents = allDayEventsByDay.get(day) || [];
+                  return (
+                    <div className="calendar-all-day-cell" key={day}>
+                      {dayEvents.map((event) => (
+                        <a
+                          className="calendar-all-day-event"
+                          href={event.htmlLink || undefined}
+                          target={event.htmlLink ? '_blank' : undefined}
+                          rel={event.htmlLink ? 'noreferrer' : undefined}
+                          key={event.id}
+                          style={{ '--event-color': event.calendarColor || '#315efb' } as CSSProperties}
+                        >
+                          {event.summary}
+                        </a>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="calendar-time-grid">
+                <div className="calendar-hours">
+                  {HOURS.map((hour) => (
+                    <time key={hour}>{String(hour).padStart(2, '0')}:00</time>
+                  ))}
+                </div>
+                {days.map((day) => {
+                  const dayEvents = timedEventsByDay.get(day) || [];
+                  return (
+                    <div className="calendar-day-column" key={day}>
+                      <div className="calendar-hour-lines" aria-hidden="true">
+                        {HOURS.map((hour) => <span key={hour} />)}
+                      </div>
+                      {dayEvents.map(({ event, lane, laneCount }) => {
+                        const placement = getEventPlacement(event);
+                        if (!placement) return null;
+                        return (
+                          <a
+                            className="calendar-timed-event"
+                            href={event.htmlLink || undefined}
+                            target={event.htmlLink ? '_blank' : undefined}
+                            rel={event.htmlLink ? 'noreferrer' : undefined}
+                            key={event.id}
+                            style={{
+                              '--event-color': event.calendarColor || '#315efb',
+                              top: `${placement.top}px`,
+                              height: `${placement.height}px`,
+                              left: `calc(5px + ((100% - 10px) / ${laneCount}) * ${lane})`,
+                              width: `calc(((100% - 10px) / ${laneCount}) - 3px)`
+                            } as CSSProperties}
+                          >
+                            <strong>{event.summary || '(Sem titulo)'}</strong>
+                            <span>{formatEventTime(event.start)}{event.end ? ` - ${formatEventTime(event.end)}` : ''}</span>
+                            <small>{event.calendarSummary}</small>
+                            {event.location && <small>{event.location}</small>}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
+          )}
         </>
       )}
     </section>

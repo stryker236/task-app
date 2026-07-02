@@ -1,6 +1,6 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
-const AI_COMMAND_TYPES = ['update_task', 'add_relation', 'create_task'] as const;
+const AI_COMMAND_TYPES = ['update_task', 'add_relation', 'create_task', 'create_calendar_event'] as const;
 const ADVISOR_ACTIONS = {
   improve_tasks: {
     label: 'Improve tasks',
@@ -25,6 +25,10 @@ const ADVISOR_ACTIONS = {
   organize_blockers: {
     label: 'Organize blockers',
     instruction: 'Analyze blockers, dependencies, and related cards. Propose add_relation, blockedByTaskIds, or checklist improvements when they make the work clearer. If the relation already do not propose it again. Avoid duplicate relations.'
+  },
+  schedule_calendar_events: {
+    label: 'Schedule calendar events',
+    instruction: 'Review active cards and propose Google Calendar events for tasks that have enough timing context to be scheduled. Prefer tasks with due dates, today/overdue urgency, or clear estimated duration. Create calendar events only; do not update tasks or create tasks for this action.'
   }
 } as const;
 

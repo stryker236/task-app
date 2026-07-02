@@ -1,6 +1,16 @@
 import type { Task, TaskRelationType } from './task';
 
-export type AiCommandType = 'update_task' | 'add_relation' | 'create_task';
+export type AiCommandType = 'update_task' | 'add_relation' | 'create_task' | 'create_calendar_event';
+
+export interface AiCalendarEventCommandInput {
+  summary: string;
+  description?: string | null;
+  location?: string | null;
+  start: string;
+  end: string;
+  timeZone?: string | null;
+  calendarId?: string | null;
+}
 
 export interface AiCommand {
   id?: string;
@@ -12,6 +22,7 @@ export interface AiCommand {
   relationType?: TaskRelationType | null;
   patch?: Partial<Task> | null;
   task?: Partial<Task> | null;
+  event?: AiCalendarEventCommandInput | null;
 }
 
 export interface AiCommandPreview {

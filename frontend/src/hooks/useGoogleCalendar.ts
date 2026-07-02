@@ -171,6 +171,27 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     }
   }
 
+  async function loadCalendarRangeEvents(start: string, end: string, calendarIds = selectedCalendarIds) {
+    if (!googleStatus.connected) return;
+    if (!calendarIds.length) {
+      setCalendarWeekStartState(start);
+      setWeeklyCalendarEvents([]);
+      return;
+    }
+    setGoogleLoading(true);
+    setError?.('');
+    setCalendarWeekStartState(start);
+    try {
+      const data = await getGoogleCalendarEventsRange(start, end, calendarIds);
+      setWeeklyCalendarEvents(data.events || []);
+      setCalendarAccountEmail(data.accountEmail || null);
+    } catch (error) {
+      setError?.(errorMessage(error));
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
   function changeSelectedCalendarIds(calendarIds: string[]) {
     setSelectedCalendarIds(calendarIds);
     loadCalendarWeekEvents(calendarWeekStart, calendarIds);
@@ -226,6 +247,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     loadGoogleCalendars,
     loadCalendarEvents,
     loadCalendarWeekEvents,
+    loadCalendarRangeEvents,
     sendDailyTaskEmail
   };
 }

@@ -1,17 +1,21 @@
 import { useState } from 'react';
-import type { Task } from '../../../shared/types';
+import type { GoogleStatus, Task } from '../../../shared/types';
 import type { AdvisorAdvice, AdvisorFeedbackInput, AdvisorMemoryRule, AdvisorPreview } from '../api';
+
+const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar';
 
 const QUICK_ACTIONS = [
   { key: 'suggest_tags', label: 'Sugerir tags' },
   { key: 'suggest_due_dates', label: 'Sugerir due dates' },
-  { key: 'priority_management', label: 'Gestao de prioridades' }
+  { key: 'priority_management', label: 'Gestao de prioridades' },
+  { key: 'schedule_calendar_events', label: 'Criar eventos' }
 ] as const;
 
 const COMMAND_LABELS = {
   update_task: 'Atualizar task',
   add_relation: 'Adicionar relacao',
-  create_task: 'Criar task'
+  create_task: 'Criar task',
+  create_calendar_event: 'Criar evento'
 };
 
 const VISIBLE_FIELDS = [
@@ -53,8 +57,10 @@ type AdvisorPanelProps = {
   memoryLoading: boolean;
   applyingProposalId: string | null;
   applyingAllProposals: boolean;
+  googleStatus: GoogleStatus;
   onRefresh: () => void;
   onRequestActions: (action: string) => void;
+  onConnectGoogle: () => void;
   onApplyProposal: (commandId: string) => void;
   onIgnoreProposal: (commandId: string) => void;
   onApplyAllProposals: () => void;
@@ -94,10 +100,12 @@ function changedFields(before: unknown = {}, after: unknown = {}) {
 
 function affectedCardTitle(proposal: AdvisorPreview['commands'][number]) {
   const changes = proposal.changes as ObjectRecord | undefined;
+  const calendarEvent = changes?.calendarEvent as ObjectRecord | undefined;
   const createdTask = fieldValue(changes?.createdTask, 'title');
   const beforeTitle = fieldValue(changes?.before, 'title');
   const afterTitle = fieldValue(changes?.after, 'title');
   if (proposal.type === 'create_task') return typeof createdTask === 'string' ? createdTask : 'Nova task';
+  if (proposal.type === 'create_calendar_event') return String(calendarEvent?.summary || proposal.summary || 'Novo evento');
   return String(beforeTitle || afterTitle || proposal.taskId || 'Task');
 }
 
@@ -117,6 +125,10 @@ function isPriorityProposal(proposal: AdvisorPreview['commands'][number]) {
 function isDueDateProposal(proposal: AdvisorPreview['commands'][number]) {
   const fields = changedFields((proposal.changes as ObjectRecord | undefined)?.before, (proposal.changes as ObjectRecord | undefined)?.after);
   return proposal.type === 'update_task' && fields.length === 1 && fields[0]?.field === 'dueDateTime';
+}
+
+function isCalendarEventProposal(proposal: AdvisorPreview['commands'][number]) {
+  return proposal.type === 'create_calendar_event';
 }
 
 function taskTitleFromId(allTasks: Task[], id: string | null) {
@@ -145,11 +157,15 @@ function AdvisorProposalFeedback({
   const [taskAgeImportance, setTaskAgeImportance] = useState<AdvisorFeedbackInput['feedback']['taskAgeImportance']>('ok');
   const [overdueImportance, setOverdueImportance] = useState<AdvisorFeedbackInput['feedback']['overdueImportance']>('ok');
   const [dueDateDirection, setDueDateDirection] = useState<AdvisorFeedbackInput['feedback']['dueDateDirection']>('ok');
+  const [calendarDurationDirection, setCalendarDurationDirection] = useState<AdvisorFeedbackInput['feedback']['calendarDurationDirection']>('ok');
+  const [unnecessaryEvent, setUnnecessaryEvent] = useState(false);
+  const [wrongCalendar, setWrongCalendar] = useState(false);
   const [shouldBeUrgent, setShouldBeUrgent] = useState(false);
   const [shouldBeLowerPriority, setShouldBeLowerPriority] = useState(false);
   const [missingContext, setMissingContext] = useState(false);
   const priorityProposal = isPriorityProposal(proposal);
   const dueDateProposal = isDueDateProposal(proposal);
+  const calendarEventProposal = isCalendarEventProposal(proposal);
 
   function toggle(list: string[], setter: (value: string[]) => void, tag: string) {
     setter(list.includes(tag) ? list.filter((item) => item !== tag) : [...list, tag]);
@@ -192,6 +208,23 @@ function AdvisorProposalFeedback({
           <label><input type="radio" checked={dueDateDirection === 'ok'} onChange={() => setDueDateDirection('ok')} /> Prazo ok</label>
           <label><input type="radio" checked={dueDateDirection === 'too_late'} onChange={() => setDueDateDirection('too_late')} /> Prazo tarde demais</label>
         </div>
+      ) : calendarEventProposal ? (
+        <>
+          <div className="advisor-feedback-grid">
+            <label><input type="checkbox" checked={unnecessaryEvent} onChange={(event) => setUnnecessaryEvent(event.target.checked)} /> Evento desnecessario</label>
+            <label><input type="checkbox" checked={wrongCalendar} onChange={(event) => setWrongCalendar(event.target.checked)} /> Calendario errado</label>
+          </div>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={dueDateDirection === 'too_early'} onChange={() => setDueDateDirection('too_early')} /> Hora cedo demais</label>
+            <label><input type="radio" checked={dueDateDirection === 'ok'} onChange={() => setDueDateDirection('ok')} /> Hora ok</label>
+            <label><input type="radio" checked={dueDateDirection === 'too_late'} onChange={() => setDueDateDirection('too_late')} /> Hora tarde demais</label>
+          </div>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={calendarDurationDirection === 'too_short'} onChange={() => setCalendarDurationDirection('too_short')} /> Duracao curta demais</label>
+            <label><input type="radio" checked={calendarDurationDirection === 'ok'} onChange={() => setCalendarDurationDirection('ok')} /> Duracao ok</label>
+            <label><input type="radio" checked={calendarDurationDirection === 'too_long'} onChange={() => setCalendarDurationDirection('too_long')} /> Duracao longa demais</label>
+          </div>
+        </>
       ) : tags.length > 0 && (
         <div className="advisor-feedback-tags">
           <span>Tags boas</span>
@@ -201,7 +234,7 @@ function AdvisorProposalFeedback({
         </div>
       )}
 
-      {!priorityProposal && !dueDateProposal && <div className="advisor-feedback-grid">
+      {!priorityProposal && !dueDateProposal && !calendarEventProposal && <div className="advisor-feedback-grid">
         <label><input type="radio" checked={tagVolume === 'more'} onChange={() => setTagVolume('more')} /> Mais tags</label>
         <label><input type="radio" checked={tagVolume === 'ok'} onChange={() => setTagVolume('ok')} /> Quantidade ok</label>
         <label><input type="radio" checked={tagVolume === 'less'} onChange={() => setTagVolume('less')} /> Menos tags</label>
@@ -209,8 +242,8 @@ function AdvisorProposalFeedback({
 
       <div className="advisor-feedback-grid">
         <label><input type="checkbox" checked={wrongReason} onChange={(event) => setWrongReason(event.target.checked)} /> Razão fraca</label>
-        {!priorityProposal && !dueDateProposal && <label><input type="checkbox" checked={wrongPriority} onChange={(event) => setWrongPriority(event.target.checked)} /> Prioridade errada</label>}
-        <label><input type="checkbox" checked={wrongDeadline} onChange={(event) => setWrongDeadline(event.target.checked)} /> Prazo errado</label>
+        {!priorityProposal && !dueDateProposal && !calendarEventProposal && <label><input type="checkbox" checked={wrongPriority} onChange={(event) => setWrongPriority(event.target.checked)} /> Prioridade errada</label>}
+        {!calendarEventProposal && <label><input type="checkbox" checked={wrongDeadline} onChange={(event) => setWrongDeadline(event.target.checked)} /> Prazo errado</label>}
         <label><input type="checkbox" checked={missingContext} onChange={(event) => setMissingContext(event.target.checked)} /> Devia pedir contexto</label>
       </div>
 
@@ -219,16 +252,19 @@ function AdvisorProposalFeedback({
         className="button secondary small"
         onClick={() => onSave({
           overall,
-          tagVolume: priorityProposal || dueDateProposal ? 'ok' : tagVolume,
-          goodTags: priorityProposal || dueDateProposal ? [] : goodTags,
-          badTags: priorityProposal || dueDateProposal ? [] : badTags,
+          tagVolume: priorityProposal || dueDateProposal || calendarEventProposal ? 'ok' : tagVolume,
+          goodTags: priorityProposal || dueDateProposal || calendarEventProposal ? [] : goodTags,
+          badTags: priorityProposal || dueDateProposal || calendarEventProposal ? [] : badTags,
           wrongReason,
           wrongPriority: priorityProposal ? priorityDirection !== 'ok' || wrongPriority : wrongPriority,
-          wrongDeadline: dueDateProposal ? dueDateDirection !== 'ok' || wrongDeadline : wrongDeadline,
+          wrongDeadline: dueDateProposal || calendarEventProposal ? dueDateDirection !== 'ok' || wrongDeadline : wrongDeadline,
           priorityDirection,
           taskAgeImportance,
           overdueImportance,
           dueDateDirection,
+          calendarDurationDirection,
+          unnecessaryEvent,
+          wrongCalendar,
           shouldBeUrgent,
           shouldBeLowerPriority,
           missingContext
@@ -258,9 +294,13 @@ function AdvisorInteractionFeedback({
   const [taskAgeImportance, setTaskAgeImportance] = useState<AdvisorFeedbackInput['feedback']['taskAgeImportance']>('ok');
   const [overdueImportance, setOverdueImportance] = useState<AdvisorFeedbackInput['feedback']['overdueImportance']>('ok');
   const [dueDateDirection, setDueDateDirection] = useState<AdvisorFeedbackInput['feedback']['dueDateDirection']>('ok');
+  const [calendarDurationDirection, setCalendarDurationDirection] = useState<AdvisorFeedbackInput['feedback']['calendarDurationDirection']>('ok');
+  const [unnecessaryEvent, setUnnecessaryEvent] = useState(false);
+  const [wrongCalendar, setWrongCalendar] = useState(false);
   const [missingContext, setMissingContext] = useState(false);
   const priorityInteraction = action === 'priority_management';
   const dueDateInteraction = action === 'suggest_due_dates';
+  const calendarInteraction = action === 'schedule_calendar_events';
 
   return (
     <details className="advisor-feedback advisor-interaction-feedback">
@@ -296,10 +336,28 @@ function AdvisorInteractionFeedback({
           <label><input type="radio" checked={dueDateDirection === 'too_late'} onChange={() => setDueDateDirection('too_late')} /> Prazos tarde demais</label>
         </div>
       )}
+      {calendarInteraction && (
+        <>
+          <div className="advisor-feedback-grid">
+            <label><input type="checkbox" checked={unnecessaryEvent} onChange={(event) => setUnnecessaryEvent(event.target.checked)} /> Criou eventos desnecessarios</label>
+            <label><input type="checkbox" checked={wrongCalendar} onChange={(event) => setWrongCalendar(event.target.checked)} /> Escolheu calendario errado</label>
+          </div>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={dueDateDirection === 'too_early'} onChange={() => setDueDateDirection('too_early')} /> Horas cedo demais</label>
+            <label><input type="radio" checked={dueDateDirection === 'ok'} onChange={() => setDueDateDirection('ok')} /> Horas ok</label>
+            <label><input type="radio" checked={dueDateDirection === 'too_late'} onChange={() => setDueDateDirection('too_late')} /> Horas tarde demais</label>
+          </div>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={calendarDurationDirection === 'too_short'} onChange={() => setCalendarDurationDirection('too_short')} /> Duracoes curtas demais</label>
+            <label><input type="radio" checked={calendarDurationDirection === 'ok'} onChange={() => setCalendarDurationDirection('ok')} /> Duracoes ok</label>
+            <label><input type="radio" checked={calendarDurationDirection === 'too_long'} onChange={() => setCalendarDurationDirection('too_long')} /> Duracoes longas demais</label>
+          </div>
+        </>
+      )}
       <div className="advisor-feedback-grid">
         <label><input type="checkbox" checked={wrongReason} onChange={(event) => setWrongReason(event.target.checked)} /> Razao fraca</label>
-        {!priorityInteraction && !dueDateInteraction && <label><input type="checkbox" checked={wrongPriority} onChange={(event) => setWrongPriority(event.target.checked)} /> Prioridades erradas</label>}
-        <label><input type="checkbox" checked={wrongDeadline} onChange={(event) => setWrongDeadline(event.target.checked)} /> Prazos mal avaliados</label>
+        {!priorityInteraction && !dueDateInteraction && !calendarInteraction && <label><input type="checkbox" checked={wrongPriority} onChange={(event) => setWrongPriority(event.target.checked)} /> Prioridades erradas</label>}
+        {!calendarInteraction && <label><input type="checkbox" checked={wrongDeadline} onChange={(event) => setWrongDeadline(event.target.checked)} /> Prazos mal avaliados</label>}
         <label><input type="checkbox" checked={missingContext} onChange={(event) => setMissingContext(event.target.checked)} /> Devia pedir contexto</label>
       </div>
       <button
@@ -312,11 +370,14 @@ function AdvisorInteractionFeedback({
           badTags: [],
           wrongReason,
           wrongPriority: priorityInteraction ? priorityDirection !== 'ok' || wrongPriority : wrongPriority,
-          wrongDeadline: dueDateInteraction ? dueDateDirection !== 'ok' || wrongDeadline : wrongDeadline,
+          wrongDeadline: dueDateInteraction || calendarInteraction ? dueDateDirection !== 'ok' || wrongDeadline : wrongDeadline,
           priorityDirection,
           taskAgeImportance,
           overdueImportance,
           dueDateDirection,
+          calendarDurationDirection,
+          unnecessaryEvent,
+          wrongCalendar,
           shouldBeUrgent: false,
           shouldBeLowerPriority: false,
           missingContext
@@ -331,6 +392,21 @@ function AdvisorInteractionFeedback({
 
 function ProposalChanges({ proposal, allTasks = [] }: { proposal: AdvisorPreview['commands'][number]; allTasks?: Task[] }) {
   const changes = proposal.changes as ObjectRecord | undefined;
+
+  if (proposal.type === 'create_calendar_event') {
+    const event = changes?.calendarEvent as ObjectRecord | undefined;
+    if (!event) return null;
+    return (
+      <dl className="advisor-change-list">
+        <div><dt>Titulo</dt><dd>{String(event.summary || '')}</dd></div>
+        <div><dt>Inicio</dt><dd>{String(event.start || '')}</dd></div>
+        <div><dt>Fim</dt><dd>{String(event.end || '')}</dd></div>
+        <div><dt>Calendario</dt><dd>{String(event.calendarSummary || event.calendarId || 'primary')}</dd></div>
+        {event.location ? <div><dt>Local</dt><dd>{String(event.location)}</dd></div> : null}
+        {event.description ? <div><dt>Descricao</dt><dd>{String(event.description)}</dd></div> : null}
+      </dl>
+    );
+  }
 
   if (proposal.type === 'create_task') {
     const task = changes?.createdTask as Partial<Task> | undefined;
@@ -386,6 +462,8 @@ function AdvisorProposalBuffer({
   action,
   applyingProposalId,
   applyingAllProposals,
+  calendarWriteReady,
+  onConnectGoogle,
   onApplyProposal,
   onIgnoreProposal,
   onApplyAllProposals,
@@ -403,6 +481,8 @@ function AdvisorProposalBuffer({
   action?: string;
   applyingProposalId: string | null;
   applyingAllProposals: boolean;
+  calendarWriteReady: boolean;
+  onConnectGoogle: () => void;
   onApplyProposal: (commandId: string) => void;
   onIgnoreProposal: (commandId: string) => void;
   onApplyAllProposals: () => void;
@@ -415,6 +495,8 @@ function AdvisorProposalBuffer({
   const commands = proposals?.commands || [];
   if (!proposals) return null;
   const pendingCount = commands.filter((command) => !proposalStatuses[command.id]).length;
+  const hasCalendarProposal = commands.some((command) => command.type === 'create_calendar_event');
+  const calendarPermissionBlocked = hasCalendarProposal && !calendarWriteReady;
 
   return (
     <section className="advisor-buffer" aria-label="Propostas do assistente">
@@ -424,7 +506,7 @@ function AdvisorProposalBuffer({
           <p>{proposals.summary || 'Reve e aplica apenas o que fizer sentido.'}</p>
         </div>
         <div className="advisor-buffer-actions">
-          <button type="button" className="button primary small" onClick={onApplyAllProposals} disabled={!pendingCount || applyingAllProposals}>
+          <button type="button" className="button primary small" onClick={onApplyAllProposals} disabled={!pendingCount || applyingAllProposals || calendarPermissionBlocked}>
             {applyingAllProposals ? 'A aplicar...' : `Aceitar todos${pendingCount ? ` (${pendingCount})` : ''}`}
           </button>
           <button type="button" className="button secondary small" onClick={onIgnoreAllProposals} disabled={!pendingCount || applyingAllProposals}>
@@ -436,13 +518,23 @@ function AdvisorProposalBuffer({
         </div>
       </header>
 
+      {calendarPermissionBlocked && (
+        <div className="advisor-permission-warning">
+          <span>O Google precisa de permissao de escrita no calendario antes de criar eventos.</span>
+          <button type="button" className="button secondary small" onClick={onConnectGoogle}>
+            Reconectar Google
+          </button>
+        </div>
+      )}
+
       <AdvisorInteractionFeedback saved={interactionFeedbackSaved} action={action} onSave={onSaveInteractionFeedback} />
 
       {commands.length ? (
         <div className="advisor-proposal-list">
           {commands.map((proposal) => {
             const status = proposalStatuses[proposal.id];
-            const disabled = status === 'accepted' || status === 'ignored' || applyingProposalId === proposal.id || applyingAllProposals;
+            const needsCalendarPermission = proposal.type === 'create_calendar_event' && !calendarWriteReady;
+            const disabled = status === 'accepted' || status === 'ignored' || applyingProposalId === proposal.id || applyingAllProposals || needsCalendarPermission;
             const affectedTitle = affectedCardTitle(proposal);
 
             return (
@@ -450,7 +542,7 @@ function AdvisorProposalBuffer({
                 <div className="advisor-proposal-main">
                   <span className="advisor-command-type">{COMMAND_LABELS[proposal.type] || proposal.type}</span>
                   <div className="advisor-affected-card">
-                    <span>{proposal.type === 'create_task' ? 'Vai criar' : 'Afeta'}</span>
+                    <span>{proposal.type === 'create_task' || proposal.type === 'create_calendar_event' ? 'Vai criar' : 'Afeta'}</span>
                     <strong>{affectedTitle}</strong>
                   </div>
                   <h4>{proposal.summary}</h4>
@@ -471,7 +563,7 @@ function AdvisorProposalBuffer({
                     </button>
                   )}
                   <button type="button" className="button primary small" onClick={() => onApplyProposal(proposal.id)} disabled={disabled}>
-                    {applyingProposalId === proposal.id ? 'A aplicar...' : status === 'accepted' ? 'Aceite' : 'Aceitar'}
+                    {needsCalendarPermission ? 'Requer Google' : applyingProposalId === proposal.id ? 'A aplicar...' : status === 'accepted' ? 'Aceite' : 'Aceitar'}
                   </button>
                   <button type="button" className="button secondary small" onClick={() => onIgnoreProposal(proposal.id)} disabled={disabled}>
                     {status === 'ignored' ? 'Ignorada' : 'Ignorar'}
@@ -502,6 +594,10 @@ function formatMemoryRule(rule: AdvisorMemoryRule) {
   if (rule.rule.overdueImportance === 'too_little') parts.push('mais peso no atraso');
   if (rule.rule.dueDateDirection === 'too_early') parts.push('prazos cedo demais');
   if (rule.rule.dueDateDirection === 'too_late') parts.push('prazos tarde demais');
+  if (rule.rule.calendarDurationDirection === 'too_short') parts.push('eventos curtos demais');
+  if (rule.rule.calendarDurationDirection === 'too_long') parts.push('eventos longos demais');
+  if (rule.rule.unnecessaryEvent) parts.push('evitar eventos desnecessarios');
+  if (rule.rule.wrongCalendar) parts.push('rever calendario');
   if (rule.rule.shouldBeUrgent) parts.push('devia ser urgente');
   if (rule.rule.shouldBeLowerPriority) parts.push('devia baixar prioridade');
   if (rule.rule.askForMoreContext) parts.push('pedir mais contexto');
@@ -562,8 +658,10 @@ export default function AdvisorPanel({
   memoryLoading,
   applyingProposalId,
   applyingAllProposals,
+  googleStatus,
   onRefresh,
   onRequestActions,
+  onConnectGoogle,
   onApplyProposal,
   onIgnoreProposal,
   onApplyAllProposals,
@@ -577,6 +675,7 @@ export default function AdvisorPanel({
 }: AdvisorPanelProps) {
   const actions = (advice?.actions || []) as AdvisorActionItem[];
   const blockers = (advice?.blockers || []) as AdvisorActionItem[];
+  const calendarWriteReady = googleStatus.connected && googleStatus.scopes.includes(CALENDAR_WRITE_SCOPE);
 
   return (
     <section className="advisor-panel" aria-label="Assistente de trabalho">
@@ -594,11 +693,25 @@ export default function AdvisorPanel({
         <label>Acoes do assistente</label>
         <div className="advisor-request-actions">
           {QUICK_ACTIONS.map((action) => (
-            <button key={action.key} type="button" className="button secondary small" onClick={() => onRequestActions(action.key)} disabled={loading}>
+            <button
+              key={action.key}
+              type="button"
+              className="button secondary small"
+              onClick={() => onRequestActions(action.key)}
+              disabled={loading || (action.key === 'schedule_calendar_events' && !calendarWriteReady)}
+            >
               {action.label}
             </button>
           ))}
         </div>
+        {!calendarWriteReady && (
+          <div className="advisor-permission-warning">
+            <span>Para criar eventos, liga ou reconecta o Google Calendar com permissao de escrita.</span>
+            <button type="button" className="button secondary small" onClick={onConnectGoogle} disabled={loading}>
+              {googleStatus.connected ? 'Reconectar Google' : 'Ligar Google'}
+            </button>
+          </div>
+        )}
         <small>Limite backend: 3 pedidos AI por 10 segundos, por cliente/IP.</small>
       </div>
 
@@ -618,6 +731,8 @@ export default function AdvisorPanel({
         interactionFeedbackSaved={interactionFeedbackSaved}
         applyingProposalId={applyingProposalId}
         applyingAllProposals={applyingAllProposals}
+        calendarWriteReady={calendarWriteReady}
+        onConnectGoogle={onConnectGoogle}
         onApplyProposal={onApplyProposal}
         onIgnoreProposal={onIgnoreProposal}
         onApplyAllProposals={onApplyAllProposals}
