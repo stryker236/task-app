@@ -5,3 +5,4 @@ schema-current.sql
 .env
 *.log
 .vscode/
+sugestoes.md
