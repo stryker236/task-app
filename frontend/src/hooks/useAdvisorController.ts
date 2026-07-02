@@ -1,7 +1,17 @@
 import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { AiCommand, AiCommandPreview, Task } from '../../../shared/types';
-import { applyAiCommands, getTaskAdvisorAdvice, requestTaskAdvisorCommands, type TaskFilters } from '../api';
+import {
+  applyAiCommands,
+  deleteAdvisorMemoryRule,
+  getAdvisorMemoryRules,
+  getTaskAdvisorAdvice,
+  requestTaskAdvisorCommands,
+  submitAdvisorFeedback,
+  type AdvisorFeedbackInput,
+  type AdvisorMemoryRule,
+  type TaskFilters
+} from '../api';
 
 type AdvisorAdvice = Awaited<ReturnType<typeof getTaskAdvisorAdvice>>;
 type AdvisorBatch = {
@@ -39,8 +49,12 @@ export default function useAdvisorController({
   const [advisorLoading, setAdvisorLoading] = useState(false);
   const [proposalBatch, setProposalBatch] = useState<AdvisorBatch | null>(null);
   const [proposalStatuses, setProposalStatuses] = useState<Record<string, ProposalStatus>>({});
+  const [proposalFeedbackStatuses, setProposalFeedbackStatuses] = useState<Record<string, 'saved'>>({});
+  const [advisorMemoryRules, setAdvisorMemoryRules] = useState<AdvisorMemoryRule[]>([]);
+  const [advisorMemoryLoading, setAdvisorMemoryLoading] = useState(false);
   const [applyingProposalId, setApplyingProposalId] = useState<string | null>(null);
   const [applyingAllProposals, setApplyingAllProposals] = useState(false);
+  const [lastAdvisorAction, setLastAdvisorAction] = useState('');
 
   async function refreshTaskAdvisorAdvice() {
     try {
@@ -59,12 +73,34 @@ export default function useAdvisorController({
     try {
       setAdvisorLoading(true);
       const response = await requestTaskAdvisorCommands(action);
+      setLastAdvisorAction(action);
       setProposalBatch(response);
       setProposalStatuses({});
+      setProposalFeedbackStatuses({});
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
       setAdvisorLoading(false);
+    }
+  }
+
+  async function refreshAdvisorMemoryRules() {
+    try {
+      setAdvisorMemoryLoading(true);
+      setAdvisorMemoryRules(await getAdvisorMemoryRules());
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    } finally {
+      setAdvisorMemoryLoading(false);
+    }
+  }
+
+  async function forgetAdvisorMemoryRule(id: string) {
+    try {
+      await deleteAdvisorMemoryRule(id);
+      setAdvisorMemoryRules((current) => current.filter((rule) => rule.id !== id));
+    } catch (requestError) {
+      setError(errorMessage(requestError));
     }
   }
 
@@ -130,6 +166,25 @@ export default function useAdvisorController({
   function clearAdvisorProposals() {
     setProposalBatch(null);
     setProposalStatuses({});
+    setProposalFeedbackStatuses({});
+  }
+
+  async function saveAdvisorProposalFeedback(commandId: string, feedback: AdvisorFeedbackInput['feedback']) {
+    const index = proposalBatch?.commands?.findIndex((command) => command.id === commandId) ?? -1;
+    const commandPreview = proposalBatch?.commands?.[index];
+    if (index < 0 || !commandPreview) return;
+    try {
+      await submitAdvisorFeedback({
+        action: lastAdvisorAction,
+        commandPreview,
+        rawCommand: proposalBatch?.rawCommands?.[index],
+        feedback
+      });
+      setProposalFeedbackStatuses((current) => ({ ...current, [commandId]: 'saved' }));
+      await refreshAdvisorMemoryRules();
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    }
   }
 
   function openAdvisorRecommendedTask(taskId: string) {
@@ -142,15 +197,21 @@ export default function useAdvisorController({
     advisorLoading,
     proposalBatch,
     proposalStatuses,
+    proposalFeedbackStatuses,
+    advisorMemoryRules,
+    advisorMemoryLoading,
     applyingProposalId,
     applyingAllProposals,
     refreshTaskAdvisorAdvice,
     requestAdvisorActions,
+    refreshAdvisorMemoryRules,
+    forgetAdvisorMemoryRule,
     applyAdvisorProposal,
     ignoreAdvisorProposal,
     applyAllAdvisorProposals,
     ignoreAllAdvisorProposals,
     clearAdvisorProposals,
+    saveAdvisorProposalFeedback,
     openAdvisorRecommendedTask
   };
 }

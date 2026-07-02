@@ -3,8 +3,10 @@ const { randomBytes } = require('crypto');
 const { encryptJson, decryptJson } = require('../google/tokenCrypto');
 const { parseDateOnly } = require('../utils/date');
 const {
+  GMAIL_SEND_SCOPE,
   GOOGLE_SCOPES,
   createCalendarClient,
+  createGmailClient,
   createGoogleAuthUrl,
   createOAuthClient,
   getAccountEmail
@@ -39,9 +41,68 @@ function toCalendarEvent(event, sourceCalendar) {
   };
 }
 
+function getLocalDayBounds() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+function formatTaskLine(task) {
+  const due = task.dueDateTime
+    ? new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(task.dueDateTime))
+    : 'Sem hora';
+  const priority = ['Baixa', 'Normal', 'Alta', 'Urgente'][Math.max(0, Number(task.priority || 1) - 1)] || `P${task.priority}`;
+  const tags = task.tags?.length ? ` [${task.tags.join(', ')}]` : '';
+  return `- ${due} · ${task.title} · ${priority} · ${task.status}${tags}`;
+}
+
+function buildDailyTasksEmail(tasks) {
+  const { start, end } = getLocalDayBounds();
+  const active = (task) => !task.isArchived && !['done', 'cancelled'].includes(task.status);
+  const todayTasks = tasks
+    .filter((task) => active(task) && task.dueDateTime && new Date(task.dueDateTime) >= start && new Date(task.dueDateTime) < end)
+    .sort((left, right) => new Date(left.dueDateTime).getTime() - new Date(right.dueDateTime).getTime());
+  const overdueTasks = tasks
+    .filter((task) => active(task) && task.dueDateTime && new Date(task.dueDateTime) < start)
+    .sort((left, right) => new Date(left.dueDateTime).getTime() - new Date(right.dueDateTime).getTime());
+  const dateLabel = new Intl.DateTimeFormat('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(start);
+  const lines = [
+    `Plano do dia - ${dateLabel}`,
+    '',
+    `Para hoje (${todayTasks.length})`,
+    ...(todayTasks.length ? todayTasks.map(formatTaskLine) : ['- Sem tarefas com prazo para hoje.']),
+    '',
+    `Atrasadas (${overdueTasks.length})`,
+    ...(overdueTasks.length ? overdueTasks.map(formatTaskLine) : ['- Sem tarefas atrasadas.'])
+  ];
+  return {
+    subject: `Plano do dia - ${dateLabel}`,
+    body: lines.join('\n'),
+    todayCount: todayTasks.length,
+    overdueCount: overdueTasks.length
+  };
+}
+
+function encodeEmail({ to, from, subject, body }) {
+  const message = [
+    `To: ${to}`,
+    `From: ${from}`,
+    `Subject: =?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    body
+  ].join('\r\n');
+  return Buffer.from(message, 'utf8').toString('base64url');
+}
+
 function createGoogleRouter({
   pool,
   withTransaction,
+  fetchTasks,
   fetchGoogleConnection,
   saveGoogleConnection,
   deleteGoogleConnection,
@@ -57,9 +118,19 @@ function createGoogleRouter({
       (error as any).status = 409;
       throw error;
     }
+    const storedTokens = decryptJson(connection.encryptedTokens);
+    const authClient = createOAuthClient(storedTokens);
+    authClient.on('tokens', (tokens) => {
+      saveGoogleConnection(pool, {
+        accountEmail: connection.accountEmail,
+        scopes: connection.scopes,
+        encryptedTokens: { ...storedTokens, ...tokens },
+        expiresAt: connection.expiresAt
+      }).catch((error) => console.error('Failed to persist refreshed Google tokens:', error.message));
+    });
     return {
       connection,
-      authClient: createOAuthClient(decryptJson(connection.encryptedTokens))
+      authClient
     };
   }
 
@@ -69,7 +140,8 @@ function createGoogleRouter({
       res.json({
         connected: Boolean(connection),
         accountEmail: connection?.accountEmail || null,
-        scopes: connection?.scopes || []
+        scopes: connection?.scopes || [],
+        expiresAt: connection?.expiresAt || null
       });
     } catch (error) {
       next(error);
@@ -108,7 +180,8 @@ function createGoogleRouter({
         return saveGoogleConnection(client, {
           accountEmail,
           scopes: GOOGLE_SCOPES,
-          encryptedTokens: encryptJson(tokenResult.tokens)
+          encryptedTokens: encryptJson(tokenResult.tokens),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         });
       });
 
@@ -141,6 +214,44 @@ function createGoogleRouter({
       res.json({
         accountEmail: connection.accountEmail,
         calendars: (result.data.items || []).map(toCalendar)
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/google/gmail/daily-tasks', async (req, res, next) => {
+    try {
+      const { connection, authClient } = await getAuthorizedClient();
+      if (!connection.scopes?.includes(GMAIL_SEND_SCOPE)) {
+        const error = new Error('Gmail send permission is required. Reconnect Google to grant email access.');
+        (error as any).status = 409;
+        throw error;
+      }
+      const to = String(req.body?.to || connection.accountEmail || '').trim();
+      if (!to) {
+        const error = new Error('No destination email is available');
+        (error as any).status = 400;
+        throw error;
+      }
+      const email = buildDailyTasksEmail(await fetchTasks());
+      const gmail = createGmailClient(authClient);
+      const result = await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: {
+          raw: encodeEmail({
+            to,
+            from: connection.accountEmail || to,
+            subject: email.subject,
+            body: email.body
+          })
+        }
+      });
+      res.json({
+        id: result.data.id,
+        to,
+        todayCount: email.todayCount,
+        overdueCount: email.overdueCount
       });
     } catch (error) {
       next(error);

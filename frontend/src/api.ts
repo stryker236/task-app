@@ -111,6 +111,52 @@ export function applyAiCommands(commands: AiCommand[]) {
   });
 }
 
+export type AdvisorFeedbackInput = {
+  action: string;
+  commandPreview: AiCommandPreview;
+  rawCommand?: AiCommand;
+  feedback: {
+    overall: 'useful' | 'not_useful' | 'mixed';
+    tagVolume: 'more' | 'less' | 'ok';
+    goodTags: string[];
+    badTags: string[];
+    wrongReason: boolean;
+    wrongPriority: boolean;
+    wrongDeadline: boolean;
+    missingContext: boolean;
+  };
+};
+
+export type AdvisorMemoryRule = {
+  id: string;
+  ruleType: string;
+  titleFingerprint: string;
+  action: string;
+  rule: {
+    titleKeywords?: string[];
+    avoidTags?: string[];
+    preferTags?: string[];
+    tagVolume?: 'more' | 'less' | 'ok';
+    avoidSimilarSuggestions?: boolean;
+    askForMoreContext?: boolean;
+    reviewReasoning?: boolean;
+    reviewPriority?: boolean;
+    reviewDeadline?: boolean;
+  };
+  supportCount: number;
+  lastFeedbackAt: string;
+};
+
+export function submitAdvisorFeedback(feedback: AdvisorFeedbackInput) {
+  return requestJson<{ memoryRule: unknown }>('/ai/advisor/feedback', {
+    method: 'POST',
+    body: JSON.stringify(feedback)
+  });
+}
+
+export const getAdvisorMemoryRules = () => requestJson<AdvisorMemoryRule[]>('/ai/advisor/memory');
+export const deleteAdvisorMemoryRule = (id: string) => requestJson<void>(`/ai/advisor/memory/${id}`, { method: 'DELETE' });
+
 export const deleteTag = (id: string, { force = false } = {}) => requestJson<void>(`/tags/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
 export const deleteTags = (ids: string[], { force = false } = {}) => requestJson<DeleteTagsResult>('/tags', { method: 'DELETE', body: JSON.stringify({ ids, force }) });
 
@@ -144,6 +190,7 @@ export const clearDoneQuickQueueItems = () => requestJson<QuickQueueItem[]>('/qu
 export const getGoogleStatus = () => requestJson<GoogleStatus>('/google/status');
 export const getGoogleOAuthUrl = () => requestJson<{ url: string; expiresAt: string }>('/google/oauth/url', { method: 'POST' });
 export const disconnectGoogle = () => requestJson<void>('/google/connection', { method: 'DELETE' });
+export const sendGoogleDailyTaskEmail = () => requestJson<{ id: string; to: string; todayCount: number; overdueCount: number }>('/google/gmail/daily-tasks', { method: 'POST', body: JSON.stringify({}) });
 export const getGoogleCalendars = () => requestJson<{ accountEmail: string | null; calendars: GoogleCalendar[] }>('/google/calendars');
 
 function calendarIdsQuery(calendarIds: string[] = []) {

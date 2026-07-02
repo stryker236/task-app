@@ -154,7 +154,7 @@ export default function App() {
       <main>
         <DashboardCounters counters={counters} />
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && (
           <GoogleDailyPanel
             status={googleCalendar.googleStatus}
             loading={googleCalendar.googleLoading}
@@ -169,13 +169,16 @@ export default function App() {
           />
         )}
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && (
           <AdvisorPanel
             allTasks={allTasks}
             advice={advisorController.advisor}
             loading={advisorController.advisorLoading}
             proposals={advisorController.proposalBatch}
             proposalStatuses={advisorController.proposalStatuses}
+            proposalFeedbackStatuses={advisorController.proposalFeedbackStatuses}
+            memoryRules={advisorController.advisorMemoryRules}
+            memoryLoading={advisorController.advisorMemoryLoading}
             applyingProposalId={advisorController.applyingProposalId}
             applyingAllProposals={advisorController.applyingAllProposals}
             onRefresh={advisorController.refreshTaskAdvisorAdvice}
@@ -185,20 +188,23 @@ export default function App() {
             onApplyAllProposals={advisorController.applyAllAdvisorProposals}
             onIgnoreAllProposals={advisorController.ignoreAllAdvisorProposals}
             onClearProposals={advisorController.clearAdvisorProposals}
+            onSaveProposalFeedback={advisorController.saveAdvisorProposalFeedback}
+            onRefreshMemory={advisorController.refreshAdvisorMemoryRules}
+            onForgetMemory={advisorController.forgetAdvisorMemoryRule}
             onOpenTask={advisorController.openAdvisorRecommendedTask}
           />
         )}
 
         <ViewTabs view={view} onChange={setView} />
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && (
           <BulkArchiveActions
             onArchiveDone={() => taskActions.archiveTasksWithStatus('done')}
             onArchiveCancelled={() => taskActions.archiveTasksWithStatus('cancelled')}
           />
         )}
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && (
           <Filters
             filters={filters}
             tags={availableTags}
@@ -254,6 +260,11 @@ export default function App() {
           onConnectGoogle={googleCalendar.connectGoogle}
           onDisconnectGoogle={googleCalendar.disconnectGoogleAccount}
           onLoadCalendarWeekEvents={googleCalendar.loadCalendarWeekEvents}
+          onSendDailyTaskEmail={googleCalendar.sendDailyTaskEmail}
+          advisorMemoryRules={advisorController.advisorMemoryRules}
+          advisorMemoryLoading={advisorController.advisorMemoryLoading}
+          onRefreshAdvisorMemory={advisorController.refreshAdvisorMemoryRules}
+          onForgetAdvisorMemory={advisorController.forgetAdvisorMemoryRule}
         />
       </main>
 

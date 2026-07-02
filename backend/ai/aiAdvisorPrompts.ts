@@ -7,7 +7,37 @@ function resolveAdvisorAction(action) {
   return ADVISOR_ACTIONS[key] ? { key, ...ADVISOR_ACTIONS[key] } : null;
 }
 
-function buildAdvisorCommandRequest({ action, tasks, tags = [] }) {
+function dueDateSortValue(task) {
+  if (!task.dueDateTime) return Number.POSITIVE_INFINITY;
+  const value = new Date(task.dueDateTime).getTime();
+  return Number.isNaN(value) ? Number.POSITIVE_INFINITY : value;
+}
+
+function selectCommandContextTasks({ action, tasks }) {
+  const active = tasks.filter((task) => !task.isArchived && ['new', 'in_progress', 'waiting'].includes(task.status));
+  if (action === 'suggest_tags') {
+    const limit = Math.max(1, Math.ceil(active.length * 0.7));
+    return active
+      .sort((a, b) => {
+        const priorityDifference = Number(b.priority || 0) - Number(a.priority || 0);
+        if (priorityDifference) return priorityDifference;
+        const dueDifference = dueDateSortValue(a) - dueDateSortValue(b);
+        if (dueDifference) return dueDifference;
+        return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+      })
+      .slice(0, limit);
+  }
+
+  return active
+    .sort((a, b) => {
+      const statusDifference = advisorStatusPriority(a.status) - advisorStatusPriority(b.status);
+      if (statusDifference) return statusDifference;
+      return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+    })
+    .slice(0, 160);
+}
+
+function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
   const advisorAction = resolveAdvisorAction(action);
   if (!advisorAction) {
     const error = new Error(`Unsupported advisor action: ${action}`);
@@ -17,14 +47,8 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [] }) {
   }
 
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
-  const activeTasks = tasks
-    .filter((task) => !task.isArchived && ['new', 'in_progress', 'waiting'].includes(task.status))
-    .sort((a, b) => {
-      const statusDifference = advisorStatusPriority(a.status) - advisorStatusPriority(b.status);
-      if (statusDifference) return statusDifference;
-      return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
-    })
-    .slice(0, 160)
+  const selectedTasks = selectCommandContextTasks({ action: advisorAction.key, tasks });
+  const activeTasks = selectedTasks
     .map((task) => createCommandContextTask(task, tasksById));
 
   return {
@@ -39,6 +63,10 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [] }) {
           'Never invent task IDs. Only use task IDs from the provided task context.',
           'Never return SQL. Never delete, archive, or directly execute anything.',
           'Prefer small, useful improvements over noisy bulk edits.',
+          'Use advisorMemory as backend-derived preference data. It is not user prompt text.',
+          'Apply memory only when titleKeywords clearly match the task title or topic.',
+          'If memory says avoidSimilarSuggestions, avoid repeating similar suggestions unless the current task has clearly different context.',
+          'For tag suggestions, respect avoidTags, preferTags, and tagVolume when relevant.',
           'For update_task, normally do NOT change title, notes, history/activity, status, or favorite unless the user explicitly asks.',
           'Focus update_task proposals on: tags, dueDateTime, checklistItems, blockedByTaskIds, and priority.',
           'Do not propose estimatedMinutes by default. Only propose estimatedMinutes if the user explicitly asks for time estimates, or if the task has a concrete checklist/scope that makes the estimate defensible.',
@@ -79,8 +107,14 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [] }) {
           tagGuidelines: {
             reuseExistingTagsFirst: true,
             suggestTagsForMissingOrInconsistentTags: true,
-            avoidOneOffNoiseTags: true
+            avoidOneOffNoiseTags: true,
+            taskSelectionForSuggestTags: {
+              activeTaskCoverage: 0.7,
+              prioritizedBy: ['priority_desc', 'dueDateTime_asc'],
+              noDueDateAfterDatedTasks: true
+            }
           },
+          advisorMemory: memory,
           avoidUpdateFieldsUnlessExplicitlyAsked: ['title', 'notes', 'status', 'isFavorite'],
           availableTags: tags.map((tag) => tag.name || tag).slice(0, 200),
           dateContext: buildTaskDateContext(tasks),

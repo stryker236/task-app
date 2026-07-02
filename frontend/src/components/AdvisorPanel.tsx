@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import type { Task } from '../../../shared/types';
-import type { AdvisorAdvice, AdvisorPreview } from '../api';
+import type { AdvisorAdvice, AdvisorFeedbackInput, AdvisorMemoryRule, AdvisorPreview } from '../api';
 
 const QUICK_ACTIONS = [
   { key: 'improve_tasks', label: 'Melhorar tasks' },
@@ -29,6 +30,7 @@ const VISIBLE_FIELDS = [
 
 type ProposalStatus = 'accepted' | 'ignored';
 type ProposalStatuses = Record<string, ProposalStatus>;
+type ProposalFeedbackStatuses = Record<string, 'saved'>;
 type ObjectRecord = Record<string, unknown>;
 
 type AdvisorActionItem = {
@@ -45,6 +47,9 @@ type AdvisorPanelProps = {
   loading: boolean;
   proposals: AdvisorPreview | null;
   proposalStatuses: ProposalStatuses;
+  proposalFeedbackStatuses: ProposalFeedbackStatuses;
+  memoryRules: AdvisorMemoryRule[];
+  memoryLoading: boolean;
   applyingProposalId: string | null;
   applyingAllProposals: boolean;
   onRefresh: () => void;
@@ -54,6 +59,9 @@ type AdvisorPanelProps = {
   onApplyAllProposals: () => void;
   onIgnoreAllProposals: () => void;
   onClearProposals: () => void;
+  onSaveProposalFeedback: (commandId: string, feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
+  onRefreshMemory: () => void;
+  onForgetMemory: (id: string) => void;
   onOpenTask: (taskId: string) => void;
 };
 
@@ -91,9 +99,83 @@ function affectedCardTitle(proposal: AdvisorPreview['commands'][number]) {
   return String(beforeTitle || afterTitle || proposal.taskId || 'Task');
 }
 
+function proposedTags(proposal: AdvisorPreview['commands'][number]) {
+  const changes = proposal.changes as ObjectRecord | undefined;
+  const after = fieldValue(changes?.after, 'tags');
+  const created = fieldValue(changes?.createdTask, 'tags');
+  const tags = Array.isArray(after) ? after : Array.isArray(created) ? created : [];
+  return tags.map(String).filter(Boolean);
+}
+
 function taskTitleFromId(allTasks: Task[], id: string | null) {
   if (!id) return null;
   return allTasks.find((task) => task.id === id)?.title || id;
+}
+
+function AdvisorProposalFeedback({
+  proposal,
+  saved,
+  onSave
+}: {
+  proposal: AdvisorPreview['commands'][number];
+  saved: boolean;
+  onSave: (feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
+}) {
+  const tags = proposedTags(proposal);
+  const [overall, setOverall] = useState<AdvisorFeedbackInput['feedback']['overall']>('mixed');
+  const [tagVolume, setTagVolume] = useState<AdvisorFeedbackInput['feedback']['tagVolume']>('ok');
+  const [goodTags, setGoodTags] = useState<string[]>([]);
+  const [badTags, setBadTags] = useState<string[]>([]);
+  const [wrongReason, setWrongReason] = useState(false);
+  const [wrongPriority, setWrongPriority] = useState(false);
+  const [wrongDeadline, setWrongDeadline] = useState(false);
+  const [missingContext, setMissingContext] = useState(false);
+
+  function toggle(list: string[], setter: (value: string[]) => void, tag: string) {
+    setter(list.includes(tag) ? list.filter((item) => item !== tag) : [...list, tag]);
+  }
+
+  return (
+    <details className="advisor-feedback">
+      <summary>{saved ? 'Feedback guardado' : 'Dar feedback'}</summary>
+      <div className="advisor-feedback-grid">
+        <label><input type="radio" checked={overall === 'useful'} onChange={() => setOverall('useful')} /> Útil</label>
+        <label><input type="radio" checked={overall === 'mixed'} onChange={() => setOverall('mixed')} /> Misto</label>
+        <label><input type="radio" checked={overall === 'not_useful'} onChange={() => setOverall('not_useful')} /> Fraco</label>
+      </div>
+
+      {tags.length > 0 && (
+        <div className="advisor-feedback-tags">
+          <span>Tags boas</span>
+          {tags.map((tag) => <label key={`good-${tag}`}><input type="checkbox" checked={goodTags.includes(tag)} onChange={() => toggle(goodTags, setGoodTags, tag)} /> #{tag}</label>)}
+          <span>Tags más</span>
+          {tags.map((tag) => <label key={`bad-${tag}`}><input type="checkbox" checked={badTags.includes(tag)} onChange={() => toggle(badTags, setBadTags, tag)} /> #{tag}</label>)}
+        </div>
+      )}
+
+      <div className="advisor-feedback-grid">
+        <label><input type="radio" checked={tagVolume === 'more'} onChange={() => setTagVolume('more')} /> Mais tags</label>
+        <label><input type="radio" checked={tagVolume === 'ok'} onChange={() => setTagVolume('ok')} /> Quantidade ok</label>
+        <label><input type="radio" checked={tagVolume === 'less'} onChange={() => setTagVolume('less')} /> Menos tags</label>
+      </div>
+
+      <div className="advisor-feedback-grid">
+        <label><input type="checkbox" checked={wrongReason} onChange={(event) => setWrongReason(event.target.checked)} /> Razão fraca</label>
+        <label><input type="checkbox" checked={wrongPriority} onChange={(event) => setWrongPriority(event.target.checked)} /> Prioridade errada</label>
+        <label><input type="checkbox" checked={wrongDeadline} onChange={(event) => setWrongDeadline(event.target.checked)} /> Prazo errado</label>
+        <label><input type="checkbox" checked={missingContext} onChange={(event) => setMissingContext(event.target.checked)} /> Devia pedir contexto</label>
+      </div>
+
+      <button
+        type="button"
+        className="button secondary small"
+        onClick={() => onSave({ overall, tagVolume, goodTags, badTags, wrongReason, wrongPriority, wrongDeadline, missingContext })}
+        disabled={saved}
+      >
+        {saved ? 'Guardado' : 'Guardar feedback'}
+      </button>
+    </details>
+  );
 }
 
 function ProposalChanges({ proposal, allTasks = [] }: { proposal: AdvisorPreview['commands'][number]; allTasks?: Task[] }) {
@@ -148,6 +230,7 @@ function AdvisorProposalBuffer({
   allTasks = [],
   proposals,
   proposalStatuses,
+  proposalFeedbackStatuses,
   applyingProposalId,
   applyingAllProposals,
   onApplyProposal,
@@ -155,11 +238,13 @@ function AdvisorProposalBuffer({
   onApplyAllProposals,
   onIgnoreAllProposals,
   onClearProposals,
+  onSaveProposalFeedback,
   onOpenTask
 }: {
   allTasks?: Task[];
   proposals: AdvisorPreview | null;
   proposalStatuses: ProposalStatuses;
+  proposalFeedbackStatuses: ProposalFeedbackStatuses;
   applyingProposalId: string | null;
   applyingAllProposals: boolean;
   onApplyProposal: (commandId: string) => void;
@@ -167,6 +252,7 @@ function AdvisorProposalBuffer({
   onApplyAllProposals: () => void;
   onIgnoreAllProposals: () => void;
   onClearProposals: () => void;
+  onSaveProposalFeedback: (commandId: string, feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
   onOpenTask: (taskId: string) => void;
 }) {
   const commands = proposals?.commands || [];
@@ -212,6 +298,11 @@ function AdvisorProposalBuffer({
                   <p>{proposal.reason}</p>
                   {proposal.alreadyExists && <small>Esta relacao ja existe.</small>}
                   <ProposalChanges proposal={proposal} allTasks={allTasks} />
+                  <AdvisorProposalFeedback
+                    proposal={proposal}
+                    saved={proposalFeedbackStatuses[proposal.id] === 'saved'}
+                    onSave={(feedback) => onSaveProposalFeedback(proposal.id, feedback)}
+                  />
                 </div>
 
                 <div className="advisor-proposal-actions">
@@ -238,12 +329,66 @@ function AdvisorProposalBuffer({
   );
 }
 
+function formatMemoryRule(rule: AdvisorMemoryRule) {
+  const parts = [];
+  if (rule.rule.avoidTags?.length) parts.push(`evitar: ${rule.rule.avoidTags.map((tag) => `#${tag}`).join(', ')}`);
+  if (rule.rule.preferTags?.length) parts.push(`preferir: ${rule.rule.preferTags.map((tag) => `#${tag}`).join(', ')}`);
+  if (rule.rule.tagVolume && rule.rule.tagVolume !== 'ok') parts.push(rule.rule.tagVolume === 'less' ? 'menos tags' : 'mais tags');
+  if (rule.rule.avoidSimilarSuggestions) parts.push('evitar sugestoes parecidas');
+  if (rule.rule.askForMoreContext) parts.push('pedir mais contexto');
+  return parts.length ? parts.join(' · ') : 'Regra geral de sugestao';
+}
+
+function AdvisorMemoryPanel({
+  rules,
+  loading,
+  onRefresh,
+  onForget
+}: {
+  rules: AdvisorMemoryRule[];
+  loading: boolean;
+  onRefresh: () => void;
+  onForget: (id: string) => void;
+}) {
+  return (
+    <details className="advisor-memory">
+      <summary>Memoria aprendida</summary>
+      <div className="advisor-memory-actions">
+        <button type="button" className="button secondary small" onClick={onRefresh} disabled={loading}>
+          {loading ? 'A carregar...' : 'Atualizar memoria'}
+        </button>
+      </div>
+      {rules.length ? (
+        <div className="advisor-memory-list">
+          {rules.map((rule) => (
+            <article key={rule.id}>
+              <div>
+                <strong>{rule.titleFingerprint || 'Regra global'}</strong>
+                <p>{formatMemoryRule(rule)}</p>
+                <small>{rule.action || 'todas'} · {rule.ruleType} · {rule.supportCount} feedback</small>
+              </div>
+              <button type="button" className="button ghost small" onClick={() => onForget(rule.id)}>
+                Esquecer
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="advisor-empty">Sem regras de memoria carregadas.</p>
+      )}
+    </details>
+  );
+}
+
 export default function AdvisorPanel({
   allTasks = [],
   advice,
   loading,
   proposals,
   proposalStatuses,
+  proposalFeedbackStatuses,
+  memoryRules,
+  memoryLoading,
   applyingProposalId,
   applyingAllProposals,
   onRefresh,
@@ -253,6 +398,9 @@ export default function AdvisorPanel({
   onApplyAllProposals,
   onIgnoreAllProposals,
   onClearProposals,
+  onSaveProposalFeedback,
+  onRefreshMemory,
+  onForgetMemory,
   onOpenTask
 }: AdvisorPanelProps) {
   const actions = (advice?.actions || []) as AdvisorActionItem[];
@@ -282,10 +430,18 @@ export default function AdvisorPanel({
         <small>Limite backend: 3 pedidos AI por 10 segundos, por cliente/IP.</small>
       </div>
 
+      <AdvisorMemoryPanel
+        rules={memoryRules}
+        loading={memoryLoading}
+        onRefresh={onRefreshMemory}
+        onForget={onForgetMemory}
+      />
+
       <AdvisorProposalBuffer
         allTasks={allTasks}
         proposals={proposals}
         proposalStatuses={proposalStatuses}
+        proposalFeedbackStatuses={proposalFeedbackStatuses}
         applyingProposalId={applyingProposalId}
         applyingAllProposals={applyingAllProposals}
         onApplyProposal={onApplyProposal}
@@ -293,6 +449,7 @@ export default function AdvisorPanel({
         onApplyAllProposals={onApplyAllProposals}
         onIgnoreAllProposals={onIgnoreAllProposals}
         onClearProposals={onClearProposals}
+        onSaveProposalFeedback={onSaveProposalFeedback}
         onOpenTask={onOpenTask}
       />
 

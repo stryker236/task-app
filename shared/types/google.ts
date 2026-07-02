@@ -2,6 +2,7 @@ export interface GoogleStatus {
   connected: boolean;
   accountEmail: string | null;
   scopes: string[];
+  expiresAt?: string | null;
 }
 
 export interface GoogleCalendarEvent {

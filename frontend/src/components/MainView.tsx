@@ -1,8 +1,9 @@
 import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, Task, TaskStatus } from '../../../shared/types';
-import type { TaskFilters } from '../api';
+import type { AdvisorMemoryRule, TaskFilters } from '../api';
 import type { ViewKey } from '../constants/tasks';
 import CalendarWeekView from './CalendarWeekView';
 import KanbanView from './KanbanView';
+import LearnedRulesView from './LearnedRulesView';
 import QueueView from './QueueView';
 import type { QueueSort } from './QueueView';
 import QuickQueue from './QuickQueue';
@@ -48,6 +49,11 @@ type MainViewProps = {
   onConnectGoogle: () => void;
   onDisconnectGoogle: () => void;
   onLoadCalendarWeekEvents: (date: string, calendarIds?: string[]) => void;
+  onSendDailyTaskEmail: () => Promise<{ to: string; todayCount: number; overdueCount: number } | null>;
+  advisorMemoryRules: AdvisorMemoryRule[];
+  advisorMemoryLoading: boolean;
+  onRefreshAdvisorMemory: () => void;
+  onForgetAdvisorMemory: (id: string) => void;
 };
 
 export default function MainView({
@@ -85,7 +91,12 @@ export default function MainView({
   onCalendarFilterChange,
   onConnectGoogle,
   onDisconnectGoogle,
-  onLoadCalendarWeekEvents
+  onLoadCalendarWeekEvents,
+  onSendDailyTaskEmail,
+  advisorMemoryRules,
+  advisorMemoryLoading,
+  onRefreshAdvisorMemory,
+  onForgetAdvisorMemory
 }: MainViewProps) {
   if (view === 'quickQueue') {
     return (
@@ -123,6 +134,18 @@ export default function MainView({
         onConnect={onConnectGoogle}
         onDisconnect={onDisconnectGoogle}
         onLoadEvents={onLoadCalendarWeekEvents}
+        onSendDailyTaskEmail={onSendDailyTaskEmail}
+      />
+    );
+  }
+
+  if (view === 'learnedRules') {
+    return (
+      <LearnedRulesView
+        rules={advisorMemoryRules}
+        loading={advisorMemoryLoading}
+        onRefresh={onRefreshAdvisorMemory}
+        onForget={onForgetAdvisorMemory}
       />
     );
   }

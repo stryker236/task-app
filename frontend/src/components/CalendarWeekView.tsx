@@ -1,5 +1,7 @@
 import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
 
+const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+
 type CalendarWeekViewProps = {
   status: GoogleStatus;
   loading: boolean;
@@ -15,6 +17,7 @@ type CalendarWeekViewProps = {
   onConnect: () => void;
   onDisconnect: () => void;
   onLoadEvents: (date: string, calendarIds?: string[]) => void;
+  onSendDailyTaskEmail: () => Promise<{ to: string; todayCount: number; overdueCount: number } | null>;
 };
 
 function dateFromInputValue(value: string) {
@@ -98,10 +101,12 @@ export default function CalendarWeekView({
   onCalendarFilterChange,
   onConnect,
   onDisconnect,
-  onLoadEvents
+  onLoadEvents,
+  onSendDailyTaskEmail
 }: CalendarWeekViewProps) {
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const groupedEvents = groupEventsByDay(days, events);
+  const canSendEmail = status.scopes.includes(GMAIL_SEND_SCOPE);
 
   return (
     <section className="calendar-week-view" aria-label="Google Calendar semanal">
@@ -112,15 +117,36 @@ export default function CalendarWeekView({
           <p>
             {status.connected
               ? `${formatWeekRange(weekStart, weekEnd)} · ${busyCount} eventos · ${accountEmail || status.accountEmail || 'Google'}`
-              : 'Liga o Google Calendar para consultar a tua semana.'}
+              : loading
+                ? 'A verificar a ligacao Google guardada...'
+                : 'Liga o Google Calendar para consultar a tua semana.'}
           </p>
         </div>
         <div className="calendar-week-actions">
           {status.connected ? (
-            <button type="button" className="button secondary small" onClick={onDisconnect} disabled={loading}>
-              Desligar Google
-            </button>
-          ) : (
+            <>
+              {canSendEmail ? (
+                <button
+                  type="button"
+                  className="button primary small"
+                  onClick={async () => {
+                    const result = await onSendDailyTaskEmail();
+                    if (result) window.alert(`Email enviado para ${result.to}. Hoje: ${result.todayCount}; atrasadas: ${result.overdueCount}.`);
+                  }}
+                  disabled={loading}
+                >
+                  {loading ? 'A enviar...' : 'Enviar email do dia'}
+                </button>
+              ) : (
+                <button type="button" className="button primary small" onClick={onConnect} disabled={loading}>
+                  Ativar envio de email
+                </button>
+              )}
+              <button type="button" className="button secondary small" onClick={onDisconnect} disabled={loading}>
+                Desligar Google
+              </button>
+            </>
+          ) : !loading && (
             <button type="button" className="button primary small" onClick={onConnect} disabled={loading}>
               Ligar Google Calendar
             </button>

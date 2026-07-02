@@ -18,6 +18,27 @@
 .advisor-request-box label { display: block; margin-bottom: 6px; color: #35435d; font-size: 12px; font-weight: 800; }
 .advisor-request-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; }
 .advisor-request-box small { display: block; margin-top: 8px; color: #7d8798; font-size: 10px; }
+.advisor-memory { margin: 12px 0 14px; padding: 12px; border: 1px solid #e1e7f2; border-radius: 10px; background: #fff; }
+.advisor-memory summary { cursor: pointer; color: #35435d; font-size: 12px; font-weight: 800; }
+.advisor-memory-actions { margin-top: 9px; }
+.advisor-memory-list { display: grid; gap: 8px; margin-top: 10px; }
+.advisor-memory-list article { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; border: 1px solid #e4eaf4; border-radius: 8px; padding: 9px; background: #fbfcff; }
+.advisor-memory-list strong { color: #26324a; font-size: 12px; }
+.advisor-memory-list p { margin: 3px 0; color: #526179; font-size: 11px; line-height: 1.35; }
+.advisor-memory-list small { color: #7a869a; font-size: 10px; }
+.learned-rules-view { display: grid; gap: 14px; }
+.learned-rules-header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; border: 1px solid #d8deea; border-radius: 11px; padding: 16px; background: #fff; box-shadow: 0 2px 8px rgba(25, 35, 55, .025); }
+.learned-rules-header span { display: block; color: #667187; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.learned-rules-header h2 { margin: 2px 0 4px; color: #202a3f; font-size: 20px; }
+.learned-rules-header p { margin: 0; color: #61708a; font-size: 13px; }
+.learned-rules-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.learned-rule-card { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; border: 1px solid #dfe6f2; border-radius: 10px; padding: 13px; background: #fbfcff; }
+.learned-rule-main { min-width: 0; display: grid; gap: 8px; }
+.learned-rule-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.learned-rule-meta span { width: fit-content; border-radius: 999px; padding: 3px 7px; background: #e8edff; color: #3f54a6; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.learned-rule-card h3 { margin: 0; color: #26324a; font-size: 15px; overflow-wrap: anywhere; }
+.learned-rule-card ul { margin: 0; padding-left: 17px; color: #526179; font-size: 12px; line-height: 1.4; }
+.learned-rule-card small { color: #7a869a; font-size: 10px; }
 .advisor-buffer { margin: 14px 0; padding: 12px; border: 1px solid #d9e2f3; border-radius: 10px; background: #ffffff; }
 .advisor-buffer > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
 .advisor-buffer-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
@@ -40,6 +61,15 @@
 .advisor-change-list dt { color: #7a869a; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .advisor-change-list dd { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; color: #2c3850; font-size: 12px; line-height: 1.35; }
 .advisor-change-list dd strong { color: #7a869a; }
+.advisor-feedback { margin-top: 10px; padding: 9px; border: 1px solid #e1e7f2; border-radius: 8px; background: #fff; }
+.advisor-feedback summary { cursor: pointer; color: #40506a; font-size: 11px; font-weight: 800; }
+.advisor-feedback-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; }
+.advisor-feedback-grid label,
+.advisor-feedback-tags label { display: inline-flex; align-items: center; gap: 5px; color: #526179; font-size: 11px; font-weight: 650; }
+.advisor-feedback input { width: auto; margin: 0; }
+.advisor-feedback-tags { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, max-content)); gap: 7px 12px; margin-top: 8px; align-items: center; }
+.advisor-feedback-tags > span { color: #7a869a; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.advisor-feedback .button { margin-top: 9px; }
 @media (max-width: 900px) {
   .advisor-proposal { grid-template-columns: 1fr; }
   .advisor-proposal-actions { flex-direction: row; flex-wrap: wrap; }

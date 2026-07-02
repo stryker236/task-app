@@ -39,6 +39,7 @@ function mapGoogleConnection(row: DbRow) {
 		accountEmail: row.account_email,
 		scopes: row.scopes || [],
 		encryptedTokens: row.encrypted_tokens,
+		expiresAt: iso(row.expires_at),
 		createdAt: iso(row.created_at),
 		updatedAt: iso(row.updated_at)
 	};
@@ -53,6 +54,20 @@ function mapSharedNote(row: DbRow) {
 		createdAt: iso(row.created_at),
 		updatedAt: iso(row.updated_at),
 		archivedAt: iso(row.archived_at)
+	};
+}
+
+function mapAdvisorMemoryRule(row: DbRow) {
+	return {
+		id: String(row.id),
+		ruleType: row.rule_type,
+		titleFingerprint: row.title_fingerprint,
+		action: row.action,
+		rule: row.rule || {},
+		supportCount: row.support_count,
+		lastFeedbackAt: iso(row.last_feedback_at),
+		createdAt: iso(row.created_at),
+		updatedAt: iso(row.updated_at)
 	};
 }
 
@@ -645,23 +660,80 @@ async function moveQuickQueueItem(db: Queryable, id: string, direction: number) 
 }
 
 async function fetchGoogleConnection(db: Queryable = pool) {
+	await db.query('DELETE FROM google_connections WHERE expires_at <= now()');
 	const result = await db.query('SELECT * FROM google_connections ORDER BY created_at DESC LIMIT 1');
 	return result.rows[0] ? mapGoogleConnection(result.rows[0]) : null;
 }
 
-async function saveGoogleConnection(db: Queryable, { accountEmail, scopes, encryptedTokens }: DbRow) {
+async function saveGoogleConnection(db: Queryable, { accountEmail, scopes, encryptedTokens, expiresAt }: DbRow) {
 	await db.query('DELETE FROM google_connections');
 	const result = await db.query(
-		`INSERT INTO google_connections (account_email, scopes, encrypted_tokens)
-     VALUES ($1, $2, $3::jsonb)
+		`INSERT INTO google_connections (account_email, scopes, encrypted_tokens, expires_at)
+     VALUES ($1, $2, $3::jsonb, $4)
      RETURNING *`,
-		[accountEmail, scopes, JSON.stringify(encryptedTokens)]
+		[accountEmail, scopes, JSON.stringify(encryptedTokens), expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()]
 	);
 	return mapGoogleConnection(result.rows[0]);
 }
 
 async function deleteGoogleConnection(db: Queryable = pool) {
 	await db.query('DELETE FROM google_connections');
+}
+
+async function fetchAdvisorMemoryRules(db: Queryable = pool) {
+	const result = await db.query(
+		`SELECT *
+		 FROM advisor_memory_rules
+		 ORDER BY last_feedback_at DESC, support_count DESC
+		 LIMIT 80`
+	);
+	return result.rows.map(mapAdvisorMemoryRule);
+}
+
+async function saveAdvisorFeedback(db: Queryable, feedback: DbRow) {
+	const result = await db.query(
+		`INSERT INTO advisor_feedback
+		 (action, command_id, command_type, task_id, task_title, title_fingerprint, feedback, command_preview, raw_command)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)
+		 RETURNING *`,
+		[
+			feedback.action,
+			feedback.commandId,
+			feedback.commandType,
+			feedback.taskId || null,
+			feedback.taskTitle || null,
+			feedback.titleFingerprint || '',
+			JSON.stringify(feedback.feedback || {}),
+			JSON.stringify(feedback.commandPreview || {}),
+			feedback.rawCommand ? JSON.stringify(feedback.rawCommand) : null
+		]
+	);
+	return result.rows[0];
+}
+
+async function upsertAdvisorMemoryRule(db: Queryable, memoryRule: DbRow) {
+	const result = await db.query(
+		`INSERT INTO advisor_memory_rules (rule_type, title_fingerprint, action, rule, support_count, last_feedback_at)
+		 VALUES ($1, $2, $3, $4::jsonb, 1, now())
+		 ON CONFLICT (rule_type, title_fingerprint, action)
+		 DO UPDATE SET
+		   rule = advisor_memory_rules.rule || EXCLUDED.rule,
+		   support_count = advisor_memory_rules.support_count + 1,
+		   last_feedback_at = now()
+		 RETURNING *`,
+		[
+			memoryRule.ruleType,
+			memoryRule.titleFingerprint || '',
+			memoryRule.action || '',
+			JSON.stringify(memoryRule.rule || {})
+		]
+	);
+	return mapAdvisorMemoryRule(result.rows[0]);
+}
+
+async function deleteAdvisorMemoryRule(db: Queryable = pool, id: string) {
+	const result = await db.query('DELETE FROM advisor_memory_rules WHERE id = $1', [id]);
+	return result.rowCount > 0;
 }
 
 async function createGoogleOAuthState(db: Queryable, state: string, expiresAt: string) {
@@ -708,6 +780,10 @@ module.exports = {
 	fetchGoogleConnection,
 	saveGoogleConnection,
 	deleteGoogleConnection,
+	fetchAdvisorMemoryRules,
+	saveAdvisorFeedback,
+	upsertAdvisorMemoryRule,
+	deleteAdvisorMemoryRule,
 	createGoogleOAuthState,
 	consumeGoogleOAuthState,
 	checkConnection

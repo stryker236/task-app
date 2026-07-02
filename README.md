@@ -12,6 +12,7 @@ The goal is not to become a heavy project management platform. The goal is to be
 - Which cards can be archived?
 - Which tags, checklist items, priorities, dependencies, or deadlines are missing?
 - What can be improved automatically, while still letting me approve every change?
+- Which learned advisor rules are affecting new suggestions?
 
 The app is desktop-first, but the backend is designed so other clients can be added later, for example an Android app.
 
@@ -21,7 +22,7 @@ The long-term direction is for Task App to become a personal operating layer for
 
 Instead of only storing tasks, it should help interpret the task list, propose improvements, surface risks, suggest next actions, and reduce the amount of manual grooming needed to keep tasks useful.
 
-The AI Advisor is intentionally approval-based. It should not silently mutate data. It proposes actions into a review buffer, and the user chooses what to accept or ignore. The frontend only exposes fixed advisor buttons; the backend owns the prompts for each action.
+The AI Advisor is intentionally approval-based. It should not silently mutate data. It proposes actions into a review buffer, and the user chooses what to accept or ignore. The frontend only exposes fixed advisor buttons; the backend owns the prompts for each action. Feedback on proposals is also structured: the user answers fixed controls, and the backend derives memory rules from that feedback.
 
 ## What the app does today
 
@@ -31,6 +32,9 @@ The app organizes work through several views:
 - Queue, for execution order and prioritization.
 - Probable follow-ups, for overdue, urgent, waiting, and no-deadline cards.
 - Quick Queue, for short-term reminders synchronized through the database.
+- Notes, for shared notes that can be reused across tasks.
+- Calendar, for weekly Google Calendar visibility across multiple calendars.
+- Rules, for reviewing and deleting learned advisor rules.
 - Archived, for closed work.
 
 Each task can have:
@@ -43,6 +47,7 @@ Each task can have:
 - relations with other cards;
 - dependencies/blockers;
 - progress history;
+- shared notes;
 - archived state;
 - favorite flag;
 - optional estimate.
@@ -59,6 +64,8 @@ The AI Advisor can currently suggest:
 
 It does not apply changes automatically. Suggestions appear in a buffer where each action can be accepted or ignored individually or in bulk.
 
+The Advisor can also learn from structured feedback. For example, if a tag suggestion is weak, the user can mark which tags were good or bad and whether there should have been more or fewer tags. The backend stores that as learned rules and filters future suggestions with both prompt context and deterministic checks.
+
 ## What it could become
 
 Possible future directions:
@@ -68,7 +75,7 @@ Possible future directions:
 - Supabase Realtime synchronization.
 - Notifications for overdue or soon-due work.
 - Recurring tasks.
-- Calendar/timeline view.
+- Richer calendar/timeline planning beyond the current weekly Google Calendar view.
 - Task and checklist templates.
 - Daily planning mode: "what should I do today?"
 - End-of-day review: what changed, what is still blocked, what should move to tomorrow.
@@ -76,7 +83,7 @@ Possible future directions:
 - Smarter dependency analysis between cards.
 - AI Advisor that can plan multi-step improvements and ask for confirmation.
 - Natural-language commands such as "prepare my morning queue" or "show tasks blocked by client replies".
-- Personal memory/context layer for recurring people, clients, projects, and working patterns.
+- Deeper personal memory/context layer for recurring people, clients, projects, and working patterns.
 - Metrics about time, tags, priority drift, blocked work, and completed work.
 - Permissions and workspaces if the app grows beyond personal use.
 
@@ -91,21 +98,25 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 - Database: PostgreSQL on Supabase
 - Migrations: Supabase CLI
 - AI Advisor: optional OpenAI API
-- No login/authentication in this version
+- Google OAuth for Calendar/Gmail integration
+- No app login/authentication in this version
 
 ## Main features
 
-- Kanban, Queue, Quick Queue, Probable Follow-ups, and Archived views
+- Kanban, Queue, Quick Queue, Probable Follow-ups, Notes, Calendar, Rules, and Archived views
 - Independent filters per view
 - Reusable tags, multi-tag filtering, and deactivation/reactivation of unused tags
 - Priorities, due dates, favorites, checklist, and optional estimate
 - Relations between cards and dependencies/blockers
 - Blockers prevent completing a task while dependencies or checklist items are pending
 - Editable progress history
+- Shared notes with tags and task associations
 - Archive/restore tasks and bulk archive `done`/`cancelled` tasks
 - Database-backed Quick Queue for short-term reminders shared between clients
-- Google Calendar connection for reading daily events
+- Google Calendar weekly view with multiple calendars and calendar filters
+- Gmail daily task email for today's and overdue active tasks
 - AI Advisor with proposal buffer: accept/ignore individually or in bulk
+- Learned advisor rules from structured feedback, with a dedicated management view
 
 ## Structure
 
@@ -118,7 +129,8 @@ task-app/
     routes/
     scripts/
     tasks/
-    server.js
+    utils/
+    server.ts
     package.json
 
   frontend/
@@ -128,8 +140,8 @@ task-app/
       hooks/
       styles/
       utils/
-      App.jsx
-      api.js
+      App.tsx
+      api.ts
     package.json
 
   supabase/
@@ -184,7 +196,7 @@ GOOGLE_TOKEN_ENCRYPTION_KEY=
 
 `OPENAI_API_KEY` is optional. Without it, `/advisor` still works with local rule-based advice, but AI-generated proposals are unavailable.
 
-`GOOGLE_*` variables are optional. Without them, the app works normally, but Google Calendar connection is unavailable.
+`GOOGLE_*` variables are optional. Without them, the app works normally, but Google Calendar/Gmail connection is unavailable.
 
 Generate `GOOGLE_TOKEN_ENCRYPTION_KEY` with:
 
@@ -192,17 +204,18 @@ Generate `GOOGLE_TOKEN_ENCRYPTION_KEY` with:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-## Google Calendar setup
+## Google Calendar and Gmail setup
 
-The current Google integration is read-only and is used as the first step toward a Daily planning mode.
+The Google integration supports reading calendars and sending a daily task summary email from the connected Gmail account.
 
 In Google Cloud Console:
 
 1. Create or select a project.
 2. Enable Google Calendar API.
-3. Configure the OAuth consent screen.
-4. Create an OAuth Client of type `Web application`.
-5. Add this authorized redirect URI for local development:
+3. Enable Gmail API.
+4. Configure the OAuth consent screen.
+5. Create an OAuth Client of type `Web application`.
+6. Add this authorized redirect URI for local development:
 
 ```text
 http://localhost:4000/google/oauth/callback
@@ -210,12 +223,15 @@ http://localhost:4000/google/oauth/callback
 
 Set the Google variables in `backend/.env`, run migrations, then restart the backend.
 
-Required scopes for this first version:
+Required scopes:
 
 ```text
 https://www.googleapis.com/auth/calendar.readonly
+https://www.googleapis.com/auth/gmail.send
 https://www.googleapis.com/auth/userinfo.email
 ```
+
+Google connections are stored encrypted in `google_connections` and expire after 1 day. Reconnect Google if scopes change or the connection expires.
 
 Test database connection:
 
@@ -290,6 +306,14 @@ The remote migration history has already been aligned with the existing migratio
 20260621000000_normalize_tags.sql
 20260622000000_add_task_archiving.sql
 20260622000100_expand_task_model.sql
+20260628134327_deactivate_tags.sql
+20260628150000_add_quick_queue_items.sql
+20260628162000_add_google_connections.sql
+20260629103000_add_shared_notes.sql
+20260629113000_add_shared_note_tags.sql
+20260701120000_expire_google_connections.sql
+20260702100000_extend_google_connections_to_one_day.sql
+20260702110000_add_advisor_memory.sql
 ```
 
 Login/link project:
@@ -368,7 +392,7 @@ Filters for `GET /tasks`:
 - `hideCancelled=true`
 - `archived=true`
 - `tag=name` can be repeated
-- `tagMode=and|or` controls whether repeated tags must all match or any match
+- `tagMode=and|or|not|nand` controls how repeated tags are combined
 - `search=text`
 - `sort=priority|dueDateTime|createdAt|updatedAt|requestedBy|status`
 
@@ -379,6 +403,7 @@ GET /tasks?status=new&sort=priority
 GET /tasks?priority=4&overdue=true
 GET /tasks?tag=excel&tag=prices
 GET /tasks?tag=excel&tag=prices&tagMode=or
+GET /tasks?tag=excel&tag=prices&tagMode=nand
 GET /tasks?archived=true
 ```
 
@@ -399,6 +424,9 @@ Tags are soft-deactivated, not physically deleted. A tag can be deactivated when
 | --- | --- | --- |
 | `GET` | `/advisor?limit=5` | Simple suggestion of what to do next |
 | `POST` | `/ai/advisor/request` | Generate AI proposals from a user request |
+| `POST` | `/ai/advisor/feedback` | Store structured proposal feedback and derive a memory rule |
+| `GET` | `/ai/advisor/memory` | List learned advisor rules |
+| `DELETE` | `/ai/advisor/memory/:id` | Delete a learned advisor rule |
 | `POST` | `/ai/commands/preview` | Validate/preview AI commands |
 | `POST` | `/ai/commands/apply` | Apply accepted AI commands |
 
@@ -414,6 +442,47 @@ organize_blockers
 ```
 
 The Advisor does not apply changes by itself. It generates proposals shown in the frontend buffer, where the user accepts or ignores each action.
+
+For `suggest_tags`, the backend sends about 70% of active tasks to the model, prioritized by highest priority and then nearest due date. Learned rules are passed as structured context, and the backend also filters repeated bad tag suggestions deterministically before returning proposals.
+
+### Shared notes
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/shared-notes` | List/search shared notes |
+| `POST` | `/shared-notes` | Create shared note |
+| `PUT` | `/shared-notes/:id` | Update shared note |
+| `DELETE` | `/shared-notes/:id` | Archive shared note |
+| `POST` | `/tasks/:id/shared-notes` | Attach existing shared note to task |
+| `POST` | `/tasks/:id/shared-notes/create` | Create and attach a shared note |
+| `DELETE` | `/tasks/:id/shared-notes/:noteId` | Detach shared note from task |
+
+Shared notes can have tags and can be attached to multiple tasks. The Notes view can search by note title and associated task title.
+
+### Quick Queue
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/quick-queue` | List quick queue items |
+| `POST` | `/quick-queue` | Create quick queue item |
+| `PATCH` | `/quick-queue/:id` | Update quick queue item |
+| `DELETE` | `/quick-queue/:id` | Delete quick queue item |
+| `POST` | `/quick-queue/:id/move` | Move item up/down |
+| `DELETE` | `/quick-queue/done` | Clear completed items |
+
+### Google
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/google/status` | Check Google connection and expiry |
+| `POST` | `/google/oauth/url` | Create OAuth URL |
+| `GET` | `/google/oauth/callback` | OAuth callback |
+| `DELETE` | `/google/connection` | Disconnect Google |
+| `GET` | `/google/calendars` | List accessible calendars |
+| `GET` | `/google/calendar/events` | List calendar events by day or date range |
+| `POST` | `/google/gmail/daily-tasks` | Email today's active task summary |
+
+`GET /google/calendar/events` accepts either `date=YYYY-MM-DD` or `start=YYYY-MM-DD&end=YYYY-MM-DD`. `calendarId` can be repeated to query multiple calendars.
 
 ## Main data model
 
@@ -440,6 +509,7 @@ Main API fields:
   archivedAt,
   isArchived,
   activityLog
+  sharedNotes
 }
 ```
 
@@ -482,11 +552,11 @@ cd frontend
 npm run build
 ```
 
-Backend syntax check:
+Backend type check:
 
 ```bash
 cd backend
-node --check server.js
+npm run typecheck
 ```
 
 ## Deploy

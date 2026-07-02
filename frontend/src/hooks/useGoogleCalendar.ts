@@ -6,7 +6,8 @@ import {
   getGoogleCalendarEvents,
   getGoogleCalendarEventsRange,
   getGoogleOAuthUrl,
-  getGoogleStatus
+  getGoogleStatus,
+  sendGoogleDailyTaskEmail
 } from '../api';
 
 function todayInputValue() {
@@ -50,7 +51,7 @@ type UseGoogleCalendarOptions = {
 
 export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions = {}) {
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus>({ connected: false, accountEmail: null, scopes: [] });
-  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(true);
   const [calendarDate, setCalendarDate] = useState(todayInputValue);
   const [calendarEvents, setCalendarEvents] = useState<GoogleCalendarEvent[]>([]);
   const [calendarWeekStart, setCalendarWeekStartState] = useState(() => startOfWeekInputValue(todayInputValue()));
@@ -68,10 +69,13 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
   }
 
   async function refreshGoogleStatus() {
+    setGoogleLoading(true);
     try {
       setGoogleStatus(await getGoogleStatus());
     } catch (error) {
       setError?.(errorMessage(error));
+    } finally {
+      setGoogleLoading(false);
     }
   }
 
@@ -172,6 +176,20 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     loadCalendarWeekEvents(calendarWeekStart, calendarIds);
   }
 
+  async function sendDailyTaskEmail() {
+    if (!googleStatus.connected) return null;
+    setGoogleLoading(true);
+    setError?.('');
+    try {
+      return await sendGoogleDailyTaskEmail();
+    } catch (error) {
+      setError?.(errorMessage(error));
+      return null;
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
   useEffect(() => {
     refreshGoogleStatus();
   }, []);
@@ -207,6 +225,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     disconnectGoogleAccount,
     loadGoogleCalendars,
     loadCalendarEvents,
-    loadCalendarWeekEvents
+    loadCalendarWeekEvents,
+    sendDailyTaskEmail
   };
 }
