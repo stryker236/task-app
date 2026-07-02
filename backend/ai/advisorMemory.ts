@@ -28,6 +28,10 @@ function sanitizeStringList(value: unknown) {
 function sanitizeAdvisorFeedback(value: Record<string, any> = {}) {
   const overall = ['useful', 'not_useful', 'mixed'].includes(value.overall) ? value.overall : 'mixed';
   const tagVolume = ['more', 'less', 'ok'].includes(value.tagVolume) ? value.tagVolume : 'ok';
+  const priorityDirection = ['too_high', 'too_low', 'ok'].includes(value.priorityDirection) ? value.priorityDirection : 'ok';
+  const taskAgeImportance = ['too_much', 'too_little', 'ok'].includes(value.taskAgeImportance) ? value.taskAgeImportance : 'ok';
+  const overdueImportance = ['too_much', 'too_little', 'ok'].includes(value.overdueImportance) ? value.overdueImportance : 'ok';
+  const dueDateDirection = ['too_early', 'too_late', 'ok'].includes(value.dueDateDirection) ? value.dueDateDirection : 'ok';
   return {
     overall,
     tagVolume,
@@ -36,6 +40,12 @@ function sanitizeAdvisorFeedback(value: Record<string, any> = {}) {
     wrongReason: value.wrongReason === true,
     wrongPriority: value.wrongPriority === true,
     wrongDeadline: value.wrongDeadline === true,
+    priorityDirection,
+    taskAgeImportance,
+    overdueImportance,
+    dueDateDirection,
+    shouldBeUrgent: value.shouldBeUrgent === true,
+    shouldBeLowerPriority: value.shouldBeLowerPriority === true,
     missingContext: value.missingContext === true
   };
 }
@@ -58,6 +68,12 @@ function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<str
     reviewReasoning: feedback.wrongReason,
     reviewPriority: feedback.wrongPriority,
     reviewDeadline: feedback.wrongDeadline,
+    priorityDirection: feedback.priorityDirection,
+    taskAgeImportance: feedback.taskAgeImportance,
+    overdueImportance: feedback.overdueImportance,
+    dueDateDirection: feedback.dueDateDirection,
+    shouldBeUrgent: feedback.shouldBeUrgent,
+    shouldBeLowerPriority: feedback.shouldBeLowerPriority,
     askForMoreContext: feedback.missingContext
   };
   Object.keys(rule).forEach((key) => {
@@ -65,10 +81,43 @@ function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<str
     if (rule[key] === false || rule[key] === '' || rule[key] == null) delete rule[key];
   });
   return {
-    ruleType: commandPreview?.type === 'update_task' && (feedback.goodTags.length || feedback.badTags.length || feedback.tagVolume !== 'ok')
+    ruleType: action === 'priority_management'
+      ? 'priority_suggestion'
+      : action === 'suggest_due_dates'
+      ? 'due_date_suggestion'
+      : commandPreview?.type === 'update_task' && (feedback.goodTags.length || feedback.badTags.length || feedback.tagVolume !== 'ok')
       ? 'tag_suggestion'
       : 'advisor_suggestion',
     titleFingerprint: fingerprint,
+    action: String(action || ''),
+    rule
+  };
+}
+
+function inferAdvisorInteractionMemoryRule({ action, interaction, feedback }: Record<string, any>) {
+  const rule: Record<string, any> = {
+    action,
+    avoidSimilarSuggestions: feedback.overall === 'not_useful',
+    interactionWasUseful: feedback.overall === 'useful',
+    interactionWasMixed: feedback.overall === 'mixed',
+    reviewReasoning: feedback.wrongReason,
+    reviewPriority: feedback.wrongPriority,
+    reviewDeadline: feedback.wrongDeadline,
+    priorityDirection: feedback.priorityDirection,
+    taskAgeImportance: feedback.taskAgeImportance,
+    overdueImportance: feedback.overdueImportance,
+    dueDateDirection: feedback.dueDateDirection,
+    shouldBeUrgent: feedback.shouldBeUrgent,
+    shouldBeLowerPriority: feedback.shouldBeLowerPriority,
+    askForMoreContext: feedback.missingContext,
+    commandCount: Number(interaction?.commandCount || 0)
+  };
+  Object.keys(rule).forEach((key) => {
+    if (rule[key] === false || rule[key] === '' || rule[key] == null) delete rule[key];
+  });
+  return {
+    ruleType: 'advisor_interaction',
+    titleFingerprint: '',
     action: String(action || ''),
     rule
   };
@@ -90,7 +139,15 @@ function buildAdvisorMemoryContext(rules: any[] = []) {
       reviewReasoning: item.rule.reviewReasoning === true,
       reviewPriority: item.rule.reviewPriority === true,
       reviewDeadline: item.rule.reviewDeadline === true,
+      priorityDirection: item.rule.priorityDirection || 'ok',
+      taskAgeImportance: item.rule.taskAgeImportance || 'ok',
+      overdueImportance: item.rule.overdueImportance || 'ok',
+      dueDateDirection: item.rule.dueDateDirection || 'ok',
+      shouldBeUrgent: item.rule.shouldBeUrgent === true,
+      shouldBeLowerPriority: item.rule.shouldBeLowerPriority === true,
       askForMoreContext: item.rule.askForMoreContext === true,
+      interactionWasUseful: item.rule.interactionWasUseful === true,
+      interactionWasMixed: item.rule.interactionWasMixed === true,
       supportCount: item.supportCount || 1
     }));
 }
@@ -160,6 +217,7 @@ module.exports = {
   titleFingerprint,
   sanitizeAdvisorFeedback,
   inferAdvisorMemoryRule,
+  inferAdvisorInteractionMemoryRule,
   buildAdvisorMemoryContext,
   filterAdvisorCommandPairsByMemory
 };

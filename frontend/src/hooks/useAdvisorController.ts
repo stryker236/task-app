@@ -8,6 +8,7 @@ import {
   getTaskAdvisorAdvice,
   requestTaskAdvisorCommands,
   submitAdvisorFeedback,
+  submitAdvisorInteractionFeedback,
   type AdvisorFeedbackInput,
   type AdvisorMemoryRule,
   type TaskFilters
@@ -50,6 +51,7 @@ export default function useAdvisorController({
   const [proposalBatch, setProposalBatch] = useState<AdvisorBatch | null>(null);
   const [proposalStatuses, setProposalStatuses] = useState<Record<string, ProposalStatus>>({});
   const [proposalFeedbackStatuses, setProposalFeedbackStatuses] = useState<Record<string, 'saved'>>({});
+  const [interactionFeedbackSaved, setInteractionFeedbackSaved] = useState(false);
   const [advisorMemoryRules, setAdvisorMemoryRules] = useState<AdvisorMemoryRule[]>([]);
   const [advisorMemoryLoading, setAdvisorMemoryLoading] = useState(false);
   const [applyingProposalId, setApplyingProposalId] = useState<string | null>(null);
@@ -77,6 +79,7 @@ export default function useAdvisorController({
       setProposalBatch(response);
       setProposalStatuses({});
       setProposalFeedbackStatuses({});
+      setInteractionFeedbackSaved(false);
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -167,6 +170,26 @@ export default function useAdvisorController({
     setProposalBatch(null);
     setProposalStatuses({});
     setProposalFeedbackStatuses({});
+    setInteractionFeedbackSaved(false);
+  }
+
+  async function saveAdvisorInteractionFeedback(feedback: AdvisorFeedbackInput['feedback']) {
+    if (!proposalBatch || !lastAdvisorAction) return;
+    try {
+      await submitAdvisorInteractionFeedback({
+        action: lastAdvisorAction,
+        interaction: {
+          generatedAt: proposalBatch.generatedAt,
+          summary: proposalBatch.summary,
+          commandCount: proposalBatch.commandCount
+        },
+        feedback
+      });
+      setInteractionFeedbackSaved(true);
+      await refreshAdvisorMemoryRules();
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    }
   }
 
   async function saveAdvisorProposalFeedback(commandId: string, feedback: AdvisorFeedbackInput['feedback']) {
@@ -196,8 +219,10 @@ export default function useAdvisorController({
     advisor,
     advisorLoading,
     proposalBatch,
+    lastAdvisorAction,
     proposalStatuses,
     proposalFeedbackStatuses,
+    interactionFeedbackSaved,
     advisorMemoryRules,
     advisorMemoryLoading,
     applyingProposalId,
@@ -212,6 +237,7 @@ export default function useAdvisorController({
     ignoreAllAdvisorProposals,
     clearAdvisorProposals,
     saveAdvisorProposalFeedback,
+    saveAdvisorInteractionFeedback,
     openAdvisorRecommendedTask
   };
 }

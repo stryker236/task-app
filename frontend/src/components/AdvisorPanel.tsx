@@ -3,10 +3,9 @@ import type { Task } from '../../../shared/types';
 import type { AdvisorAdvice, AdvisorFeedbackInput, AdvisorMemoryRule, AdvisorPreview } from '../api';
 
 const QUICK_ACTIONS = [
-  { key: 'improve_tasks', label: 'Melhorar tasks' },
   { key: 'suggest_tags', label: 'Sugerir tags' },
-  { key: 'create_followups', label: 'Criar follow-ups' },
-  { key: 'organize_blockers', label: 'Organizar bloqueios' }
+  { key: 'suggest_due_dates', label: 'Sugerir due dates' },
+  { key: 'priority_management', label: 'Gestao de prioridades' }
 ] as const;
 
 const COMMAND_LABELS = {
@@ -46,8 +45,10 @@ type AdvisorPanelProps = {
   advice: AdvisorAdvice | null;
   loading: boolean;
   proposals: AdvisorPreview | null;
+  currentAction: string;
   proposalStatuses: ProposalStatuses;
   proposalFeedbackStatuses: ProposalFeedbackStatuses;
+  interactionFeedbackSaved: boolean;
   memoryRules: AdvisorMemoryRule[];
   memoryLoading: boolean;
   applyingProposalId: string | null;
@@ -60,6 +61,7 @@ type AdvisorPanelProps = {
   onIgnoreAllProposals: () => void;
   onClearProposals: () => void;
   onSaveProposalFeedback: (commandId: string, feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
+  onSaveInteractionFeedback: (feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
   onRefreshMemory: () => void;
   onForgetMemory: (id: string) => void;
   onOpenTask: (taskId: string) => void;
@@ -107,6 +109,16 @@ function proposedTags(proposal: AdvisorPreview['commands'][number]) {
   return tags.map(String).filter(Boolean);
 }
 
+function isPriorityProposal(proposal: AdvisorPreview['commands'][number]) {
+  const fields = changedFields((proposal.changes as ObjectRecord | undefined)?.before, (proposal.changes as ObjectRecord | undefined)?.after);
+  return proposal.type === 'update_task' && fields.length === 1 && fields[0]?.field === 'priority';
+}
+
+function isDueDateProposal(proposal: AdvisorPreview['commands'][number]) {
+  const fields = changedFields((proposal.changes as ObjectRecord | undefined)?.before, (proposal.changes as ObjectRecord | undefined)?.after);
+  return proposal.type === 'update_task' && fields.length === 1 && fields[0]?.field === 'dueDateTime';
+}
+
 function taskTitleFromId(allTasks: Task[], id: string | null) {
   if (!id) return null;
   return allTasks.find((task) => task.id === id)?.title || id;
@@ -129,7 +141,15 @@ function AdvisorProposalFeedback({
   const [wrongReason, setWrongReason] = useState(false);
   const [wrongPriority, setWrongPriority] = useState(false);
   const [wrongDeadline, setWrongDeadline] = useState(false);
+  const [priorityDirection, setPriorityDirection] = useState<AdvisorFeedbackInput['feedback']['priorityDirection']>('ok');
+  const [taskAgeImportance, setTaskAgeImportance] = useState<AdvisorFeedbackInput['feedback']['taskAgeImportance']>('ok');
+  const [overdueImportance, setOverdueImportance] = useState<AdvisorFeedbackInput['feedback']['overdueImportance']>('ok');
+  const [dueDateDirection, setDueDateDirection] = useState<AdvisorFeedbackInput['feedback']['dueDateDirection']>('ok');
+  const [shouldBeUrgent, setShouldBeUrgent] = useState(false);
+  const [shouldBeLowerPriority, setShouldBeLowerPriority] = useState(false);
   const [missingContext, setMissingContext] = useState(false);
+  const priorityProposal = isPriorityProposal(proposal);
+  const dueDateProposal = isDueDateProposal(proposal);
 
   function toggle(list: string[], setter: (value: string[]) => void, tag: string) {
     setter(list.includes(tag) ? list.filter((item) => item !== tag) : [...list, tag]);
@@ -144,7 +164,35 @@ function AdvisorProposalFeedback({
         <label><input type="radio" checked={overall === 'not_useful'} onChange={() => setOverall('not_useful')} /> Fraco</label>
       </div>
 
-      {tags.length > 0 && (
+      {priorityProposal ? (
+        <>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={priorityDirection === 'too_high'} onChange={() => setPriorityDirection('too_high')} /> Prioridade alta demais</label>
+            <label><input type="radio" checked={priorityDirection === 'ok'} onChange={() => setPriorityDirection('ok')} /> Prioridade ok</label>
+            <label><input type="radio" checked={priorityDirection === 'too_low'} onChange={() => setPriorityDirection('too_low')} /> Prioridade baixa demais</label>
+          </div>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={taskAgeImportance === 'too_much'} onChange={() => setTaskAgeImportance('too_much')} /> Valorizou demais a antiguidade</label>
+            <label><input type="radio" checked={taskAgeImportance === 'ok'} onChange={() => setTaskAgeImportance('ok')} /> Antiguidade ok</label>
+            <label><input type="radio" checked={taskAgeImportance === 'too_little'} onChange={() => setTaskAgeImportance('too_little')} /> Valorizou pouco a antiguidade</label>
+          </div>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={overdueImportance === 'too_much'} onChange={() => setOverdueImportance('too_much')} /> Valorizou demais o atraso</label>
+            <label><input type="radio" checked={overdueImportance === 'ok'} onChange={() => setOverdueImportance('ok')} /> Atraso ok</label>
+            <label><input type="radio" checked={overdueImportance === 'too_little'} onChange={() => setOverdueImportance('too_little')} /> Valorizou pouco o atraso</label>
+          </div>
+          <div className="advisor-feedback-grid">
+            <label><input type="checkbox" checked={shouldBeUrgent} onChange={(event) => setShouldBeUrgent(event.target.checked)} /> Devia ser urgente</label>
+            <label><input type="checkbox" checked={shouldBeLowerPriority} onChange={(event) => setShouldBeLowerPriority(event.target.checked)} /> Devia baixar prioridade</label>
+          </div>
+        </>
+      ) : dueDateProposal ? (
+        <div className="advisor-feedback-grid">
+          <label><input type="radio" checked={dueDateDirection === 'too_early'} onChange={() => setDueDateDirection('too_early')} /> Prazo cedo demais</label>
+          <label><input type="radio" checked={dueDateDirection === 'ok'} onChange={() => setDueDateDirection('ok')} /> Prazo ok</label>
+          <label><input type="radio" checked={dueDateDirection === 'too_late'} onChange={() => setDueDateDirection('too_late')} /> Prazo tarde demais</label>
+        </div>
+      ) : tags.length > 0 && (
         <div className="advisor-feedback-tags">
           <span>Tags boas</span>
           {tags.map((tag) => <label key={`good-${tag}`}><input type="checkbox" checked={goodTags.includes(tag)} onChange={() => toggle(goodTags, setGoodTags, tag)} /> #{tag}</label>)}
@@ -153,15 +201,15 @@ function AdvisorProposalFeedback({
         </div>
       )}
 
-      <div className="advisor-feedback-grid">
+      {!priorityProposal && !dueDateProposal && <div className="advisor-feedback-grid">
         <label><input type="radio" checked={tagVolume === 'more'} onChange={() => setTagVolume('more')} /> Mais tags</label>
         <label><input type="radio" checked={tagVolume === 'ok'} onChange={() => setTagVolume('ok')} /> Quantidade ok</label>
         <label><input type="radio" checked={tagVolume === 'less'} onChange={() => setTagVolume('less')} /> Menos tags</label>
-      </div>
+      </div>}
 
       <div className="advisor-feedback-grid">
         <label><input type="checkbox" checked={wrongReason} onChange={(event) => setWrongReason(event.target.checked)} /> Razão fraca</label>
-        <label><input type="checkbox" checked={wrongPriority} onChange={(event) => setWrongPriority(event.target.checked)} /> Prioridade errada</label>
+        {!priorityProposal && !dueDateProposal && <label><input type="checkbox" checked={wrongPriority} onChange={(event) => setWrongPriority(event.target.checked)} /> Prioridade errada</label>}
         <label><input type="checkbox" checked={wrongDeadline} onChange={(event) => setWrongDeadline(event.target.checked)} /> Prazo errado</label>
         <label><input type="checkbox" checked={missingContext} onChange={(event) => setMissingContext(event.target.checked)} /> Devia pedir contexto</label>
       </div>
@@ -169,7 +217,110 @@ function AdvisorProposalFeedback({
       <button
         type="button"
         className="button secondary small"
-        onClick={() => onSave({ overall, tagVolume, goodTags, badTags, wrongReason, wrongPriority, wrongDeadline, missingContext })}
+        onClick={() => onSave({
+          overall,
+          tagVolume: priorityProposal || dueDateProposal ? 'ok' : tagVolume,
+          goodTags: priorityProposal || dueDateProposal ? [] : goodTags,
+          badTags: priorityProposal || dueDateProposal ? [] : badTags,
+          wrongReason,
+          wrongPriority: priorityProposal ? priorityDirection !== 'ok' || wrongPriority : wrongPriority,
+          wrongDeadline: dueDateProposal ? dueDateDirection !== 'ok' || wrongDeadline : wrongDeadline,
+          priorityDirection,
+          taskAgeImportance,
+          overdueImportance,
+          dueDateDirection,
+          shouldBeUrgent,
+          shouldBeLowerPriority,
+          missingContext
+        })}
+        disabled={saved}
+      >
+        {saved ? 'Guardado' : 'Guardar feedback'}
+      </button>
+    </details>
+  );
+}
+
+function AdvisorInteractionFeedback({
+  saved,
+  action,
+  onSave
+}: {
+  saved: boolean;
+  action?: string;
+  onSave: (feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
+}) {
+  const [overall, setOverall] = useState<AdvisorFeedbackInput['feedback']['overall']>('mixed');
+  const [wrongReason, setWrongReason] = useState(false);
+  const [wrongPriority, setWrongPriority] = useState(false);
+  const [wrongDeadline, setWrongDeadline] = useState(false);
+  const [priorityDirection, setPriorityDirection] = useState<AdvisorFeedbackInput['feedback']['priorityDirection']>('ok');
+  const [taskAgeImportance, setTaskAgeImportance] = useState<AdvisorFeedbackInput['feedback']['taskAgeImportance']>('ok');
+  const [overdueImportance, setOverdueImportance] = useState<AdvisorFeedbackInput['feedback']['overdueImportance']>('ok');
+  const [dueDateDirection, setDueDateDirection] = useState<AdvisorFeedbackInput['feedback']['dueDateDirection']>('ok');
+  const [missingContext, setMissingContext] = useState(false);
+  const priorityInteraction = action === 'priority_management';
+  const dueDateInteraction = action === 'suggest_due_dates';
+
+  return (
+    <details className="advisor-feedback advisor-interaction-feedback">
+      <summary>{saved ? 'Feedback da interacao guardado' : 'Feedback da interacao'}</summary>
+      <div className="advisor-feedback-grid">
+        <label><input type="radio" checked={overall === 'useful'} onChange={() => setOverall('useful')} /> Util</label>
+        <label><input type="radio" checked={overall === 'mixed'} onChange={() => setOverall('mixed')} /> Mista</label>
+        <label><input type="radio" checked={overall === 'not_useful'} onChange={() => setOverall('not_useful')} /> Fraca</label>
+      </div>
+      {priorityInteraction && (
+        <>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={priorityDirection === 'too_high'} onChange={() => setPriorityDirection('too_high')} /> Subiu demais prioridades</label>
+            <label><input type="radio" checked={priorityDirection === 'ok'} onChange={() => setPriorityDirection('ok')} /> Direcao ok</label>
+            <label><input type="radio" checked={priorityDirection === 'too_low'} onChange={() => setPriorityDirection('too_low')} /> Subiu pouco prioridades</label>
+          </div>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={taskAgeImportance === 'too_much'} onChange={() => setTaskAgeImportance('too_much')} /> Peso excessivo na antiguidade</label>
+            <label><input type="radio" checked={taskAgeImportance === 'ok'} onChange={() => setTaskAgeImportance('ok')} /> Antiguidade ok</label>
+            <label><input type="radio" checked={taskAgeImportance === 'too_little'} onChange={() => setTaskAgeImportance('too_little')} /> Pouco peso na antiguidade</label>
+          </div>
+          <div className="advisor-feedback-grid">
+            <label><input type="radio" checked={overdueImportance === 'too_much'} onChange={() => setOverdueImportance('too_much')} /> Peso excessivo no atraso</label>
+            <label><input type="radio" checked={overdueImportance === 'ok'} onChange={() => setOverdueImportance('ok')} /> Atraso ok</label>
+            <label><input type="radio" checked={overdueImportance === 'too_little'} onChange={() => setOverdueImportance('too_little')} /> Pouco peso no atraso</label>
+          </div>
+        </>
+      )}
+      {dueDateInteraction && (
+        <div className="advisor-feedback-grid">
+          <label><input type="radio" checked={dueDateDirection === 'too_early'} onChange={() => setDueDateDirection('too_early')} /> Prazos cedo demais</label>
+          <label><input type="radio" checked={dueDateDirection === 'ok'} onChange={() => setDueDateDirection('ok')} /> Prazos ok</label>
+          <label><input type="radio" checked={dueDateDirection === 'too_late'} onChange={() => setDueDateDirection('too_late')} /> Prazos tarde demais</label>
+        </div>
+      )}
+      <div className="advisor-feedback-grid">
+        <label><input type="checkbox" checked={wrongReason} onChange={(event) => setWrongReason(event.target.checked)} /> Razao fraca</label>
+        {!priorityInteraction && !dueDateInteraction && <label><input type="checkbox" checked={wrongPriority} onChange={(event) => setWrongPriority(event.target.checked)} /> Prioridades erradas</label>}
+        <label><input type="checkbox" checked={wrongDeadline} onChange={(event) => setWrongDeadline(event.target.checked)} /> Prazos mal avaliados</label>
+        <label><input type="checkbox" checked={missingContext} onChange={(event) => setMissingContext(event.target.checked)} /> Devia pedir contexto</label>
+      </div>
+      <button
+        type="button"
+        className="button secondary small"
+        onClick={() => onSave({
+          overall,
+          tagVolume: 'ok',
+          goodTags: [],
+          badTags: [],
+          wrongReason,
+          wrongPriority: priorityInteraction ? priorityDirection !== 'ok' || wrongPriority : wrongPriority,
+          wrongDeadline: dueDateInteraction ? dueDateDirection !== 'ok' || wrongDeadline : wrongDeadline,
+          priorityDirection,
+          taskAgeImportance,
+          overdueImportance,
+          dueDateDirection,
+          shouldBeUrgent: false,
+          shouldBeLowerPriority: false,
+          missingContext
+        })}
         disabled={saved}
       >
         {saved ? 'Guardado' : 'Guardar feedback'}
@@ -231,6 +382,8 @@ function AdvisorProposalBuffer({
   proposals,
   proposalStatuses,
   proposalFeedbackStatuses,
+  interactionFeedbackSaved,
+  action,
   applyingProposalId,
   applyingAllProposals,
   onApplyProposal,
@@ -239,12 +392,15 @@ function AdvisorProposalBuffer({
   onIgnoreAllProposals,
   onClearProposals,
   onSaveProposalFeedback,
+  onSaveInteractionFeedback,
   onOpenTask
 }: {
   allTasks?: Task[];
   proposals: AdvisorPreview | null;
   proposalStatuses: ProposalStatuses;
   proposalFeedbackStatuses: ProposalFeedbackStatuses;
+  interactionFeedbackSaved: boolean;
+  action?: string;
   applyingProposalId: string | null;
   applyingAllProposals: boolean;
   onApplyProposal: (commandId: string) => void;
@@ -253,6 +409,7 @@ function AdvisorProposalBuffer({
   onIgnoreAllProposals: () => void;
   onClearProposals: () => void;
   onSaveProposalFeedback: (commandId: string, feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
+  onSaveInteractionFeedback: (feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
   onOpenTask: (taskId: string) => void;
 }) {
   const commands = proposals?.commands || [];
@@ -278,6 +435,8 @@ function AdvisorProposalBuffer({
           </button>
         </div>
       </header>
+
+      <AdvisorInteractionFeedback saved={interactionFeedbackSaved} action={action} onSave={onSaveInteractionFeedback} />
 
       {commands.length ? (
         <div className="advisor-proposal-list">
@@ -335,6 +494,16 @@ function formatMemoryRule(rule: AdvisorMemoryRule) {
   if (rule.rule.preferTags?.length) parts.push(`preferir: ${rule.rule.preferTags.map((tag) => `#${tag}`).join(', ')}`);
   if (rule.rule.tagVolume && rule.rule.tagVolume !== 'ok') parts.push(rule.rule.tagVolume === 'less' ? 'menos tags' : 'mais tags');
   if (rule.rule.avoidSimilarSuggestions) parts.push('evitar sugestoes parecidas');
+  if (rule.rule.priorityDirection === 'too_high') parts.push('prioridade alta demais');
+  if (rule.rule.priorityDirection === 'too_low') parts.push('prioridade baixa demais');
+  if (rule.rule.taskAgeImportance === 'too_much') parts.push('menos peso na antiguidade');
+  if (rule.rule.taskAgeImportance === 'too_little') parts.push('mais peso na antiguidade');
+  if (rule.rule.overdueImportance === 'too_much') parts.push('menos peso no atraso');
+  if (rule.rule.overdueImportance === 'too_little') parts.push('mais peso no atraso');
+  if (rule.rule.dueDateDirection === 'too_early') parts.push('prazos cedo demais');
+  if (rule.rule.dueDateDirection === 'too_late') parts.push('prazos tarde demais');
+  if (rule.rule.shouldBeUrgent) parts.push('devia ser urgente');
+  if (rule.rule.shouldBeLowerPriority) parts.push('devia baixar prioridade');
   if (rule.rule.askForMoreContext) parts.push('pedir mais contexto');
   return parts.length ? parts.join(' · ') : 'Regra geral de sugestao';
 }
@@ -385,8 +554,10 @@ export default function AdvisorPanel({
   advice,
   loading,
   proposals,
+  currentAction,
   proposalStatuses,
   proposalFeedbackStatuses,
+  interactionFeedbackSaved,
   memoryRules,
   memoryLoading,
   applyingProposalId,
@@ -399,6 +570,7 @@ export default function AdvisorPanel({
   onIgnoreAllProposals,
   onClearProposals,
   onSaveProposalFeedback,
+  onSaveInteractionFeedback,
   onRefreshMemory,
   onForgetMemory,
   onOpenTask
@@ -440,8 +612,10 @@ export default function AdvisorPanel({
       <AdvisorProposalBuffer
         allTasks={allTasks}
         proposals={proposals}
+        action={currentAction}
         proposalStatuses={proposalStatuses}
         proposalFeedbackStatuses={proposalFeedbackStatuses}
+        interactionFeedbackSaved={interactionFeedbackSaved}
         applyingProposalId={applyingProposalId}
         applyingAllProposals={applyingAllProposals}
         onApplyProposal={onApplyProposal}
@@ -450,6 +624,7 @@ export default function AdvisorPanel({
         onIgnoreAllProposals={onIgnoreAllProposals}
         onClearProposals={onClearProposals}
         onSaveProposalFeedback={onSaveProposalFeedback}
+        onSaveInteractionFeedback={onSaveInteractionFeedback}
         onOpenTask={onOpenTask}
       />
 

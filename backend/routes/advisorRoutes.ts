@@ -11,6 +11,7 @@ const { normalizeString, createValidationError } = require('../tasks/taskValidat
 const {
   buildAdvisorMemoryContext,
   filterAdvisorCommandPairsByMemory,
+  inferAdvisorInteractionMemoryRule,
   inferAdvisorMemoryRule,
   sanitizeAdvisorFeedback,
   titleFingerprint
@@ -21,6 +22,32 @@ const aiRateLimit = createMemoryRateLimit({
   max: Number(process.env.AI_RATE_LIMIT_MAX || 3),
   message: 'AI request rate limit exceeded'
 });
+
+function previewChangedFields(preview) {
+  const changes = preview?.changes && typeof preview.changes === 'object' ? preview.changes : {};
+  const before = changes.before || {};
+  const after = changes.after || {};
+  return Object.keys(after).filter((field) => JSON.stringify(before[field] ?? null) !== JSON.stringify(after[field] ?? null));
+}
+
+function filterAdvisorCommandPairsByAction({ action, commands = [], previews = [] }) {
+  const onlyFieldByAction = {
+    priority_management: 'priority',
+    suggest_due_dates: 'dueDateTime'
+  };
+  const onlyField = onlyFieldByAction[action];
+  if (!onlyField) return { commands, previews };
+  const keptCommands = [];
+  const keptPreviews = [];
+  previews.forEach((preview, index) => {
+    const changedFields = previewChangedFields(preview);
+    if (preview.type !== 'update_task') return;
+    if (changedFields.length !== 1 || changedFields[0] !== onlyField) return;
+    keptPreviews.push(preview);
+    keptCommands.push(commands[index]);
+  });
+  return { commands: keptCommands, previews: keptPreviews };
+}
 
 function createAdvisorRouter({
   fetchTasks,
@@ -73,9 +100,14 @@ function createAdvisorRouter({
         memory
       });
       const prepared = buildAiCommandsPreview(advisor.commands, tasks);
-      const filtered = filterAdvisorCommandPairsByMemory({
+      const actionFiltered = filterAdvisorCommandPairsByAction({
+        action,
         commands: advisor.commands,
-        previews: prepared,
+        previews: prepared
+      });
+      const filtered = filterAdvisorCommandPairsByMemory({
+        commands: actionFiltered.commands,
+        previews: actionFiltered.previews,
         memory,
         action
       });
@@ -118,6 +150,38 @@ function createAdvisorRouter({
           feedback,
           commandPreview,
           rawCommand: req.body.rawCommand || null
+        });
+        return upsertAdvisorMemoryRule(client, memoryRule);
+      });
+      res.status(201).json({ memoryRule: result });
+    } catch (error) { next(error); }
+  });
+
+  router.post('/ai/advisor/interaction-feedback', async (req, res, next) => {
+    try {
+      const action = normalizeString(req.body.action);
+      if (!resolveAdvisorAction(action)) {
+        throw createValidationError([`action must be one of: ${Object.keys(ADVISOR_ACTIONS).join(', ')}`]);
+      }
+      const interaction = req.body.interaction && typeof req.body.interaction === 'object' ? req.body.interaction : {};
+      const feedback = sanitizeAdvisorFeedback(req.body.feedback || {});
+      const memoryRule = inferAdvisorInteractionMemoryRule({ action, interaction, feedback });
+      const result = await withTransaction(async (client) => {
+        await saveAdvisorFeedback(client, {
+          action,
+          commandId: `interaction:${String(interaction.generatedAt || Date.now())}`,
+          commandType: 'interaction',
+          taskId: null,
+          taskTitle: null,
+          titleFingerprint: '',
+          feedback,
+          commandPreview: {
+            type: 'interaction',
+            summary: interaction.summary || '',
+            commandCount: Number(interaction.commandCount || 0),
+            generatedAt: interaction.generatedAt || null
+          },
+          rawCommand: null
         });
         return upsertAdvisorMemoryRule(client, memoryRule);
       });

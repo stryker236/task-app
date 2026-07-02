@@ -55,6 +55,7 @@ Each task can have:
 The AI Advisor can currently suggest:
 
 - better tags;
+- priority changes based on task age and overdue duration;
 - missing due dates;
 - checklist items;
 - dependencies/blockers;
@@ -64,7 +65,7 @@ The AI Advisor can currently suggest:
 
 It does not apply changes automatically. Suggestions appear in a buffer where each action can be accepted or ignored individually or in bulk.
 
-The Advisor can also learn from structured feedback. For example, if a tag suggestion is weak, the user can mark which tags were good or bad and whether there should have been more or fewer tags. The backend stores that as learned rules and filters future suggestions with both prompt context and deterministic checks.
+The Advisor can also learn from structured feedback. For example, if a tag suggestion is weak, the user can mark which tags were good or bad and whether there should have been more or fewer tags. Priority recommendations use a separate feedback form for whether the priority was too high/low, and whether task age or overdue duration were weighted correctly. The backend stores that as learned rules and filters future suggestions with both prompt context and deterministic checks.
 
 ## What it could become
 
@@ -425,6 +426,7 @@ Tags are soft-deactivated, not physically deleted. A tag can be deactivated when
 | `GET` | `/advisor?limit=5` | Simple suggestion of what to do next |
 | `POST` | `/ai/advisor/request` | Generate AI proposals from a user request |
 | `POST` | `/ai/advisor/feedback` | Store structured proposal feedback and derive a memory rule |
+| `POST` | `/ai/advisor/interaction-feedback` | Store structured feedback for the whole Advisor interaction |
 | `GET` | `/ai/advisor/memory` | List learned advisor rules |
 | `DELETE` | `/ai/advisor/memory/:id` | Delete a learned advisor rule |
 | `POST` | `/ai/commands/preview` | Validate/preview AI commands |
@@ -435,15 +437,18 @@ The backend rate-limits AI generation requests to `3` requests per `10` seconds 
 The Advisor does not accept free-text chat prompts from the UI. The frontend sends one of the supported action keys, and the backend maps that action to the controlled prompt:
 
 ```text
-improve_tasks
 suggest_tags
-create_followups
-organize_blockers
+suggest_due_dates
+priority_management
 ```
 
 The Advisor does not apply changes by itself. It generates proposals shown in the frontend buffer, where the user accepts or ignores each action.
 
 For `suggest_tags`, the backend sends about 70% of active tasks to the model, prioritized by highest priority and then nearest due date. Learned rules are passed as structured context, and the backend also filters repeated bad tag suggestions deterministically before returning proposals.
+
+For `priority_management`, the backend asks only for priority changes. It prioritizes context by overdue duration, then task age, then current priority, and filters out proposals that try to change anything other than `priority`.
+
+For `suggest_due_dates`, the backend asks only for due date changes. It prioritizes tasks without due dates, overdue tasks, higher priorities, and nearest due dates, and filters out proposals that try to change anything other than `dueDateTime`.
 
 ### Shared notes
 

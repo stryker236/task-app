@@ -10,6 +10,14 @@ const ADVISOR_ACTIONS = {
     label: 'Suggest tags',
     instruction: 'Suggest tag improvements for active cards. Reuse existing tags when possible, fix inconsistent tags, and propose new tags only when clearly useful. Do not change title, notes, status, history, or estimates. If you dont propose a change dont even return the task in the output. Feel free to propose multiple tags for a single task if they are all useful and relevant. Feel free to propose a creation of a tag if make sense'
   },
+  priority_management: {
+    label: 'Priority management',
+    instruction: 'Review active cards and propose priority changes only. Consider how long each task has existed, whether it is overdue, and how long it has been overdue. Older active tasks and tasks with longer overdue duration deserve more attention, but do not make everything urgent. Do not change title, notes, tags, due dates, checklist, relations, history, status, favorite, or estimates.'
+  },
+  suggest_due_dates: {
+    label: 'Suggest due dates',
+    instruction: 'Review active cards and propose dueDateTime changes only. Suggest a due date when the task has no due date, is clearly overdue and should be replanned, or has a due date that is inconsistent with priority, blockers, waiting status, or task age. Avoid unrealistic clustering. Do not change title, notes, tags, priority, checklist, relations, history, status, favorite, or estimates.'
+  },
   create_followups: {
     label: 'Create follow-ups',
     instruction: 'Analyze active tasks and propose follow-up tasks only when missing work is clearly separate and useful. Avoid duplicate tasks.'

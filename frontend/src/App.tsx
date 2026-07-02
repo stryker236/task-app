@@ -175,8 +175,10 @@ export default function App() {
             advice={advisorController.advisor}
             loading={advisorController.advisorLoading}
             proposals={advisorController.proposalBatch}
+            currentAction={advisorController.lastAdvisorAction}
             proposalStatuses={advisorController.proposalStatuses}
             proposalFeedbackStatuses={advisorController.proposalFeedbackStatuses}
+            interactionFeedbackSaved={advisorController.interactionFeedbackSaved}
             memoryRules={advisorController.advisorMemoryRules}
             memoryLoading={advisorController.advisorMemoryLoading}
             applyingProposalId={advisorController.applyingProposalId}
@@ -189,6 +191,7 @@ export default function App() {
             onIgnoreAllProposals={advisorController.ignoreAllAdvisorProposals}
             onClearProposals={advisorController.clearAdvisorProposals}
             onSaveProposalFeedback={advisorController.saveAdvisorProposalFeedback}
+            onSaveInteractionFeedback={advisorController.saveAdvisorInteractionFeedback}
             onRefreshMemory={advisorController.refreshAdvisorMemoryRules}
             onForgetMemory={advisorController.forgetAdvisorMemoryRule}
             onOpenTask={advisorController.openAdvisorRecommendedTask}

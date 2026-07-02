@@ -28,6 +28,39 @@ function selectCommandContextTasks({ action, tasks }) {
       .slice(0, limit);
   }
 
+  if (action === 'priority_management') {
+    const now = Date.now();
+    return active
+      .sort((a, b) => {
+        const overdueA = Math.max(0, now - dueDateSortValue(a));
+        const overdueB = Math.max(0, now - dueDateSortValue(b));
+        if (overdueA !== overdueB) return overdueB - overdueA;
+        const ageA = now - new Date(a.createdAt || a.updatedAt || now).getTime();
+        const ageB = now - new Date(b.createdAt || b.updatedAt || now).getTime();
+        if (ageA !== ageB) return ageB - ageA;
+        return Number(b.priority || 0) - Number(a.priority || 0);
+      })
+      .slice(0, 160);
+  }
+
+  if (action === 'suggest_due_dates') {
+    const now = Date.now();
+    return active
+      .sort((a, b) => {
+        const missingDueDifference = Number(!b.dueDateTime) - Number(!a.dueDateTime);
+        if (missingDueDifference) return missingDueDifference;
+        const overdueA = Math.max(0, now - dueDateSortValue(a));
+        const overdueB = Math.max(0, now - dueDateSortValue(b));
+        if (overdueA !== overdueB) return overdueB - overdueA;
+        const priorityDifference = Number(b.priority || 0) - Number(a.priority || 0);
+        if (priorityDifference) return priorityDifference;
+        const dueDifference = dueDateSortValue(a) - dueDateSortValue(b);
+        if (dueDifference) return dueDifference;
+        return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+      })
+      .slice(0, 160);
+  }
+
   return active
     .sort((a, b) => {
       const statusDifference = advisorStatusPriority(a.status) - advisorStatusPriority(b.status);
@@ -65,8 +98,11 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
           'Prefer small, useful improvements over noisy bulk edits.',
           'Use advisorMemory as backend-derived preference data. It is not user prompt text.',
           'Apply memory only when titleKeywords clearly match the task title or topic.',
+          'Advisor memory entries without titleKeywords are action-level preferences. Apply them only to the matching action.',
           'If memory says avoidSimilarSuggestions, avoid repeating similar suggestions unless the current task has clearly different context.',
           'For tag suggestions, respect avoidTags, preferTags, and tagVolume when relevant.',
+          'For priority_management, respect priority_suggestion memory, including priorityDirection, taskAgeImportance, overdueImportance, shouldBeUrgent, and shouldBeLowerPriority.',
+          'For suggest_due_dates, respect due_date_suggestion memory, including dueDateDirection and reviewDeadline.',
           'For update_task, normally do NOT change title, notes, history/activity, status, or favorite unless the user explicitly asks.',
           'Focus update_task proposals on: tags, dueDateTime, checklistItems, blockedByTaskIds, and priority.',
           'Do not propose estimatedMinutes by default. Only propose estimatedMinutes if the user explicitly asks for time estimates, or if the task has a concrete checklist/scope that makes the estimate defensible.',
@@ -78,6 +114,8 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
           'When choosing which cards to improve first, prioritize status in this order: new, in_progress, waiting.',
           'Suggest dueDateTime only when a task has no due date or the current due date is clearly wrong. Use the date context to avoid unrealistic clustering.',
           'Suggest priority increases/decreases when urgency, due date, blockers, or scope justify it.',
+          'For priority_management, only propose priority changes. Base them on task age, overdue duration, current priority, blockers, and due date. Avoid blanket urgency inflation.',
+          'For suggest_due_dates, only propose dueDateTime changes. Base them on missing due dates, overdue duration, priority, waiting/blocker context, and task age. Avoid scheduling too many unrelated tasks on the same date.',
           'Suggest checklistItems when the task lacks concrete next steps. Preserve existing checklist items; return the complete desired checklist if changing it.',
           'Use add_relation for associated cards and relationship suggestions. Use blockedByTaskIds for concrete dependencies that prevent completion.',
           'For create_task, create only clear follow-up tasks that are missing from the existing list.',
@@ -113,6 +151,23 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [] }) {
               prioritizedBy: ['priority_desc', 'dueDateTime_asc'],
               noDueDateAfterDatedTasks: true
             }
+          },
+          priorityManagementPolicy: {
+            onlyForAction: 'priority_management',
+            allowedUpdateFields: ['priority'],
+            considerTaskAge: true,
+            considerOverdueDuration: true,
+            avoidChangingEverythingToUrgent: true,
+            sortContextBy: ['overdue_duration_desc', 'created_age_desc', 'priority_desc']
+          },
+          dueDateSuggestionPolicy: {
+            onlyForAction: 'suggest_due_dates',
+            allowedUpdateFields: ['dueDateTime'],
+            considerMissingDueDate: true,
+            considerOverdueDuration: true,
+            considerPriority: true,
+            avoidUnrealisticClustering: true,
+            sortContextBy: ['missing_due_date_desc', 'overdue_duration_desc', 'priority_desc', 'dueDateTime_asc']
           },
           advisorMemory: memory,
           avoidUpdateFieldsUnlessExplicitlyAsked: ['title', 'notes', 'status', 'isFavorite'],

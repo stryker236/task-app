@@ -12,6 +12,8 @@ function actionLabel(action: string) {
   const labels: Record<string, string> = {
     improve_tasks: 'Melhorar tasks',
     suggest_tags: 'Sugerir tags',
+    suggest_due_dates: 'Sugerir due dates',
+    priority_management: 'Gestao de prioridades',
     create_followups: 'Criar follow-ups',
     organize_blockers: 'Organizar bloqueios'
   };
@@ -21,6 +23,9 @@ function actionLabel(action: string) {
 function ruleTypeLabel(type: string) {
   const labels: Record<string, string> = {
     tag_suggestion: 'Tags',
+    priority_suggestion: 'Prioridade',
+    due_date_suggestion: 'Prazos',
+    advisor_interaction: 'Interacao',
     advisor_suggestion: 'Sugestao'
   };
   return labels[type] || type;
@@ -33,6 +38,16 @@ function formatRule(rule: AdvisorMemoryRule) {
   if (rule.rule.tagVolume === 'less') parts.push('Sugerir menos tags');
   if (rule.rule.tagVolume === 'more') parts.push('Sugerir mais tags');
   if (rule.rule.avoidSimilarSuggestions) parts.push('Evitar sugestoes parecidas');
+  if (rule.rule.priorityDirection === 'too_high') parts.push('Prioridade sugerida tende a ser alta demais');
+  if (rule.rule.priorityDirection === 'too_low') parts.push('Prioridade sugerida tende a ser baixa demais');
+  if (rule.rule.taskAgeImportance === 'too_much') parts.push('Reduzir peso da antiguidade');
+  if (rule.rule.taskAgeImportance === 'too_little') parts.push('Aumentar peso da antiguidade');
+  if (rule.rule.overdueImportance === 'too_much') parts.push('Reduzir peso do atraso');
+  if (rule.rule.overdueImportance === 'too_little') parts.push('Aumentar peso do atraso');
+  if (rule.rule.dueDateDirection === 'too_early') parts.push('Prazos sugeridos tendem a ser cedo demais');
+  if (rule.rule.dueDateDirection === 'too_late') parts.push('Prazos sugeridos tendem a ser tarde demais');
+  if (rule.rule.shouldBeUrgent) parts.push('Deveria tratar como urgente');
+  if (rule.rule.shouldBeLowerPriority) parts.push('Deveria baixar prioridade');
   if (rule.rule.askForMoreContext) parts.push('Pedir mais contexto');
   if (rule.rule.reviewReasoning) parts.push('Rever melhor a razao');
   if (rule.rule.reviewPriority) parts.push('Rever prioridade');

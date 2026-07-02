@@ -123,6 +123,12 @@ export type AdvisorFeedbackInput = {
     wrongReason: boolean;
     wrongPriority: boolean;
     wrongDeadline: boolean;
+    priorityDirection?: 'too_high' | 'too_low' | 'ok';
+    taskAgeImportance?: 'too_much' | 'too_little' | 'ok';
+    overdueImportance?: 'too_much' | 'too_little' | 'ok';
+    dueDateDirection?: 'too_early' | 'too_late' | 'ok';
+    shouldBeUrgent?: boolean;
+    shouldBeLowerPriority?: boolean;
     missingContext: boolean;
   };
 };
@@ -142,6 +148,12 @@ export type AdvisorMemoryRule = {
     reviewReasoning?: boolean;
     reviewPriority?: boolean;
     reviewDeadline?: boolean;
+    priorityDirection?: 'too_high' | 'too_low' | 'ok';
+    taskAgeImportance?: 'too_much' | 'too_little' | 'ok';
+    overdueImportance?: 'too_much' | 'too_little' | 'ok';
+    dueDateDirection?: 'too_early' | 'too_late' | 'ok';
+    shouldBeUrgent?: boolean;
+    shouldBeLowerPriority?: boolean;
   };
   supportCount: number;
   lastFeedbackAt: string;
@@ -149,6 +161,23 @@ export type AdvisorMemoryRule = {
 
 export function submitAdvisorFeedback(feedback: AdvisorFeedbackInput) {
   return requestJson<{ memoryRule: unknown }>('/ai/advisor/feedback', {
+    method: 'POST',
+    body: JSON.stringify(feedback)
+  });
+}
+
+export type AdvisorInteractionFeedbackInput = {
+  action: string;
+  interaction: {
+    generatedAt?: string;
+    summary?: string;
+    commandCount: number;
+  };
+  feedback: AdvisorFeedbackInput['feedback'];
+};
+
+export function submitAdvisorInteractionFeedback(feedback: AdvisorInteractionFeedbackInput) {
+  return requestJson<{ memoryRule: unknown }>('/ai/advisor/interaction-feedback', {
     method: 'POST',
     body: JSON.stringify(feedback)
   });
