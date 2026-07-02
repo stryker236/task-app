@@ -45,6 +45,10 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function storedAdvisorCalendarId() {
+  return localStorage.getItem('task-app:advisor-calendar-id') || '';
+}
+
 type UseGoogleCalendarOptions = {
   setError?: (message: string) => void;
 };
@@ -58,6 +62,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
   const [weeklyCalendarEvents, setWeeklyCalendarEvents] = useState<GoogleCalendarEvent[]>([]);
   const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendar[]>([]);
   const [selectedCalendarIds, setSelectedCalendarIds] = useState<string[]>([]);
+  const [advisorDefaultCalendarId, setAdvisorDefaultCalendarIdState] = useState(storedAdvisorCalendarId);
   const [calendarAccountEmail, setCalendarAccountEmail] = useState<string | null>(null);
 
   const calendarBusyCount = useMemo(() => calendarEvents.length, [calendarEvents]);
@@ -66,6 +71,15 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
 
   function setCalendarWeekStart(value: string) {
     setCalendarWeekStartState(startOfWeekInputValue(value));
+  }
+
+  function setAdvisorDefaultCalendarId(calendarId: string) {
+    setAdvisorDefaultCalendarIdState(calendarId);
+    if (calendarId) {
+      localStorage.setItem('task-app:advisor-calendar-id', calendarId);
+    } else {
+      localStorage.removeItem('task-app:advisor-calendar-id');
+    }
   }
 
   async function refreshGoogleStatus() {
@@ -119,6 +133,16 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       const calendars = data.calendars || [];
       setGoogleCalendars(calendars);
       setSelectedCalendarIds((current) => current.length ? current.filter((id) => calendars.some((calendar) => calendar.id === id)) : calendars.map((calendar) => calendar.id));
+      setAdvisorDefaultCalendarIdState((current) => {
+        const stored = current || storedAdvisorCalendarId();
+        if (stored && calendars.some((calendar) => calendar.id === stored)) return stored;
+        const fallback = calendars.find((calendar) => calendar.summary.toLocaleLowerCase() === 'aiadvisor')?.id
+          || calendars.find((calendar) => calendar.primary)?.id
+          || calendars[0]?.id
+          || '';
+        if (fallback) localStorage.setItem('task-app:advisor-calendar-id', fallback);
+        return fallback;
+      });
       setCalendarAccountEmail(data.accountEmail || null);
       return calendars;
     } catch (error) {
@@ -238,6 +262,8 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     googleCalendars,
     selectedCalendarIds,
     setSelectedCalendarIds: changeSelectedCalendarIds,
+    advisorDefaultCalendarId,
+    setAdvisorDefaultCalendarId,
     calendarAccountEmail,
     calendarBusyCount,
     weeklyCalendarBusyCount,

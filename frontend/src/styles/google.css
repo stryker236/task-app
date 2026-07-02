@@ -244,6 +244,54 @@
   background: var(--blue);
 }
 
+.calendar-advisor-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 14px;
+  border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--line));
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--blue) 7%, var(--surface));
+}
+
+.calendar-advisor-bar > div {
+  display: grid;
+  gap: 2px;
+}
+
+.calendar-advisor-bar strong {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.calendar-advisor-bar span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.calendar-advisor-bar label {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.calendar-advisor-bar select {
+  min-height: 34px;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: var(--surface);
+  color: var(--text-strong);
+  font-size: 12px;
+  text-transform: none;
+}
+
 .calendar-month-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(132px, 1fr));
@@ -328,6 +376,16 @@
   color: var(--text-strong);
   font-size: 11px;
   text-decoration: none;
+}
+
+.calendar-month-event.is-advisor-preview {
+  border: 1px dashed color-mix(in srgb, var(--event-color) 70%, transparent);
+  background: color-mix(in srgb, var(--event-color) 20%, var(--surface));
+}
+
+.calendar-month-event.is-task-due-date {
+  border: 1px solid color-mix(in srgb, var(--event-color) 62%, transparent);
+  background: color-mix(in srgb, var(--event-color) 16%, var(--surface));
 }
 
 .calendar-month-event i {
@@ -480,6 +538,18 @@
   text-decoration: none;
 }
 
+.calendar-all-day-event.is-advisor-preview,
+.calendar-timed-event.is-advisor-preview {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--event-color) 20%, var(--surface));
+}
+
+.calendar-all-day-event.is-task-due-date,
+.calendar-timed-event.is-task-due-date {
+  border-left-style: solid;
+  background: color-mix(in srgb, var(--event-color) 16%, var(--surface));
+}
+
 .calendar-all-day-event {
   overflow: hidden;
   padding: 4px 7px;
@@ -553,6 +623,18 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.calendar-timed-event em {
+  width: fit-content;
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: color-mix(in srgb, var(--event-color) 22%, var(--surface));
+  color: var(--text-strong);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .calendar-timed-event span,

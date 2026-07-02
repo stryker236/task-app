@@ -83,6 +83,22 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
   const selectedTasks = selectCommandContextTasks({ action: advisorAction.key, tasks });
   const activeTasks = selectedTasks
     .map((task) => createCommandContextTask(task, tasksById));
+  function calendarRole(calendar) {
+    const summary = String(calendar.summary || '').toLocaleLowerCase();
+    if (calendar.primary || summary.includes('@')) {
+      return 'main_email_calendar_avoid_for_this_app';
+    }
+    if (summary.includes('anivers')) {
+      return 'special_dates_birthdays_anniversaries_only';
+    }
+    if (summary.includes('rotina') || summary.includes('rotine')) {
+      return 'recurring_weekly_monthly_routine_tasks';
+    }
+    if (summary === 'aiadvisor') {
+      return 'default_calendar_for_this_app';
+    }
+    return 'general_writable_calendar';
+  }
   const availableCalendars = calendars
     .map((calendar) => ({
       id: String(calendar.id || ''),
@@ -90,11 +106,17 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
       description: String(calendar.description || ''),
       primary: calendar.primary === true,
       accessRole: String(calendar.accessRole || ''),
-      timeZone: calendar.timeZone || null
+      timeZone: calendar.timeZone || null,
+      appRole: calendarRole(calendar)
     }))
     .filter((calendar) => calendar.id)
     .slice(0, 50);
   const allowedCalendarIds = availableCalendars.map((calendar) => calendar.id);
+  const defaultCalendar = availableCalendars.find((calendar) => calendar.summary.toLocaleLowerCase() === 'aiadvisor')
+    || availableCalendars.find((calendar) => calendar.primary)
+    || availableCalendars[0]
+    || null;
+  const defaultCalendarId = defaultCalendar?.id || 'primary';
 
   return {
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
@@ -115,7 +137,8 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
           'For tag suggestions, respect avoidTags, preferTags, and tagVolume when relevant.',
           'For priority_management, respect priority_suggestion memory, including priorityDirection, taskAgeImportance, overdueImportance, shouldBeUrgent, and shouldBeLowerPriority.',
           'For suggest_due_dates, respect due_date_suggestion memory, including dueDateDirection and reviewDeadline.',
-          'For schedule_calendar_events, respect calendar_event_suggestion memory, including calendarDurationDirection, unnecessaryEvent, wrongCalendar, dueDateDirection, reviewDeadline, and askForMoreContext.',
+          'For schedule_calendar_events, respect calendar_event_suggestion memory for calendarDurationDirection, unnecessaryEvent, dueDateDirection, reviewDeadline, and askForMoreContext.',
+          'Calendar selection policy: do not choose or recommend calendars. Use defaultCalendarId for every create_calendar_event. The user can change the destination calendar later in the UI.',
           'For update_task, normally do NOT change title, notes, history/activity, status, or favorite unless the user explicitly asks.',
           'Focus update_task proposals on: tags, dueDateTime, checklistItems, blockedByTaskIds, and priority.',
           'Do not propose estimatedMinutes by default. Only propose estimatedMinutes if the user explicitly asks for time estimates, or if the task has a concrete checklist/scope that makes the estimate defensible.',
@@ -132,7 +155,7 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
           'Suggest checklistItems when the task lacks concrete next steps. Preserve existing checklist items; return the complete desired checklist if changing it.',
           'Use add_relation for associated cards and relationship suggestions. Use blockedByTaskIds for concrete dependencies that prevent completion.',
           'For create_task, create only clear follow-up tasks that are missing from the existing list.',
-          'For create_calendar_event, propose a Google Calendar event only when the task has enough scheduling context. Use the source taskId when the event comes from a task. Use ISO date-time strings with explicit offsets when possible. Choose calendarId from availableCalendars by matching the task topic, project, owner, or calendar description. Use concise summaries and include the task title in the event summary.',
+          'For create_calendar_event, propose a Google Calendar event only when the task has enough scheduling context. When the source task has dueDateTime, event.start must use that exact task dueDateTime; treat it as the task end/scheduling date. Creating events in the past is expressly forbidden: event.start must be strictly after today/current time from the user payload. Never propose an event that already exists in the selected calendar by title. Use the source taskId when the event comes from a task. The event summary must be exactly the original source task title, with no prefixes, suffixes, rewriting, or extra context. Use ISO date-time strings with explicit offsets when possible. Always set calendarId to defaultCalendarId. Do not choose calendars semantically.',
           'For add_relation, use relationType only when the relationship is strongly supported by the task data.',
           'Do not mark tasks done unless blockers and checklist are complete.',
           'Keep reasons short and concrete.'
@@ -186,16 +209,31 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
           calendarEventPolicy: {
             onlyForAction: 'schedule_calendar_events',
             allowedCommands: ['create_calendar_event'],
+            minimumStartDateTime: new Date().toISOString(),
             allowedCalendarIds,
-            defaultCalendarId: allowedCalendarIds.includes('primary') ? 'primary' : allowedCalendarIds[0] || 'primary',
-            chooseCalendarFromAvailableCalendars: true,
+            defaultCalendarId,
+            defaultCalendarSummary: defaultCalendar?.summary || '',
+            chooseCalendarFromAvailableCalendars: false,
             requireCalendarIdFromAllowedCalendarIds: true,
+            requireCalendarSelectionReason: false,
+            forceDefaultCalendarId: true,
+            userCanChangeCalendarInUi: true,
             useTaskDueDateTimeWhenAvailable: true,
+            taskDueDateTimeIsEventStart: true,
+            dueDateTimeRepresentsTaskEndOrSchedulingDate: true,
             defaultDurationMinutes: 30,
             minimumDurationMinutes: 15,
             maximumDurationMinutes: 240,
             avoidPastEvents: true,
+            avoidExistingCalendarEvents: true,
+            duplicateEventDefinition: 'Same selected calendar and same normalized title. Ignore start and end when checking duplicates.',
             requireConcreteTiming: true
+          },
+          calendarUsageGuidelines: {
+            mainEmailCalendar: 'Do not use for this app unless the task explicitly belongs on the personal main calendar.',
+            aniversarios: 'Use only for special dates, birthdays, anniversaries, and similar date reminders.',
+            rotina: 'Use for periodic or recurring tasks that usually happen weekly or monthly.',
+            aiAdvisor: 'Use for most normal events created by this Task App.'
           },
           availableCalendars,
           advisorMemory: memory,

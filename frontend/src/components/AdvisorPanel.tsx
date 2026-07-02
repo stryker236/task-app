@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { GoogleStatus, Task } from '../../../shared/types';
+import type { GoogleCalendar, GoogleStatus, Task } from '../../../shared/types';
 import type { AdvisorAdvice, AdvisorFeedbackInput, AdvisorMemoryRule, AdvisorPreview } from '../api';
 
 const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar';
@@ -58,6 +58,8 @@ type AdvisorPanelProps = {
   applyingProposalId: string | null;
   applyingAllProposals: boolean;
   googleStatus: GoogleStatus;
+  googleCalendars: GoogleCalendar[];
+  advisorDefaultCalendarId: string;
   onRefresh: () => void;
   onRequestActions: (action: string) => void;
   onConnectGoogle: () => void;
@@ -66,6 +68,8 @@ type AdvisorPanelProps = {
   onApplyAllProposals: () => void;
   onIgnoreAllProposals: () => void;
   onClearProposals: () => void;
+  onAdvisorDefaultCalendarChange: (calendarId: string) => void;
+  onChangeProposalCalendar: (commandId: string, calendarId: string, calendarSummary: string) => void;
   onSaveProposalFeedback: (commandId: string, feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
   onSaveInteractionFeedback: (feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
   onRefreshMemory: () => void;
@@ -139,13 +143,18 @@ function taskTitleFromId(allTasks: Task[], id: string | null) {
 function AdvisorProposalFeedback({
   proposal,
   saved,
+  googleCalendars = [],
   onSave
 }: {
   proposal: AdvisorPreview['commands'][number];
   saved: boolean;
+  googleCalendars?: GoogleCalendar[];
   onSave: (feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
 }) {
   const tags = proposedTags(proposal);
+  const calendarEvent = (proposal.changes as ObjectRecord | undefined)?.calendarEvent as ObjectRecord | undefined;
+  const chosenCalendarId = String(calendarEvent?.calendarId || '');
+  const chosenCalendarSummary = String(calendarEvent?.calendarSummary || chosenCalendarId || 'primary');
   const [overall, setOverall] = useState<AdvisorFeedbackInput['feedback']['overall']>('mixed');
   const [tagVolume, setTagVolume] = useState<AdvisorFeedbackInput['feedback']['tagVolume']>('ok');
   const [goodTags, setGoodTags] = useState<string[]>([]);
@@ -157,15 +166,18 @@ function AdvisorProposalFeedback({
   const [taskAgeImportance, setTaskAgeImportance] = useState<AdvisorFeedbackInput['feedback']['taskAgeImportance']>('ok');
   const [overdueImportance, setOverdueImportance] = useState<AdvisorFeedbackInput['feedback']['overdueImportance']>('ok');
   const [dueDateDirection, setDueDateDirection] = useState<AdvisorFeedbackInput['feedback']['dueDateDirection']>('ok');
+  const [calendarChoice, setCalendarChoice] = useState<AdvisorFeedbackInput['feedback']['calendarChoice']>('ok');
   const [calendarDurationDirection, setCalendarDurationDirection] = useState<AdvisorFeedbackInput['feedback']['calendarDurationDirection']>('ok');
   const [unnecessaryEvent, setUnnecessaryEvent] = useState(false);
   const [wrongCalendar, setWrongCalendar] = useState(false);
+  const [preferredCalendarId, setPreferredCalendarId] = useState('');
   const [shouldBeUrgent, setShouldBeUrgent] = useState(false);
   const [shouldBeLowerPriority, setShouldBeLowerPriority] = useState(false);
   const [missingContext, setMissingContext] = useState(false);
   const priorityProposal = isPriorityProposal(proposal);
   const dueDateProposal = isDueDateProposal(proposal);
   const calendarEventProposal = isCalendarEventProposal(proposal);
+  const selectedPreferredCalendar = googleCalendars.find((calendar) => calendar.id === preferredCalendarId);
 
   function toggle(list: string[], setter: (value: string[]) => void, tag: string) {
     setter(list.includes(tag) ? list.filter((item) => item !== tag) : [...list, tag]);
@@ -212,7 +224,25 @@ function AdvisorProposalFeedback({
         <>
           <div className="advisor-feedback-grid">
             <label><input type="checkbox" checked={unnecessaryEvent} onChange={(event) => setUnnecessaryEvent(event.target.checked)} /> Evento desnecessario</label>
-            <label><input type="checkbox" checked={wrongCalendar} onChange={(event) => setWrongCalendar(event.target.checked)} /> Calendario errado</label>
+          </div>
+          <div className="advisor-feedback-calendar">
+            <span>Calendario escolhido</span>
+            <strong>{chosenCalendarSummary}</strong>
+            <div className="advisor-feedback-grid">
+              <label><input type="radio" checked={calendarChoice === 'ok'} onChange={() => { setCalendarChoice('ok'); setWrongCalendar(false); setPreferredCalendarId(''); }} /> Correto</label>
+              <label><input type="radio" checked={calendarChoice === 'wrong'} onChange={() => { setCalendarChoice('wrong'); setWrongCalendar(true); }} /> Errado</label>
+            </div>
+            {calendarChoice === 'wrong' && googleCalendars.length > 0 && (
+              <label>
+                <span>Calendario preferido</span>
+                <select value={preferredCalendarId} onChange={(event) => setPreferredCalendarId(event.target.value)}>
+                  <option value="">Escolher calendario...</option>
+                  {googleCalendars.map((calendar) => (
+                    <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           <div className="advisor-feedback-grid">
             <label><input type="radio" checked={dueDateDirection === 'too_early'} onChange={() => setDueDateDirection('too_early')} /> Hora cedo demais</label>
@@ -262,9 +292,14 @@ function AdvisorProposalFeedback({
           taskAgeImportance,
           overdueImportance,
           dueDateDirection,
+          calendarChoice,
           calendarDurationDirection,
           unnecessaryEvent,
-          wrongCalendar,
+          wrongCalendar: wrongCalendar || calendarChoice === 'wrong',
+          chosenCalendarId,
+          chosenCalendarSummary,
+          preferredCalendarId: calendarChoice === 'wrong' ? preferredCalendarId : '',
+          preferredCalendarSummary: calendarChoice === 'wrong' ? selectedPreferredCalendar?.summary || '' : '',
           shouldBeUrgent,
           shouldBeLowerPriority,
           missingContext
@@ -402,6 +437,7 @@ function ProposalChanges({ proposal, allTasks = [] }: { proposal: AdvisorPreview
         <div><dt>Inicio</dt><dd>{String(event.start || '')}</dd></div>
         <div><dt>Fim</dt><dd>{String(event.end || '')}</dd></div>
         <div><dt>Calendario</dt><dd>{String(event.calendarSummary || event.calendarId || 'primary')}</dd></div>
+        {event.calendarSelectionReason ? <div><dt>Motivo calendario</dt><dd>{String(event.calendarSelectionReason)}</dd></div> : null}
         {event.location ? <div><dt>Local</dt><dd>{String(event.location)}</dd></div> : null}
         {event.description ? <div><dt>Descricao</dt><dd>{String(event.description)}</dd></div> : null}
       </dl>
@@ -453,8 +489,9 @@ function ProposalChanges({ proposal, allTasks = [] }: { proposal: AdvisorPreview
   );
 }
 
-function AdvisorProposalBuffer({
+export function AdvisorProposalBuffer({
   allTasks = [],
+  googleCalendars = [],
   proposals,
   proposalStatuses,
   proposalFeedbackStatuses,
@@ -469,11 +506,13 @@ function AdvisorProposalBuffer({
   onApplyAllProposals,
   onIgnoreAllProposals,
   onClearProposals,
+  onChangeProposalCalendar,
   onSaveProposalFeedback,
   onSaveInteractionFeedback,
   onOpenTask
 }: {
   allTasks?: Task[];
+  googleCalendars?: GoogleCalendar[];
   proposals: AdvisorPreview | null;
   proposalStatuses: ProposalStatuses;
   proposalFeedbackStatuses: ProposalFeedbackStatuses;
@@ -488,6 +527,7 @@ function AdvisorProposalBuffer({
   onApplyAllProposals: () => void;
   onIgnoreAllProposals: () => void;
   onClearProposals: () => void;
+  onChangeProposalCalendar: (commandId: string, calendarId: string, calendarSummary: string) => void;
   onSaveProposalFeedback: (commandId: string, feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
   onSaveInteractionFeedback: (feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
   onOpenTask: (taskId: string) => void;
@@ -536,6 +576,8 @@ function AdvisorProposalBuffer({
             const needsCalendarPermission = proposal.type === 'create_calendar_event' && !calendarWriteReady;
             const disabled = status === 'accepted' || status === 'ignored' || applyingProposalId === proposal.id || applyingAllProposals || needsCalendarPermission;
             const affectedTitle = affectedCardTitle(proposal);
+            const calendarEvent = (proposal.changes as ObjectRecord | undefined)?.calendarEvent as ObjectRecord | undefined;
+            const proposalCalendarId = String(calendarEvent?.calendarId || '');
 
             return (
               <article className={`advisor-proposal ${status ? `is-${status}` : ''}`} key={proposal.id}>
@@ -547,11 +589,29 @@ function AdvisorProposalBuffer({
                   </div>
                   <h4>{proposal.summary}</h4>
                   <p>{proposal.reason}</p>
-                  {proposal.alreadyExists && <small>Esta relacao ja existe.</small>}
+                  {proposal.alreadyExists && <small>Esta proposta ja existe ou esta duplicada.</small>}
                   <ProposalChanges proposal={proposal} allTasks={allTasks} />
+                  {proposal.type === 'create_calendar_event' && googleCalendars.length > 0 && (
+                    <label className="advisor-calendar-select">
+                      <span>Calendario destino</span>
+                      <select
+                        value={proposalCalendarId}
+                        onChange={(event) => {
+                          const calendar = googleCalendars.find((item) => item.id === event.target.value);
+                          onChangeProposalCalendar(proposal.id, event.target.value, calendar?.summary || event.target.value);
+                        }}
+                        disabled={Boolean(status)}
+                      >
+                        {googleCalendars.map((calendar) => (
+                          <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <AdvisorProposalFeedback
                     proposal={proposal}
                     saved={proposalFeedbackStatuses[proposal.id] === 'saved'}
+                    googleCalendars={googleCalendars}
                     onSave={(feedback) => onSaveProposalFeedback(proposal.id, feedback)}
                   />
                 </div>
@@ -598,6 +658,8 @@ function formatMemoryRule(rule: AdvisorMemoryRule) {
   if (rule.rule.calendarDurationDirection === 'too_long') parts.push('eventos longos demais');
   if (rule.rule.unnecessaryEvent) parts.push('evitar eventos desnecessarios');
   if (rule.rule.wrongCalendar) parts.push('rever calendario');
+  if (rule.rule.preferredCalendarSummary) parts.push(`preferir calendario: ${rule.rule.preferredCalendarSummary}`);
+  if (!rule.rule.preferredCalendarSummary && rule.rule.preferredCalendarId) parts.push(`preferir calendario: ${rule.rule.preferredCalendarId}`);
   if (rule.rule.shouldBeUrgent) parts.push('devia ser urgente');
   if (rule.rule.shouldBeLowerPriority) parts.push('devia baixar prioridade');
   if (rule.rule.askForMoreContext) parts.push('pedir mais contexto');
@@ -659,6 +721,8 @@ export default function AdvisorPanel({
   applyingProposalId,
   applyingAllProposals,
   googleStatus,
+  googleCalendars,
+  advisorDefaultCalendarId,
   onRefresh,
   onRequestActions,
   onConnectGoogle,
@@ -667,6 +731,8 @@ export default function AdvisorPanel({
   onApplyAllProposals,
   onIgnoreAllProposals,
   onClearProposals,
+  onAdvisorDefaultCalendarChange,
+  onChangeProposalCalendar,
   onSaveProposalFeedback,
   onSaveInteractionFeedback,
   onRefreshMemory,
@@ -691,6 +757,16 @@ export default function AdvisorPanel({
 
       <div className="advisor-request-box">
         <label>Acoes do assistente</label>
+        {googleCalendars.length > 0 && (
+          <label className="advisor-calendar-select">
+            <span>Calendario default para eventos</span>
+            <select value={advisorDefaultCalendarId} onChange={(event) => onAdvisorDefaultCalendarChange(event.target.value)}>
+              {googleCalendars.map((calendar) => (
+                <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="advisor-request-actions">
           {QUICK_ACTIONS.map((action) => (
             <button
@@ -724,6 +800,7 @@ export default function AdvisorPanel({
 
       <AdvisorProposalBuffer
         allTasks={allTasks}
+        googleCalendars={googleCalendars}
         proposals={proposals}
         action={currentAction}
         proposalStatuses={proposalStatuses}
@@ -738,6 +815,7 @@ export default function AdvisorPanel({
         onApplyAllProposals={onApplyAllProposals}
         onIgnoreAllProposals={onIgnoreAllProposals}
         onClearProposals={onClearProposals}
+        onChangeProposalCalendar={onChangeProposalCalendar}
         onSaveProposalFeedback={onSaveProposalFeedback}
         onSaveInteractionFeedback={onSaveInteractionFeedback}
         onOpenTask={onOpenTask}

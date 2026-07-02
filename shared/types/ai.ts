@@ -10,6 +10,7 @@ export interface AiCalendarEventCommandInput {
   end: string;
   timeZone?: string | null;
   calendarId?: string | null;
+  calendarSelectionReason?: string | null;
 }
 
 export interface AiCommand {

@@ -18,6 +18,9 @@
 .advisor-request-box label { display: block; margin-bottom: 6px; color: #35435d; font-size: 12px; font-weight: 800; }
 .advisor-request-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; }
 .advisor-request-box small { display: block; margin-top: 8px; color: #7d8798; font-size: 10px; }
+.advisor-calendar-select { display: grid; gap: 5px; max-width: 320px; margin: 8px 0; color: #35435d; font-size: 12px; font-weight: 800; }
+.advisor-calendar-select span { color: #7a869a; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.advisor-calendar-select select { min-height: 34px; border: 1px solid #d8deea; border-radius: 8px; padding: 6px 8px; background: #fff; color: #26324a; font-size: 12px; }
 .advisor-permission-warning { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; padding: 8px 9px; border: 1px solid #efd29b; border-radius: 8px; background: #fff8ea; color: #76551a; font-size: 11px; font-weight: 650; }
 .advisor-memory { margin: 12px 0 14px; padding: 12px; border: 1px solid #e1e7f2; border-radius: 10px; background: #fff; }
 .advisor-memory summary { cursor: pointer; color: #35435d; font-size: 12px; font-weight: 800; }
@@ -65,6 +68,10 @@
 .advisor-feedback { margin-top: 10px; padding: 9px; border: 1px solid #e1e7f2; border-radius: 8px; background: #fff; }
 .advisor-feedback summary { cursor: pointer; color: #40506a; font-size: 11px; font-weight: 800; }
 .advisor-feedback-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; }
+.advisor-feedback-calendar { display: grid; gap: 7px; margin-top: 8px; padding: 8px; border: 1px solid #e1e7f2; border-radius: 8px; background: #fbfcff; }
+.advisor-feedback-calendar > span,
+.advisor-feedback-calendar label > span { color: #7a869a; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.advisor-feedback-calendar strong { color: #26324a; font-size: 12px; }
 .advisor-feedback-grid label,
 .advisor-feedback-tags label { display: inline-flex; align-items: center; gap: 5px; color: #526179; font-size: 11px; font-weight: 650; }
 .advisor-feedback input { width: auto; margin: 0; }

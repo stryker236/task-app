@@ -97,10 +97,10 @@ export function getTaskAdvisorAdvice(limit = 5) {
   return requestJson<AdvisorAdvice>(`/advisor?limit=${encodeURIComponent(limit)}`);
 }
 
-export function requestTaskAdvisorCommands(action: string) {
+export function requestTaskAdvisorCommands(action: string, options: { defaultCalendarId?: string } = {}) {
   return requestJson<AdvisorPreview>('/ai/advisor/request', {
     method: 'POST',
-    body: JSON.stringify({ action })
+    body: JSON.stringify({ action, defaultCalendarId: options.defaultCalendarId || '' })
   });
 }
 
@@ -127,9 +127,14 @@ export type AdvisorFeedbackInput = {
     taskAgeImportance?: 'too_much' | 'too_little' | 'ok';
     overdueImportance?: 'too_much' | 'too_little' | 'ok';
     dueDateDirection?: 'too_early' | 'too_late' | 'ok';
+    calendarChoice?: 'ok' | 'wrong';
     calendarDurationDirection?: 'too_short' | 'too_long' | 'ok';
     unnecessaryEvent?: boolean;
     wrongCalendar?: boolean;
+    chosenCalendarId?: string;
+    chosenCalendarSummary?: string;
+    preferredCalendarId?: string;
+    preferredCalendarSummary?: string;
     shouldBeUrgent?: boolean;
     shouldBeLowerPriority?: boolean;
     missingContext: boolean;
@@ -155,9 +160,14 @@ export type AdvisorMemoryRule = {
     taskAgeImportance?: 'too_much' | 'too_little' | 'ok';
     overdueImportance?: 'too_much' | 'too_little' | 'ok';
     dueDateDirection?: 'too_early' | 'too_late' | 'ok';
+    calendarChoice?: 'ok' | 'wrong';
     calendarDurationDirection?: 'too_short' | 'too_long' | 'ok';
     unnecessaryEvent?: boolean;
     wrongCalendar?: boolean;
+    chosenCalendarId?: string;
+    chosenCalendarSummary?: string;
+    preferredCalendarId?: string;
+    preferredCalendarSummary?: string;
     shouldBeUrgent?: boolean;
     shouldBeLowerPriority?: boolean;
   };

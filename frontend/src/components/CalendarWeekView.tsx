@@ -1,17 +1,21 @@
 import { useState, type CSSProperties } from 'react';
 import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
+import type { AdvisorCalendarPreviewEvent, TaskDueDateCalendarEvent } from '../utils/advisorCalendarPreviews';
 
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar';
 const DAY_START_HOUR = 0;
 const DAY_END_HOUR = 24;
 const HOUR_HEIGHT = 56;
 const HOURS = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, index) => DAY_START_HOUR + index);
 
 type CalendarEventLayout = {
-  event: GoogleCalendarEvent;
+  event: CalendarDisplayEvent;
   lane: number;
   laneCount: number;
 };
+
+type CalendarDisplayEvent = GoogleCalendarEvent | AdvisorCalendarPreviewEvent | TaskDueDateCalendarEvent;
 
 type CalendarWeekViewProps = {
   status: GoogleStatus;
@@ -19,17 +23,23 @@ type CalendarWeekViewProps = {
   weekStart: string;
   weekEnd: string;
   events: GoogleCalendarEvent[];
+  advisorPreviewEvents: AdvisorCalendarPreviewEvent[];
+  taskDueDateEvents: TaskDueDateCalendarEvent[];
   calendars: GoogleCalendar[];
   selectedCalendarIds: string[];
+  advisorDefaultCalendarId: string;
   accountEmail: string | null;
   busyCount: number;
   onWeekChange: (date: string) => void;
   onCalendarFilterChange: (calendarIds: string[]) => void;
+  onAdvisorDefaultCalendarChange: (calendarId: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   onLoadEvents: (date: string, calendarIds?: string[]) => void;
   onLoadRangeEvents: (start: string, end: string, calendarIds?: string[]) => void;
   onSendDailyTaskEmail: () => Promise<{ to: string; todayCount: number; overdueCount: number } | null>;
+  advisorLoading: boolean;
+  onRequestAdvisorCalendarEvents: () => void;
 };
 
 function dateFromInputValue(value: string) {
@@ -132,19 +142,27 @@ function formatEventTime(value: string | null) {
   }).format(date);
 }
 
-function isAllDayEvent(event: GoogleCalendarEvent) {
+function isAdvisorPreviewEvent(event: CalendarDisplayEvent): event is AdvisorCalendarPreviewEvent {
+  return 'advisorPreview' in event && event.advisorPreview;
+}
+
+function isTaskDueDateEvent(event: CalendarDisplayEvent): event is TaskDueDateCalendarEvent {
+  return 'taskDueDate' in event && event.taskDueDate;
+}
+
+function isAllDayEvent(event: CalendarDisplayEvent) {
   return Boolean(event.start && /^\d{4}-\d{2}-\d{2}$/.test(event.start));
 }
 
-function eventStartDate(event: GoogleCalendarEvent) {
+function eventStartDate(event: CalendarDisplayEvent) {
   return event.start ? new Date(event.start) : null;
 }
 
-function eventEndDate(event: GoogleCalendarEvent) {
+function eventEndDate(event: CalendarDisplayEvent) {
   return event.end ? new Date(event.end) : null;
 }
 
-function getEventPlacement(event: GoogleCalendarEvent) {
+function getEventPlacement(event: CalendarDisplayEvent) {
   const start = eventStartDate(event);
   if (!start || Number.isNaN(start.getTime())) return null;
   const end = eventEndDate(event);
@@ -158,22 +176,22 @@ function getEventPlacement(event: GoogleCalendarEvent) {
   };
 }
 
-function eventStartMinutes(event: GoogleCalendarEvent) {
+function eventStartMinutes(event: CalendarDisplayEvent) {
   const start = eventStartDate(event);
   if (!start || Number.isNaN(start.getTime())) return 0;
   return start.getHours() * 60 + start.getMinutes();
 }
 
-function eventEndMinutes(event: GoogleCalendarEvent) {
+function eventEndMinutes(event: CalendarDisplayEvent) {
   const end = eventEndDate(event);
   if (!end || Number.isNaN(end.getTime())) return eventStartMinutes(event) + 30;
   return Math.max(eventStartMinutes(event) + 20, end.getHours() * 60 + end.getMinutes());
 }
 
-function layoutOverlappingEvents(events: GoogleCalendarEvent[]): CalendarEventLayout[] {
+function layoutOverlappingEvents(events: CalendarDisplayEvent[]): CalendarEventLayout[] {
   const sorted = [...events].sort((a, b) => eventStartMinutes(a) - eventStartMinutes(b));
-  const groups: GoogleCalendarEvent[][] = [];
-  let currentGroup: GoogleCalendarEvent[] = [];
+  const groups: CalendarDisplayEvent[][] = [];
+  let currentGroup: CalendarDisplayEvent[] = [];
   let currentGroupEnd = -1;
 
   sorted.forEach((event) => {
@@ -204,8 +222,8 @@ function layoutOverlappingEvents(events: GoogleCalendarEvent[]): CalendarEventLa
   });
 }
 
-function groupTimedEventsByDay(days: string[], events: GoogleCalendarEvent[]) {
-  const grouped = new Map(days.map((day) => [day, [] as GoogleCalendarEvent[]]));
+function groupTimedEventsByDay(days: string[], events: CalendarDisplayEvent[]) {
+  const grouped = new Map(days.map((day) => [day, [] as CalendarDisplayEvent[]]));
   events.forEach((event) => {
     if (isAllDayEvent(event)) return;
     const key = dateKeyFromEventValue(event.start);
@@ -214,8 +232,8 @@ function groupTimedEventsByDay(days: string[], events: GoogleCalendarEvent[]) {
   return new Map([...grouped.entries()].map(([day, dayEvents]) => [day, layoutOverlappingEvents(dayEvents)]));
 }
 
-function groupAllDayEventsByDay(days: string[], events: GoogleCalendarEvent[]) {
-  const grouped = new Map(days.map((day) => [day, [] as GoogleCalendarEvent[]]));
+function groupAllDayEventsByDay(days: string[], events: CalendarDisplayEvent[]) {
+  const grouped = new Map(days.map((day) => [day, [] as CalendarDisplayEvent[]]));
   events.forEach((event) => {
     if (!isAllDayEvent(event)) return;
     const key = dateKeyFromEventValue(event.start);
@@ -224,8 +242,8 @@ function groupAllDayEventsByDay(days: string[], events: GoogleCalendarEvent[]) {
   return grouped;
 }
 
-function groupEventsByDay(days: string[], events: GoogleCalendarEvent[]) {
-  const grouped = new Map(days.map((day) => [day, [] as GoogleCalendarEvent[]]));
+function groupEventsByDay(days: string[], events: CalendarDisplayEvent[]) {
+  const grouped = new Map(days.map((day) => [day, [] as CalendarDisplayEvent[]]));
   events.forEach((event) => {
     const key = dateKeyFromEventValue(event.start);
     grouped.get(key)?.push(event);
@@ -248,27 +266,39 @@ export default function CalendarWeekView({
   weekStart,
   weekEnd,
   events,
+  advisorPreviewEvents,
+  taskDueDateEvents,
   calendars,
   selectedCalendarIds,
+  advisorDefaultCalendarId,
   accountEmail,
   busyCount,
   onWeekChange,
   onCalendarFilterChange,
+  onAdvisorDefaultCalendarChange,
   onConnect,
   onDisconnect,
   onLoadEvents,
   onLoadRangeEvents,
-  onSendDailyTaskEmail
+  onSendDailyTaskEmail,
+  advisorLoading,
+  onRequestAdvisorCalendarEvents
 }: CalendarWeekViewProps) {
   const [calendarMode, setCalendarMode] = useState<'week' | 'month'>('week');
   const [monthAnchor, setMonthAnchor] = useState(weekStart);
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const monthRange = monthGridRange(monthAnchor);
   const monthDays = daysBetween(monthRange.start, monthRange.end);
-  const timedEventsByDay = groupTimedEventsByDay(days, events);
-  const allDayEventsByDay = groupAllDayEventsByDay(days, events);
-  const monthEventsByDay = groupEventsByDay(monthDays, events);
+  const visibleAdvisorPreviewEvents = advisorPreviewEvents.filter((event) => {
+    const knownCalendar = calendars.some((calendar) => calendar.id === event.calendarId);
+    return !knownCalendar || selectedCalendarIds.includes(event.calendarId);
+  });
+  const displayEvents: CalendarDisplayEvent[] = [...events, ...taskDueDateEvents, ...visibleAdvisorPreviewEvents];
+  const timedEventsByDay = groupTimedEventsByDay(days, displayEvents);
+  const allDayEventsByDay = groupAllDayEventsByDay(days, displayEvents);
+  const monthEventsByDay = groupEventsByDay(monthDays, displayEvents);
   const canSendEmail = status.scopes.includes(GMAIL_SEND_SCOPE);
+  const canCreateCalendarEvents = status.connected && status.scopes.includes(CALENDAR_WRITE_SCOPE);
   const today = inputValueFromDate(new Date());
   const currentMonth = dateFromInputValue(monthAnchor).getMonth();
 
@@ -331,6 +361,31 @@ export default function CalendarWeekView({
 
       {status.connected && (
         <>
+          <div className="calendar-advisor-bar">
+            <div>
+              <strong>AIAdvisor</strong>
+              <span>{visibleAdvisorPreviewEvents.length || taskDueDateEvents.length ? `${taskDueDateEvents.length} due dates · ${visibleAdvisorPreviewEvents.length} previews` : 'Criar eventos a partir das tasks'}</span>
+            </div>
+            {calendars.length > 0 && (
+              <label>
+                <span>Calendario default</span>
+                <select value={advisorDefaultCalendarId} onChange={(event) => onAdvisorDefaultCalendarChange(event.target.value)}>
+                  {calendars.map((calendar) => (
+                    <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <button
+              type="button"
+              className="button primary small"
+              onClick={canCreateCalendarEvents ? onRequestAdvisorCalendarEvents : onConnect}
+              disabled={advisorLoading || loading}
+            >
+              {advisorLoading ? 'A preparar...' : canCreateCalendarEvents ? 'Criar eventos' : 'Ativar criacao'}
+            </button>
+          </div>
+
           <div className="calendar-week-controls">
             <div className="calendar-mode-toggle" aria-label="Modo de calendario">
               <button type="button" className={calendarMode === 'week' ? 'is-active' : ''} onClick={() => { setCalendarMode('week'); onLoadEvents(weekStart); }}>
@@ -435,7 +490,7 @@ export default function CalendarWeekView({
                     <div>
                       {dayEvents.slice(0, 5).map((event) => (
                         <a
-                          className="calendar-month-event"
+                          className={`calendar-month-event ${isAdvisorPreviewEvent(event) ? 'is-advisor-preview' : ''} ${isTaskDueDateEvent(event) ? 'is-task-due-date' : ''}`}
                           href={event.htmlLink || undefined}
                           target={event.htmlLink ? '_blank' : undefined}
                           rel={event.htmlLink ? 'noreferrer' : undefined}
@@ -444,7 +499,7 @@ export default function CalendarWeekView({
                         >
                           <i aria-hidden="true" />
                           <span>{isAllDayEvent(event) ? 'Todo o dia' : formatEventTime(event.start)}</span>
-                          <strong>{event.summary || '(Sem titulo)'}</strong>
+                          <strong>{isAdvisorPreviewEvent(event) ? `[AI] ${event.summary || '(Sem titulo)'}` : isTaskDueDateEvent(event) ? `[Due] ${event.summary || '(Sem titulo)'}` : event.summary || '(Sem titulo)'}</strong>
                         </a>
                       ))}
                       {dayEvents.length > 5 && <em>+{dayEvents.length - 5} mais</em>}
@@ -480,14 +535,14 @@ export default function CalendarWeekView({
                     <div className="calendar-all-day-cell" key={day}>
                       {dayEvents.map((event) => (
                         <a
-                          className="calendar-all-day-event"
+                          className={`calendar-all-day-event ${isAdvisorPreviewEvent(event) ? 'is-advisor-preview' : ''} ${isTaskDueDateEvent(event) ? 'is-task-due-date' : ''}`}
                           href={event.htmlLink || undefined}
                           target={event.htmlLink ? '_blank' : undefined}
                           rel={event.htmlLink ? 'noreferrer' : undefined}
                           key={event.id}
                           style={{ '--event-color': event.calendarColor || '#315efb' } as CSSProperties}
                         >
-                          {event.summary}
+                          {isAdvisorPreviewEvent(event) ? `[Preview AI] ${event.summary}` : isTaskDueDateEvent(event) ? `[Due] ${event.summary}` : event.summary}
                         </a>
                       ))}
                     </div>
@@ -513,7 +568,7 @@ export default function CalendarWeekView({
                         if (!placement) return null;
                         return (
                           <a
-                            className="calendar-timed-event"
+                            className={`calendar-timed-event ${isAdvisorPreviewEvent(event) ? 'is-advisor-preview' : ''} ${isTaskDueDateEvent(event) ? 'is-task-due-date' : ''}`}
                             href={event.htmlLink || undefined}
                             target={event.htmlLink ? '_blank' : undefined}
                             rel={event.htmlLink ? 'noreferrer' : undefined}
@@ -526,6 +581,8 @@ export default function CalendarWeekView({
                               width: `calc(((100% - 10px) / ${laneCount}) - 3px)`
                             } as CSSProperties}
                           >
+                            {isAdvisorPreviewEvent(event) && <em>Preview AI</em>}
+                            {isTaskDueDateEvent(event) && <em>Due date</em>}
                             <strong>{event.summary || '(Sem titulo)'}</strong>
                             <span>{formatEventTime(event.start)}{event.end ? ` - ${formatEventTime(event.end)}` : ''}</span>
                             <small>{event.calendarSummary}</small>

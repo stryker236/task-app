@@ -20,6 +20,7 @@ import useQuickQueue from './hooks/useQuickQueue';
 import useTagActions from './hooks/useTagActions';
 import useTaskActions from './hooks/useTaskActions';
 import useTaskFormController from './hooks/useTaskFormController';
+import { advisorCalendarPreviewEvents, taskDueDateCalendarEvents } from './utils/advisorCalendarPreviews';
 import { isOverdue, isToday } from './utils/taskDates';
 
 export default function App() {
@@ -84,6 +85,16 @@ export default function App() {
     setError,
     setViewingTask
   });
+
+  const advisorCalendarPreviews = useMemo(
+    () => advisorCalendarPreviewEvents(
+      advisorController.proposalBatch,
+      advisorController.proposalStatuses,
+      googleCalendar.googleCalendars
+    ),
+    [advisorController.proposalBatch, advisorController.proposalStatuses, googleCalendar.googleCalendars]
+  );
+  const taskDueDateCalendarPreviews = useMemo(() => taskDueDateCalendarEvents(allTasks), [allTasks]);
 
   const progressLog = useProgressLogController({
     filters,
@@ -184,14 +195,18 @@ export default function App() {
             applyingProposalId={advisorController.applyingProposalId}
             applyingAllProposals={advisorController.applyingAllProposals}
             googleStatus={googleCalendar.googleStatus}
+            googleCalendars={googleCalendar.googleCalendars}
+            advisorDefaultCalendarId={googleCalendar.advisorDefaultCalendarId}
             onRefresh={advisorController.refreshTaskAdvisorAdvice}
-            onRequestActions={advisorController.requestAdvisorActions}
+            onRequestActions={(action) => advisorController.requestAdvisorActions(action, { defaultCalendarId: googleCalendar.advisorDefaultCalendarId })}
             onConnectGoogle={googleCalendar.connectGoogle}
             onApplyProposal={advisorController.applyAdvisorProposal}
             onIgnoreProposal={advisorController.ignoreAdvisorProposal}
             onApplyAllProposals={advisorController.applyAllAdvisorProposals}
             onIgnoreAllProposals={advisorController.ignoreAllAdvisorProposals}
             onClearProposals={advisorController.clearAdvisorProposals}
+            onAdvisorDefaultCalendarChange={googleCalendar.setAdvisorDefaultCalendarId}
+            onChangeProposalCalendar={advisorController.updateAdvisorProposalCalendar}
             onSaveProposalFeedback={advisorController.saveAdvisorProposalFeedback}
             onSaveInteractionFeedback={advisorController.saveAdvisorInteractionFeedback}
             onRefreshMemory={advisorController.refreshAdvisorMemoryRules}
@@ -256,17 +271,39 @@ export default function App() {
           calendarWeekStart={googleCalendar.calendarWeekStart}
           calendarWeekEnd={googleCalendar.calendarWeekEnd}
           weeklyCalendarEvents={googleCalendar.weeklyCalendarEvents}
+          advisorCalendarPreviewEvents={advisorCalendarPreviews}
+          taskDueDateCalendarEvents={taskDueDateCalendarPreviews}
           googleCalendars={googleCalendar.googleCalendars}
           selectedCalendarIds={googleCalendar.selectedCalendarIds}
+          advisorDefaultCalendarId={googleCalendar.advisorDefaultCalendarId}
           calendarAccountEmail={googleCalendar.calendarAccountEmail}
           weeklyCalendarBusyCount={googleCalendar.weeklyCalendarBusyCount}
           onCalendarWeekChange={googleCalendar.setCalendarWeekStart}
           onCalendarFilterChange={googleCalendar.setSelectedCalendarIds}
+          onAdvisorDefaultCalendarChange={googleCalendar.setAdvisorDefaultCalendarId}
           onConnectGoogle={googleCalendar.connectGoogle}
           onDisconnectGoogle={googleCalendar.disconnectGoogleAccount}
           onLoadCalendarWeekEvents={googleCalendar.loadCalendarWeekEvents}
           onLoadCalendarRangeEvents={googleCalendar.loadCalendarRangeEvents}
           onSendDailyTaskEmail={googleCalendar.sendDailyTaskEmail}
+          advisorLoading={advisorController.advisorLoading}
+          advisorProposals={advisorController.proposalBatch}
+          advisorCurrentAction={advisorController.lastAdvisorAction}
+          proposalStatuses={advisorController.proposalStatuses}
+          proposalFeedbackStatuses={advisorController.proposalFeedbackStatuses}
+          interactionFeedbackSaved={advisorController.interactionFeedbackSaved}
+          applyingProposalId={advisorController.applyingProposalId}
+          applyingAllProposals={advisorController.applyingAllProposals}
+          onRequestAdvisorCalendarEvents={() => advisorController.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId })}
+          onApplyAdvisorProposal={advisorController.applyAdvisorProposal}
+          onIgnoreAdvisorProposal={advisorController.ignoreAdvisorProposal}
+          onApplyAllAdvisorProposals={advisorController.applyAllAdvisorProposals}
+          onIgnoreAllAdvisorProposals={advisorController.ignoreAllAdvisorProposals}
+          onClearAdvisorProposals={advisorController.clearAdvisorProposals}
+          onChangeAdvisorProposalCalendar={advisorController.updateAdvisorProposalCalendar}
+          onSaveAdvisorProposalFeedback={advisorController.saveAdvisorProposalFeedback}
+          onSaveAdvisorInteractionFeedback={advisorController.saveAdvisorInteractionFeedback}
+          onOpenAdvisorTask={advisorController.openAdvisorRecommendedTask}
           advisorMemoryRules={advisorController.advisorMemoryRules}
           advisorMemoryLoading={advisorController.advisorMemoryLoading}
           onRefreshAdvisorMemory={advisorController.refreshAdvisorMemoryRules}

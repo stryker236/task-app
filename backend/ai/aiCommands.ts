@@ -74,7 +74,8 @@ function normalizeAiCommand(command, index) {
         start,
         end,
         timeZone: normalizeString(normalized.event.timeZone),
-        calendarId: normalizeString(normalized.event.calendarId) || 'primary'
+        calendarId: normalizeString(normalized.event.calendarId) || 'primary',
+        calendarSelectionReason: normalizeString(normalized.event.calendarSelectionReason)
       };
     }
   }
@@ -97,6 +98,113 @@ function assertTaskCanBeCompleted(task, tasks, previousStatus = null) {
     ];
     throw error;
   }
+}
+
+function normalizeCalendarEventIdentityText(value) {
+  return normalizeString(value).toLocaleLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function calendarEventTimeValue(value) {
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? '' : new Date(timestamp).toISOString();
+}
+
+function sameCalendarEventTitle(left, right) {
+  const normalizedLeft = normalizeCalendarEventIdentityText(left);
+  const normalizedRight = normalizeCalendarEventIdentityText(right);
+  if (!normalizedLeft || !normalizedRight) return false;
+  return normalizedLeft === normalizedRight;
+}
+
+function isSameGoogleCalendarEvent(candidate, event) {
+  return sameCalendarEventTitle(candidate.summary, event.summary);
+}
+
+function calendarEventDuplicateFingerprint(event) {
+  return [
+    normalizeString(event.calendarId) || 'primary',
+    normalizeCalendarEventIdentityText(event.summary),
+    calendarEventTimeValue(event.start),
+    calendarEventTimeValue(event.end)
+  ].join('|');
+}
+
+function calendarEventStartsInPast(event, now = Date.now()) {
+  const startTime = Date.parse(event?.start || '');
+  return !Number.isNaN(startTime) && startTime < now;
+}
+
+function calendarEventDurationMinutes(event, fallbackMinutes = 30) {
+  const startTime = Date.parse(event?.start || '');
+  const endTime = Date.parse(event?.end || '');
+  if (!Number.isNaN(startTime) && !Number.isNaN(endTime) && endTime > startTime) {
+    return Math.max(15, Math.min(240, Math.round((endTime - startTime) / 60000)));
+  }
+  return fallbackMinutes;
+}
+
+function alignCalendarEventToTaskDueDate(event, task) {
+  const eventWithTaskTitle = task?.title
+    ? { ...event, summary: task.title }
+    : event;
+  if (!task?.dueDateTime) return eventWithTaskTitle;
+  const startTime = Date.parse(task.dueDateTime);
+  if (Number.isNaN(startTime)) return eventWithTaskTitle;
+  const fallbackDuration = Number(task.estimatedMinutes || 0) > 0
+    ? Math.max(15, Math.min(240, Number(task.estimatedMinutes)))
+    : 30;
+  const durationMinutes = calendarEventDurationMinutes(eventWithTaskTitle, fallbackDuration);
+  return {
+    ...eventWithTaskTitle,
+    start: new Date(startTime).toISOString(),
+    end: new Date(startTime + durationMinutes * 60000).toISOString()
+  };
+}
+
+async function getAuthorizedCalendarClient(dependencies) {
+  const { pool, fetchGoogleConnection, saveGoogleConnection } = dependencies;
+  if (!fetchGoogleConnection || !saveGoogleConnection || !pool) {
+    const error = new Error('Google Calendar dependencies are not configured');
+    (error as any).status = 503;
+    throw error;
+  }
+  const connection = await fetchGoogleConnection();
+  if (!connection) {
+    const error = new Error('Google Calendar is not connected');
+    (error as any).status = 409;
+    throw error;
+  }
+  if (!connection.scopes?.includes(CALENDAR_SCOPE)) {
+    const error = new Error('Google Calendar write permission is required. Reconnect Google to grant calendar event access.');
+    (error as any).status = 409;
+    throw error;
+  }
+  const storedTokens = decryptJson(connection.encryptedTokens);
+  const authClient = createOAuthClient(storedTokens);
+  authClient.on('tokens', (tokens) => {
+    saveGoogleConnection(pool, {
+      accountEmail: connection.accountEmail,
+      scopes: connection.scopes,
+      encryptedTokens: { ...storedTokens, ...tokens },
+      expiresAt: connection.expiresAt
+    }).catch((error) => console.error('Failed to persist refreshed Google tokens:', error.message));
+  });
+  return createCalendarClient(authClient);
+}
+
+async function findExistingGoogleCalendarEvent(event, dependencies) {
+  const summary = normalizeString(event?.summary);
+  if (!summary) return null;
+
+  const calendar = await getAuthorizedCalendarClient(dependencies);
+  const existingResult = await calendar.events.list({
+    calendarId: event.calendarId || 'primary',
+    q: summary,
+    maxResults: 2500,
+    showDeleted: false,
+    singleEvents: true,
+  });
+  return (existingResult.data.items || []).find((candidate) => isSameGoogleCalendarEvent(candidate, event)) || null;
 }
 
 function prepareAiCommand(command, tasks, index) {
@@ -187,11 +295,17 @@ function prepareAiCommand(command, tasks, index) {
       (error as any).status = 404;
       throw error;
     }
+    const calendarEvent = alignCalendarEventToTaskDueDate(normalized.event, sourceTask);
+    if (calendarEventStartsInPast(calendarEvent)) {
+      const error = createValidationError([`commands[${index}].event.start cannot be in the past`]);
+      throw error;
+    }
     return {
       ...normalized,
       sourceTaskTitle: sourceTask?.title || null,
-      calendarEvent: normalized.event,
-      summary: normalized.label || `Create calendar event: ${normalized.event.summary}`
+      event: calendarEvent,
+      calendarEvent,
+      summary: normalized.label || `Create calendar event: ${calendarEvent.summary}`
     };
   }
 
@@ -199,35 +313,11 @@ function prepareAiCommand(command, tasks, index) {
 }
 
 async function insertGoogleCalendarEvent(prepared, dependencies) {
-  const { pool, fetchGoogleConnection, saveGoogleConnection } = dependencies;
-  if (!fetchGoogleConnection || !saveGoogleConnection || !pool) {
-    const error = new Error('Google Calendar dependencies are not configured');
-    (error as any).status = 503;
-    throw error;
-  }
-  const connection = await fetchGoogleConnection();
-  if (!connection) {
-    const error = new Error('Google Calendar is not connected');
-    (error as any).status = 409;
-    throw error;
-  }
-  if (!connection.scopes?.includes(CALENDAR_SCOPE)) {
-    const error = new Error('Google Calendar write permission is required. Reconnect Google to grant calendar event access.');
-    (error as any).status = 409;
-    throw error;
-  }
-  const storedTokens = decryptJson(connection.encryptedTokens);
-  const authClient = createOAuthClient(storedTokens);
-  authClient.on('tokens', (tokens) => {
-    saveGoogleConnection(pool, {
-      accountEmail: connection.accountEmail,
-      scopes: connection.scopes,
-      encryptedTokens: { ...storedTokens, ...tokens },
-      expiresAt: connection.expiresAt
-    }).catch((error) => console.error('Failed to persist refreshed Google tokens:', error.message));
-  });
-  const calendar = createCalendarClient(authClient);
   const event = prepared.calendarEvent;
+  const existingEvent = await findExistingGoogleCalendarEvent(event, dependencies);
+  if (existingEvent) return { ...existingEvent, alreadyExists: true };
+
+  const calendar = await getAuthorizedCalendarClient(dependencies);
   const result = await calendar.events.insert({
     calendarId: event.calendarId || 'primary',
     requestBody: {
@@ -244,7 +334,7 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
       }
     }
   });
-  return result.data;
+  return { ...result.data, alreadyExists: false };
 }
 
 async function applyPreparedAiCommand(client, prepared, allTasks, now, dependencies) {
@@ -287,6 +377,7 @@ async function applyPreparedAiCommand(client, prepared, allTasks, now, dependenc
     return {
       commandId: prepared.id,
       type: prepared.type,
+      alreadyExists: Boolean(event.alreadyExists),
       event: {
         id: event.id,
         calendarId: prepared.calendarEvent.calendarId || 'primary',
@@ -304,9 +395,11 @@ async function applyPreparedAiCommand(client, prepared, allTasks, now, dependenc
 function buildAiCommandsPreview(commands, initialTasks) {
   let tasks = initialTasks;
   const prepared = [];
+  const calendarEventFingerprints = new Set();
   for (const [index, command] of commands.entries()) {
     const item: Record<string, any> = prepareAiCommand(command, tasks, index);
     const relatedTask = item.relatedTaskId ? tasks.find((task) => task.id === item.relatedTaskId) : null;
+    const duplicateCalendarEvent = item.type === 'create_calendar_event' && calendarEventFingerprints.has(calendarEventDuplicateFingerprint(item.calendarEvent));
     prepared.push({
       id: item.id,
       type: item.type,
@@ -317,13 +410,16 @@ function buildAiCommandsPreview(commands, initialTasks) {
       relatedTaskId: item.relatedTaskId || null,
       relatedTaskTitle: item.relatedTaskTitle || relatedTask?.title || null,
       relationType: item.relationType || null,
-      alreadyExists: item.alreadyExists || false,
+      alreadyExists: item.alreadyExists || duplicateCalendarEvent || false,
       changes: item.type === 'create_task'
         ? { createdTask: item.createdTask }
         : item.type === 'create_calendar_event'
           ? { calendarEvent: item.calendarEvent }
           : { before: item.before, after: item.after }
     });
+    if (item.type === 'create_calendar_event') {
+      calendarEventFingerprints.add(calendarEventDuplicateFingerprint(item.calendarEvent));
+    }
     if (item.type === 'create_task') tasks = [...tasks, item.createdTask];
     if (item.type === 'update_task' || item.type === 'add_relation') {
       tasks = tasks.map((task) => (task.id === item.taskId ? item.after : task));
@@ -336,7 +432,11 @@ module.exports = {
   getAiCommandsFromBody,
   prepareAiCommand,
   applyPreparedAiCommand,
-  buildAiCommandsPreview
+  buildAiCommandsPreview,
+  calendarEventDuplicateFingerprint,
+  calendarEventStartsInPast,
+  alignCalendarEventToTaskDueDate,
+  findExistingGoogleCalendarEvent
 };
 
 export {};

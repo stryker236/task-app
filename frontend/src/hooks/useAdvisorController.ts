@@ -69,12 +69,12 @@ export default function useAdvisorController({
     }
   }
 
-  async function requestAdvisorActions(action: string) {
+  async function requestAdvisorActions(action: string, options: { defaultCalendarId?: string } = {}) {
     if (!action) return;
 
     try {
       setAdvisorLoading(true);
-      const response = await requestTaskAdvisorCommands(action);
+      const response = await requestTaskAdvisorCommands(action, options);
       setLastAdvisorAction(action);
       setProposalBatch(response);
       setProposalStatuses({});
@@ -173,6 +173,50 @@ export default function useAdvisorController({
     setInteractionFeedbackSaved(false);
   }
 
+  function updateAdvisorProposalCalendar(commandId: string, calendarId: string, calendarSummary = '') {
+    setProposalBatch((current) => {
+      if (!current) return current;
+      const commandIndex = current.commands.findIndex((command) => command.id === commandId);
+      if (commandIndex < 0) return current;
+
+      return {
+        ...current,
+        commands: current.commands.map((command, index) => {
+          if (index !== commandIndex || command.type !== 'create_calendar_event') return command;
+          const changes = command.changes && typeof command.changes === 'object' ? command.changes as Record<string, unknown> : {};
+          const calendarEvent = changes.calendarEvent && typeof changes.calendarEvent === 'object'
+            ? changes.calendarEvent as Record<string, unknown>
+            : {};
+          return {
+            ...command,
+            changes: {
+              ...changes,
+              calendarEvent: {
+                ...calendarEvent,
+                calendarId,
+                calendarSummary,
+                calendarSelectionReason: 'user selected calendar'
+              }
+            }
+          };
+        }),
+        rawCommands: current.rawCommands?.map((command, index) => {
+          if (index !== commandIndex || command.type !== 'create_calendar_event') return command;
+          return {
+            ...command,
+            event: command.event
+              ? {
+                ...command.event,
+                calendarId,
+                calendarSelectionReason: 'user selected calendar'
+              }
+              : command.event
+          };
+        })
+      };
+    });
+  }
+
   async function saveAdvisorInteractionFeedback(feedback: AdvisorFeedbackInput['feedback']) {
     if (!proposalBatch || !lastAdvisorAction) return;
     try {
@@ -236,6 +280,7 @@ export default function useAdvisorController({
     applyAllAdvisorProposals,
     ignoreAllAdvisorProposals,
     clearAdvisorProposals,
+    updateAdvisorProposalCalendar,
     saveAdvisorProposalFeedback,
     saveAdvisorInteractionFeedback,
     openAdvisorRecommendedTask

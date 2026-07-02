@@ -73,9 +73,10 @@ const calendarEventSchema = {
     start: { type: 'string' },
     end: { type: 'string' },
     timeZone: nullableString,
-    calendarId: nullableString
+    calendarId: nullableString,
+    calendarSelectionReason: nullableString
   },
-  required: ['summary', 'description', 'location', 'start', 'end', 'timeZone', 'calendarId']
+  required: ['summary', 'description', 'location', 'start', 'end', 'timeZone', 'calendarId', 'calendarSelectionReason']
 };
 
 const advisorCommandResponseSchema = {

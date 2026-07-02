@@ -4,63 +4,169 @@ const STOP_WORDS = new Set([
 ]);
 
 // Convert free text into stable comparison tokens used by fingerprints.
-function normalizeWord(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9_-]/g, '');
+function sanitizeWord(value: string) {
+  const withoutAccents = value
+    .normalize('NFD') // Decompose combined letters into base letters and diacritical marks
+    .replace(/[\u0300-\u036f]/g, ''); // Remove diacritics (accents) from letters
+
+  const lowercase = withoutAccents.toLowerCase();
+
+  return lowercase.replace(/[^a-z0-9_-]/g, ''); // Remove any character that is not a letter, number, underscore, or hyphen
 }
 
 // Build a compact topic key from a task/event title so feedback can match similar future suggestions.
 function titleFingerprint(title = '') {
-  return [...new Set(String(title)
-    .split(/\s+/)
-    .map(normalizeWord)
-    .filter((word) => word.length >= 3 && !STOP_WORDS.has(word)))]
-    .slice(0, 8)
+  const words = String(title).split(/\s+/); // Split the title into words based on whitespace
+
+  const relevantWords = words
+    .map(sanitizeWord)
+    .filter(isRelevantWord);
+
+  const uniqueWords = [...new Set(relevantWords)];
+
+  return uniqueWords
+    .slice(0, 8) // Limit to the first 8 unique relevant words
     .join(' ');
 }
 
-// Keep user-provided tag feedback bounded and deduplicated before storing it.
-function sanitizeStringList(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 20);
+function isRelevantWord(word: string) {
+  return word.length >= 3 && !STOP_WORDS.has(word);
 }
 
-// Normalize frontend feedback into the exact shape the memory inference code expects.
-function sanitizeAdvisorFeedback(value: Record<string, any> = {}) {
-  const overall = ['useful', 'not_useful', 'mixed'].includes(value.overall) ? value.overall : 'mixed';
-  const tagVolume = ['more', 'less', 'ok'].includes(value.tagVolume) ? value.tagVolume : 'ok';
-  const priorityDirection = ['too_high', 'too_low', 'ok'].includes(value.priorityDirection) ? value.priorityDirection : 'ok';
-  const taskAgeImportance = ['too_much', 'too_little', 'ok'].includes(value.taskAgeImportance) ? value.taskAgeImportance : 'ok';
-  const overdueImportance = ['too_much', 'too_little', 'ok'].includes(value.overdueImportance) ? value.overdueImportance : 'ok';
-  const dueDateDirection = ['too_early', 'too_late', 'ok'].includes(value.dueDateDirection) ? value.dueDateDirection : 'ok';
-  const calendarDurationDirection = ['too_short', 'too_long', 'ok'].includes(value.calendarDurationDirection) ? value.calendarDurationDirection : 'ok';
+// Keep user-provided tag feedback bounded and deduplicated before storing it.
+function sanitizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const strings = value.map((item) => String(item ?? '').trim());
+  const nonEmptyStrings = strings.filter(Boolean); // Remove empty strings
+  const uniqueStrings = [...new Set(nonEmptyStrings)];
+  return uniqueStrings.slice(0, 20);
+}
+
+function sanitizeString(value: unknown) {
+  return String(value ?? '').trim();
+}
+
+function pickEnum(value: unknown, allowed: string[], fallback: string) {
+  return allowed.includes(String(value || '')) ? String(value) : fallback;
+}
+
+function createEmptyAdvisorFeedback() {
   return {
-    overall,
-    tagVolume,
-    goodTags: sanitizeStringList(value.goodTags),
-    badTags: sanitizeStringList(value.badTags),
+    overall: 'mixed',
+    tagVolume: 'ok',
+    goodTags: [],
+    badTags: [],
+    wrongReason: false,
+    wrongPriority: false,
+    wrongDeadline: false,
+    priorityDirection: 'ok',
+    taskAgeImportance: 'ok',
+    overdueImportance: 'ok',
+    dueDateDirection: 'ok',
+    calendarChoice: 'ok',
+    calendarDurationDirection: 'ok',
+    unnecessaryEvent: false,
+    wrongCalendar: false,
+    chosenCalendarId: '',
+    chosenCalendarSummary: '',
+    preferredCalendarId: '',
+    preferredCalendarSummary: '',
+    shouldBeUrgent: false,
+    shouldBeLowerPriority: false,
+    missingContext: false
+  };
+}
+
+function sanitizeCommonAdvisorFeedback(value: Record<string, any> = {}) {
+  return {
+    ...createEmptyAdvisorFeedback(),
+    overall: pickEnum(value.overall, ['useful', 'not_useful', 'mixed'], 'mixed'),
     wrongReason: value.wrongReason === true,
-    wrongPriority: value.wrongPriority === true,
-    wrongDeadline: value.wrongDeadline === true,
-    priorityDirection,
-    taskAgeImportance,
-    overdueImportance,
-    dueDateDirection,
-    calendarDurationDirection,
-    unnecessaryEvent: value.unnecessaryEvent === true,
-    wrongCalendar: value.wrongCalendar === true,
-    shouldBeUrgent: value.shouldBeUrgent === true,
-    shouldBeLowerPriority: value.shouldBeLowerPriority === true,
     missingContext: value.missingContext === true
   };
+}
+
+function sanitizeTagAdvisorFeedback(value: Record<string, any> = {}) {
+  return {
+    ...sanitizeCommonAdvisorFeedback(value),
+    tagVolume: pickEnum(value.tagVolume, ['more', 'less', 'ok'], 'ok'),
+    goodTags: sanitizeStringList(value.goodTags),
+    badTags: sanitizeStringList(value.badTags),
+    wrongPriority: value.wrongPriority === true,
+    wrongDeadline: value.wrongDeadline === true
+  };
+}
+
+function sanitizePriorityAdvisorFeedback(value: Record<string, any> = {}) {
+  return {
+    ...sanitizeCommonAdvisorFeedback(value),
+    wrongPriority: value.wrongPriority === true,
+    priorityDirection: pickEnum(value.priorityDirection, ['too_high', 'too_low', 'ok'], 'ok'),
+    taskAgeImportance: pickEnum(value.taskAgeImportance, ['too_much', 'too_little', 'ok'], 'ok'),
+    overdueImportance: pickEnum(value.overdueImportance, ['too_much', 'too_little', 'ok'], 'ok'),
+    shouldBeUrgent: value.shouldBeUrgent === true,
+    shouldBeLowerPriority: value.shouldBeLowerPriority === true
+  };
+}
+
+function sanitizeDueDateAdvisorFeedback(value: Record<string, any> = {}) {
+  return {
+    ...sanitizeCommonAdvisorFeedback(value),
+    wrongDeadline: value.wrongDeadline === true,
+    dueDateDirection: pickEnum(value.dueDateDirection, ['too_early', 'too_late', 'ok'], 'ok')
+  };
+}
+
+function sanitizeCalendarEventAdvisorFeedback(value: Record<string, any> = {}) {
+  const calendarChoice = pickEnum(value.calendarChoice, ['ok', 'wrong'], value.wrongCalendar === true ? 'wrong' : 'ok');
+  return {
+    ...sanitizeCommonAdvisorFeedback(value),
+    wrongDeadline: value.wrongDeadline === true,
+    dueDateDirection: pickEnum(value.dueDateDirection, ['too_early', 'too_late', 'ok'], 'ok'),
+    calendarChoice,
+    calendarDurationDirection: pickEnum(value.calendarDurationDirection, ['too_short', 'too_long', 'ok'], 'ok'),
+    unnecessaryEvent: value.unnecessaryEvent === true,
+    wrongCalendar: calendarChoice === 'wrong' || value.wrongCalendar === true,
+    chosenCalendarId: sanitizeString(value.chosenCalendarId),
+    chosenCalendarSummary: sanitizeString(value.chosenCalendarSummary),
+    preferredCalendarId: calendarChoice === 'wrong' ? sanitizeString(value.preferredCalendarId) : '',
+    preferredCalendarSummary: calendarChoice === 'wrong' ? sanitizeString(value.preferredCalendarSummary) : ''
+  };
+}
+
+function sanitizeGeneralAdvisorFeedback(value: Record<string, any> = {}) {
+  return {
+    ...sanitizeCommonAdvisorFeedback(value),
+    tagVolume: pickEnum(value.tagVolume, ['more', 'less', 'ok'], 'ok'),
+    goodTags: sanitizeStringList(value.goodTags),
+    badTags: sanitizeStringList(value.badTags),
+    wrongPriority: value.wrongPriority === true,
+    wrongDeadline: value.wrongDeadline === true,
+    priorityDirection: pickEnum(value.priorityDirection, ['too_high', 'too_low', 'ok'], 'ok'),
+    taskAgeImportance: pickEnum(value.taskAgeImportance, ['too_much', 'too_little', 'ok'], 'ok'),
+    overdueImportance: pickEnum(value.overdueImportance, ['too_much', 'too_little', 'ok'], 'ok'),
+    dueDateDirection: pickEnum(value.dueDateDirection, ['too_early', 'too_late', 'ok'], 'ok'),
+    shouldBeUrgent: value.shouldBeUrgent === true,
+    shouldBeLowerPriority: value.shouldBeLowerPriority === true
+  };
+}
+
+// Route feedback through an action-specific sanitizer while keeping one storage shape for jsonb.
+function sanitizeAdvisorFeedback(action: string, value: Record<string, any> = {}) {
+  if (action === 'suggest_tags') return sanitizeTagAdvisorFeedback(value);
+  if (action === 'priority_management') return sanitizePriorityAdvisorFeedback(value);
+  if (action === 'suggest_due_dates') return sanitizeDueDateAdvisorFeedback(value);
+  if (action === 'schedule_calendar_events') return sanitizeCalendarEventAdvisorFeedback(value);
+  return sanitizeGeneralAdvisorFeedback(value);
 }
 
 // Turn feedback on one proposal into a reusable rule for future Advisor requests.
 function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<string, any>) {
   const changes = commandPreview?.changes && typeof commandPreview.changes === 'object' ? commandPreview.changes : {};
+  const calendarEvent = changes?.calendarEvent && typeof changes.calendarEvent === 'object' ? changes.calendarEvent : {};
   const title = advisorPreviewTitle(commandPreview);
   const fingerprint = titleFingerprint(title);
   const rule: Record<string, any> = {
@@ -77,9 +183,14 @@ function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<str
     taskAgeImportance: feedback.taskAgeImportance,
     overdueImportance: feedback.overdueImportance,
     dueDateDirection: feedback.dueDateDirection,
+    calendarChoice: feedback.calendarChoice,
     calendarDurationDirection: feedback.calendarDurationDirection,
     unnecessaryEvent: feedback.unnecessaryEvent,
     wrongCalendar: feedback.wrongCalendar,
+    chosenCalendarId: feedback.chosenCalendarId || calendarEvent.calendarId || '',
+    chosenCalendarSummary: feedback.chosenCalendarSummary || calendarEvent.calendarSummary || '',
+    preferredCalendarId: feedback.preferredCalendarId,
+    preferredCalendarSummary: feedback.preferredCalendarSummary,
     shouldBeUrgent: feedback.shouldBeUrgent,
     shouldBeLowerPriority: feedback.shouldBeLowerPriority,
     askForMoreContext: feedback.missingContext
@@ -118,9 +229,14 @@ function inferAdvisorInteractionMemoryRule({ action, interaction, feedback }: Re
     taskAgeImportance: feedback.taskAgeImportance,
     overdueImportance: feedback.overdueImportance,
     dueDateDirection: feedback.dueDateDirection,
+    calendarChoice: feedback.calendarChoice,
     calendarDurationDirection: feedback.calendarDurationDirection,
     unnecessaryEvent: feedback.unnecessaryEvent,
     wrongCalendar: feedback.wrongCalendar,
+    chosenCalendarId: feedback.chosenCalendarId,
+    chosenCalendarSummary: feedback.chosenCalendarSummary,
+    preferredCalendarId: feedback.preferredCalendarId,
+    preferredCalendarSummary: feedback.preferredCalendarSummary,
     shouldBeUrgent: feedback.shouldBeUrgent,
     shouldBeLowerPriority: feedback.shouldBeLowerPriority,
     askForMoreContext: feedback.missingContext,
@@ -158,9 +274,14 @@ function buildAdvisorMemoryContext(rules: any[] = []) {
       taskAgeImportance: item.rule.taskAgeImportance || 'ok',
       overdueImportance: item.rule.overdueImportance || 'ok',
       dueDateDirection: item.rule.dueDateDirection || 'ok',
+      calendarChoice: item.rule.calendarChoice || 'ok',
       calendarDurationDirection: item.rule.calendarDurationDirection || 'ok',
       unnecessaryEvent: item.rule.unnecessaryEvent === true,
       wrongCalendar: item.rule.wrongCalendar === true,
+      chosenCalendarId: item.rule.chosenCalendarId || '',
+      chosenCalendarSummary: item.rule.chosenCalendarSummary || '',
+      preferredCalendarId: item.rule.preferredCalendarId || '',
+      preferredCalendarSummary: item.rule.preferredCalendarSummary || '',
       shouldBeUrgent: item.rule.shouldBeUrgent === true,
       shouldBeLowerPriority: item.rule.shouldBeLowerPriority === true,
       askForMoreContext: item.rule.askForMoreContext === true,
@@ -172,7 +293,7 @@ function buildAdvisorMemoryContext(rules: any[] = []) {
 
 // Normalize lists before comparing tags/title keywords across user feedback and previews.
 function normalizedSet(values: unknown[] = []) {
-  return new Set(values.map((value) => normalizeWord(String(value || ''))).filter(Boolean));
+  return new Set(values.map((value) => sanitizeWord(String(value || ''))).filter(Boolean));
 }
 
 // Decide whether a stored rule is relevant to this task/event title.
@@ -208,7 +329,7 @@ function previewAddedTags(preview: Record<string, any>) {
   const afterTags = Array.isArray(changes?.after?.tags)
     ? changes.after.tags
     : Array.isArray(changes?.createdTask?.tags) ? changes.createdTask.tags : [];
-  return afterTags.map(String).filter((tag) => !beforeTags.has(normalizeWord(tag)));
+  return afterTags.map(String).filter((tag) => !beforeTags.has(sanitizeWord(tag)));
 }
 
 // Apply learned "do not show this again" style rules before proposals reach the UI.

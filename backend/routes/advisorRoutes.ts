@@ -6,7 +6,11 @@ const {
   getAiCommandsFromBody,
   prepareAiCommand,
   applyPreparedAiCommand,
-  buildAiCommandsPreview
+  buildAiCommandsPreview,
+  calendarEventDuplicateFingerprint,
+  calendarEventStartsInPast,
+  alignCalendarEventToTaskDueDate,
+  findExistingGoogleCalendarEvent
 } = require('../ai/aiCommands');
 const { createMemoryRateLimit } = require('../middleware/rateLimit');
 const { normalizeString, createValidationError } = require('../tasks/taskValidation');
@@ -112,6 +116,65 @@ function filterCalendarCommandsByKnownCalendars({ commands = [], previews = [], 
   return { commands: keptCommands, previews: keptPreviews };
 }
 
+function filterPastCalendarCommands(commands = [], now = Date.now()) {
+  return commands.filter((command) => {
+    if (command.type !== 'create_calendar_event') return true;
+    return !calendarEventStartsInPast(command.event, now);
+  });
+}
+
+function alignCalendarCommandsToTaskDueDate(commands = [], tasks = []) {
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  return commands.map((command) => {
+    if (command.type !== 'create_calendar_event' || !command.taskId) return command;
+    const task = tasksById.get(command.taskId);
+    if (!task?.dueDateTime) return command;
+    return {
+      ...command,
+      event: alignCalendarEventToTaskDueDate(command.event, task)
+    };
+  });
+}
+
+function filterDuplicateCalendarCommandPairs({ commands = [], previews = [] }) {
+  const seenEvents = new Set();
+  const keptCommands = [];
+  const keptPreviews = [];
+  previews.forEach((preview, index) => {
+    if (preview.type === 'create_calendar_event') {
+      const event = commands[index]?.event || preview.changes?.calendarEvent;
+      const fingerprint = event ? calendarEventDuplicateFingerprint(event) : '';
+      if (fingerprint && seenEvents.has(fingerprint)) return;
+      if (fingerprint) seenEvents.add(fingerprint);
+      if (preview.alreadyExists) return;
+    }
+    keptPreviews.push(preview);
+    keptCommands.push(commands[index]);
+  });
+  return { commands: keptCommands, previews: keptPreviews };
+}
+
+async function filterExistingGoogleCalendarCommandPairs({ commands = [], previews = [], dependencies }) {
+  const checkedEvents = new Map();
+  const pairs = await Promise.all(previews.map(async (preview, index) => {
+    if (preview.type !== 'create_calendar_event') return { command: commands[index], preview };
+    const event = commands[index]?.event || preview.changes?.calendarEvent;
+    if (!event) return { command: commands[index], preview };
+    const fingerprint = calendarEventDuplicateFingerprint(event);
+    if (!checkedEvents.has(fingerprint)) {
+      checkedEvents.set(fingerprint, findExistingGoogleCalendarEvent(event, dependencies));
+    }
+    const existingEvent = await checkedEvents.get(fingerprint);
+    if (existingEvent) return null;
+    return { command: commands[index], preview };
+  }));
+  const keptPairs = pairs.filter(Boolean);
+  return {
+    commands: keptPairs.map((pair) => pair.command),
+    previews: keptPairs.map((pair) => pair.preview)
+  };
+}
+
 function addCalendarLabelsToPreviews(previews = [], calendars = []) {
   if (!calendars.length) return previews;
   const calendarsById = new Map(calendars.map((calendar) => [calendar.id, calendar]));
@@ -131,6 +194,43 @@ function addCalendarLabelsToPreviews(previews = [], calendars = []) {
           calendarSummary: calendar.summary,
           calendarPrimary: calendar.primary
         }
+      }
+    };
+  });
+}
+
+function defaultAdvisorCalendarId(calendars = [], requestedCalendarId = '') {
+  if (requestedCalendarId && calendars.some((calendar) => calendar.id === requestedCalendarId)) return requestedCalendarId;
+  return calendars.find((calendar) => String(calendar.summary || '').toLocaleLowerCase() === 'aiadvisor')?.id
+    || calendars.find((calendar) => calendar.primary)?.id
+    || calendars[0]?.id
+    || 'primary';
+}
+
+function defaultAdvisorCalendar(calendars = [], requestedCalendarId = '') {
+  if (requestedCalendarId) {
+    const requested = calendars.find((calendar) => calendar.id === requestedCalendarId);
+    if (requested) return requested;
+  }
+  return calendars.find((calendar) => String(calendar.summary || '').toLocaleLowerCase() === 'aiadvisor')
+    || calendars.find((calendar) => calendar.primary)
+    || calendars[0]
+    || null;
+}
+
+function applyDefaultCalendarToCommands(commands = [], calendars = [], requestedCalendarId = '') {
+  const defaultCalendar = defaultAdvisorCalendar(calendars, requestedCalendarId);
+  const defaultCalendarId = defaultCalendar?.id || defaultAdvisorCalendarId(calendars, requestedCalendarId);
+  const defaultCalendarSummary = defaultCalendar?.summary || defaultCalendarId;
+  return commands.map((command) => {
+    if (command.type !== 'create_calendar_event') return command;
+    const event = command.event && typeof command.event === 'object' ? command.event : {};
+    return {
+      ...command,
+      event: {
+        ...event,
+        calendarId: defaultCalendarId,
+        calendarSelectionReason: `default calendar: ${defaultCalendarSummary}`
       }
     };
   });
@@ -177,6 +277,7 @@ function createAdvisorRouter({
   router.post('/ai/advisor/request', aiRateLimit, async (req, res, next) => {
     try {
       const action = normalizeString(req.body.action);
+      const requestedDefaultCalendarId = normalizeString(req.body.defaultCalendarId);
       if (!resolveAdvisorAction(action)) {
         throw createValidationError([`action must be one of: ${Object.keys(ADVISOR_ACTIONS).join(', ')}`]);
       }
@@ -197,10 +298,16 @@ function createAdvisorRouter({
         memory,
         calendars
       });
-      const prepared = buildAiCommandsPreview(advisor.commands, tasks);
+      const advisorCommands = filterPastCalendarCommands(
+          alignCalendarCommandsToTaskDueDate(
+          applyDefaultCalendarToCommands(advisor.commands, calendars, requestedDefaultCalendarId),
+          tasks
+        )
+      );
+      const prepared = buildAiCommandsPreview(advisorCommands, tasks);
       const actionFiltered = filterAdvisorCommandPairsByAction({
         action,
-        commands: advisor.commands,
+        commands: advisorCommands,
         previews: prepared
       });
       const calendarFiltered = filterCalendarCommandsByKnownCalendars({
@@ -208,9 +315,20 @@ function createAdvisorRouter({
         previews: actionFiltered.previews,
         calendars
       });
-      const filtered = filterAdvisorCommandPairsByMemory({
+      const duplicateFiltered = filterDuplicateCalendarCommandPairs({
         commands: calendarFiltered.commands,
-        previews: calendarFiltered.previews,
+        previews: calendarFiltered.previews
+      });
+      const existingGoogleFiltered = action === 'schedule_calendar_events'
+        ? await filterExistingGoogleCalendarCommandPairs({
+          commands: duplicateFiltered.commands,
+          previews: duplicateFiltered.previews,
+          dependencies: { pool, fetchGoogleConnection, saveGoogleConnection }
+        })
+        : duplicateFiltered;
+      const filtered = filterAdvisorCommandPairsByMemory({
+        commands: existingGoogleFiltered.commands,
+        previews: existingGoogleFiltered.previews,
         memory,
         action
       });
@@ -238,7 +356,7 @@ function createAdvisorRouter({
       if (!commandPreview?.id || !commandPreview?.type) {
         throw createValidationError(['commandPreview with id and type is required']);
       }
-      const feedback = sanitizeAdvisorFeedback(req.body.feedback || {});
+      const feedback = sanitizeAdvisorFeedback(action, req.body.feedback || {});
       const memoryRule = inferAdvisorMemoryRule({ action, commandPreview, feedback });
       const taskTitle = advisorPreviewTitle(commandPreview) || null;
       const result = await withTransaction(async (client) => {
@@ -266,7 +384,7 @@ function createAdvisorRouter({
         throw createValidationError([`action must be one of: ${Object.keys(ADVISOR_ACTIONS).join(', ')}`]);
       }
       const interaction = req.body.interaction && typeof req.body.interaction === 'object' ? req.body.interaction : {};
-      const feedback = sanitizeAdvisorFeedback(req.body.feedback || {});
+      const feedback = sanitizeAdvisorFeedback(action, req.body.feedback || {});
       const memoryRule = inferAdvisorInteractionMemoryRule({ action, interaction, feedback });
       const result = await withTransaction(async (client) => {
         await saveAdvisorFeedback(client, {
