@@ -293,9 +293,11 @@ export default function CalendarWeekView({
     const knownCalendar = calendars.some((calendar) => calendar.id === event.calendarId);
     return !knownCalendar || selectedCalendarIds.includes(event.calendarId);
   });
-  const displayEvents: CalendarDisplayEvent[] = [...events, ...taskDueDateEvents, ...visibleAdvisorPreviewEvents];
-  const timedEventsByDay = groupTimedEventsByDay(days, displayEvents);
-  const allDayEventsByDay = groupAllDayEventsByDay(days, displayEvents);
+  const scheduledEvents: CalendarDisplayEvent[] = [...events, ...visibleAdvisorPreviewEvents];
+  const displayEvents: CalendarDisplayEvent[] = [...scheduledEvents, ...taskDueDateEvents];
+  const timedDueDateEventsByDay = groupEventsByDay(days, taskDueDateEvents.filter((event) => !isAllDayEvent(event)));
+  const timedEventsByDay = groupTimedEventsByDay(days, scheduledEvents);
+  const allDayEventsByDay = groupAllDayEventsByDay(days, scheduledEvents);
   const monthEventsByDay = groupEventsByDay(monthDays, displayEvents);
   const canSendEmail = status.scopes.includes(GMAIL_SEND_SCOPE);
   const canCreateCalendarEvents = status.connected && status.scopes.includes(CALENDAR_WRITE_SCOPE);
@@ -514,7 +516,7 @@ export default function CalendarWeekView({
               <div className="calendar-day-header-row">
                 <div className="calendar-time-gutter" aria-hidden="true" />
                 {days.map((day) => {
-                  const dayEventCount = (timedEventsByDay.get(day)?.length || 0) + (allDayEventsByDay.get(day)?.length || 0);
+                  const dayEventCount = (timedEventsByDay.get(day)?.length || 0) + (allDayEventsByDay.get(day)?.length || 0) + (timedDueDateEventsByDay.get(day)?.length || 0);
                   return (
                     <div className={`calendar-day-header ${day === today ? 'is-today' : ''}`} key={day}>
                       <time dateTime={day}>
@@ -588,6 +590,24 @@ export default function CalendarWeekView({
                             <small>{event.calendarSummary}</small>
                             {event.location && <small>{event.location}</small>}
                           </a>
+                        );
+                      })}
+                      {(timedDueDateEventsByDay.get(day) || []).map((event) => {
+                        const placement = getEventPlacement(event);
+                        if (!placement) return null;
+                        return (
+                          <div
+                            className="calendar-due-date-marker"
+                            key={event.id}
+                            style={{
+                              '--event-color': event.calendarColor || '#0f8b8d',
+                              top: `${placement.top}px`
+                            } as CSSProperties}
+                          >
+                            <i aria-hidden="true" />
+                            <span>Due {formatEventTime(event.start)}</span>
+                            <strong>{event.summary || '(Sem titulo)'}</strong>
+                          </div>
                         );
                       })}
                     </div>

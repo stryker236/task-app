@@ -46,3 +46,10 @@
 
 .dependency-chip .chip-task-link { border: 0; padding: 0; background: transparent; color: #3d5fa9; font: inherit; text-align: left; }
 .dependency-chip .chip-task-link:hover { text-decoration: underline; }
+.calendar-event-dialog {
+  width: min(620px, calc(100vw - 56px));
+}
+
+.calendar-event-dialog textarea {
+  resize: vertical;
+}

@@ -29,3 +29,16 @@ export interface GoogleCalendar {
   selected: boolean;
   accessRole: string | null;
 }
+
+export interface TaskCalendarEvent {
+  id: string;
+  taskId: string;
+  googleEventId: string;
+  calendarId: string;
+  summary: string;
+  start: string;
+  end: string;
+  htmlLink: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

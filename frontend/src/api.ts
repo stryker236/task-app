@@ -1,4 +1,4 @@
-import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendar, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
+import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendar, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, SharedNote, SharedNoteInput, Tag, Task, TaskCalendarEvent, TaskInput, TaskStatus } from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -26,6 +26,19 @@ type JsonRequestOptions = RequestInit & {
   headers?: HeadersInit;
 };
 
+export type AppLogEntry = {
+  time?: string;
+  timestamp?: string;
+  level: number | string;
+  event?: string;
+  requestId?: string | null;
+  client?: string | null;
+  route?: string | null;
+  durationMs?: number | null;
+  metadata?: Record<string, unknown>;
+  msg?: string;
+};
+
 export type AdvisorAdvice = {
   generatedAt: string;
   source: 'rules' | 'ai';
@@ -45,6 +58,40 @@ export type AdvisorPreview = {
   commandCount: number;
   commands: AiCommandPreview[];
   rawCommands?: AiCommand[];
+  debug?: AdvisorPreviewDebug;
+};
+
+export type AdvisorPreviewDebug = {
+  generatedCount: number;
+  afterActionFilter: number;
+  afterCalendarFilter: number;
+  afterPastFilter: number;
+  afterDuplicateBatchFilter: number;
+  afterExistingGoogleFilter: number;
+  afterMemoryFilter: number;
+  rejectedCount?: number;
+  attempts?: number;
+  rejectionReasons?: Record<string, number>;
+  rejections?: Array<{
+    status: string;
+    reason: string;
+    attempt?: number;
+    commandId?: string;
+    taskId?: string | null;
+    taskTitle?: string | null;
+    summary?: string;
+    details?: string;
+    memoryRules?: Array<{
+      ruleType?: string;
+      action?: string;
+      appliesToCommandType?: string;
+      titleKeywords?: string[];
+      supportCount?: number;
+      matchedReasons?: string[];
+      summary?: string;
+      rule?: Record<string, unknown>;
+    }>;
+  }>;
 };
 
 type DeleteTagsResult = {
@@ -66,11 +113,20 @@ async function requestJson<T>(path: string, options: JsonRequestOptions = {}): P
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options
   });
+  const requestId = response.headers.get('x-request-id') || '';
   if (response.status === 204) return null as T;
   const data = await response.json().catch(() => ({} as { error?: string; details?: string[] }));
   if (!response.ok) {
+    window.dispatchEvent(new CustomEvent('task-app:api-error', {
+      detail: { path, status: response.status, requestId, error: data.error || 'O pedido falhou' }
+    }));
     const details = data.details?.length ? `: ${data.details.join('; ')}` : '';
     throw new Error(`${data.error || 'O pedido falhou'}${details}`);
+  }
+  if (requestId) {
+    window.dispatchEvent(new CustomEvent('task-app:api-response', {
+      detail: { path, status: response.status, requestId }
+    }));
   }
   return data as T;
 }
@@ -201,6 +257,28 @@ export function submitAdvisorInteractionFeedback(feedback: AdvisorInteractionFee
 
 export const getAdvisorMemoryRules = () => requestJson<AdvisorMemoryRule[]>('/ai/advisor/memory');
 export const deleteAdvisorMemoryRule = (id: string) => requestJson<void>(`/ai/advisor/memory/${id}`, { method: 'DELETE' });
+export const getLogs = (filters: {
+  level?: string;
+  event?: string;
+  requestId?: string;
+  requestIds?: string[];
+  excludeRequestIds?: string[];
+  events?: string[];
+  excludeEvents?: string[];
+  search?: string;
+  limit?: number;
+} = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.filter(Boolean).forEach((item) => params.append(key, item));
+    } else if (value) {
+      params.set(key, String(value));
+    }
+  });
+  return requestJson<{ logs: AppLogEntry[] }>(`/logs${params.toString() ? `?${params}` : ''}`);
+};
+export const sendClientLog = (log: { level: string; event: string; message?: string; metadata?: Record<string, unknown>; requestId?: string }) => requestJson<void>('/client-logs', { method: 'POST', body: JSON.stringify(log) });
 
 export const deleteTag = (id: string, { force = false } = {}) => requestJson<void>(`/tags/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' });
 export const deleteTags = (ids: string[], { force = false } = {}) => requestJson<DeleteTagsResult>('/tags', { method: 'DELETE', body: JSON.stringify({ ids, force }) });
@@ -237,6 +315,22 @@ export const getGoogleOAuthUrl = () => requestJson<{ url: string; expiresAt: str
 export const disconnectGoogle = () => requestJson<void>('/google/connection', { method: 'DELETE' });
 export const sendGoogleDailyTaskEmail = () => requestJson<{ id: string; to: string; todayCount: number; overdueCount: number }>('/google/gmail/daily-tasks', { method: 'POST', body: JSON.stringify({}) });
 export const getGoogleCalendars = () => requestJson<{ accountEmail: string | null; calendars: GoogleCalendar[] }>('/google/calendars');
+
+export type CreateGoogleCalendarEventInput = {
+  taskId: string;
+  summary: string;
+  calendarId: string;
+  description?: string;
+  location?: string;
+  start: string;
+  end: string;
+  timeZone?: string;
+};
+
+export const createGoogleCalendarEvent = (event: CreateGoogleCalendarEventInput) => requestJson<{ event: TaskCalendarEvent }>('/google/calendar/events', {
+  method: 'POST',
+  body: JSON.stringify(event)
+});
 
 function calendarIdsQuery(calendarIds: string[] = []) {
   const params = new URLSearchParams();

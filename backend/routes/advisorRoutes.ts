@@ -9,11 +9,11 @@ const {
   buildAiCommandsPreview,
   calendarEventDuplicateFingerprint,
   calendarEventStartsInPast,
-  alignCalendarEventToTaskDueDate,
   findExistingGoogleCalendarEvent
 } = require('../ai/aiCommands');
 const { createMemoryRateLimit } = require('../middleware/rateLimit');
 const { normalizeString, createValidationError } = require('../tasks/taskValidation');
+const { logger } = require('../logger');
 const {
   advisorPreviewTitle,
   buildAdvisorMemoryContext,
@@ -89,7 +89,7 @@ async function fetchWritableAdvisorCalendars({ pool, fetchGoogleConnection, save
       scopes: connection.scopes,
       encryptedTokens: { ...storedTokens, ...tokens },
       expiresAt: connection.expiresAt
-    }).catch((error) => console.error('Failed to persist refreshed Google tokens:', error.message));
+    }).catch((error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
   });
   const calendar = createCalendarClient(authClient);
   const result = await calendar.calendarList.list({
@@ -123,19 +123,6 @@ function filterPastCalendarCommands(commands = [], now = Date.now()) {
   });
 }
 
-function alignCalendarCommandsToTaskDueDate(commands = [], tasks = []) {
-  const tasksById = new Map(tasks.map((task) => [task.id, task]));
-  return commands.map((command) => {
-    if (command.type !== 'create_calendar_event' || !command.taskId) return command;
-    const task = tasksById.get(command.taskId);
-    if (!task?.dueDateTime) return command;
-    return {
-      ...command,
-      event: alignCalendarEventToTaskDueDate(command.event, task)
-    };
-  });
-}
-
 function filterDuplicateCalendarCommandPairs({ commands = [], previews = [] }) {
   const seenEvents = new Set();
   const keptCommands = [];
@@ -158,6 +145,10 @@ async function filterExistingGoogleCalendarCommandPairs({ commands = [], preview
   const checkedEvents = new Map();
   const pairs = await Promise.all(previews.map(async (preview, index) => {
     if (preview.type !== 'create_calendar_event') return { command: commands[index], preview };
+    if (preview.taskId && dependencies.fetchTaskCalendarEvents) {
+      const linkedEvents = await dependencies.fetchTaskCalendarEvents(dependencies.pool, preview.taskId);
+      if (linkedEvents.length) return null;
+    }
     const event = commands[index]?.event || preview.changes?.calendarEvent;
     if (!event) return { command: commands[index], preview };
     const fingerprint = calendarEventDuplicateFingerprint(event);
@@ -236,6 +227,257 @@ function applyDefaultCalendarToCommands(commands = [], calendars = [], requested
   });
 }
 
+function compactRejection(reason: string, command: any = {}, preview: any = null, attempt = 1, details = '', extra: Record<string, any> = {}) {
+  return {
+    status: reason,
+    reason,
+    attempt,
+    commandId: preview?.id || command.id || '',
+    taskId: preview?.taskId || command.taskId || null,
+    taskTitle: preview?.taskTitle || null,
+    summary: preview?.summary || command.event?.summary || command.label || '',
+    details,
+    ...extra
+  };
+}
+
+function addDebugCount(debug: Record<string, any>, key: string, count: number) {
+  debug[key] = (debug[key] || 0) + count;
+}
+
+function countRejectionReasons(rejections: any[]) {
+  return rejections.reduce((counts, rejection) => {
+    counts[rejection.reason] = (counts[rejection.reason] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function calendarTitleFingerprint(event: any) {
+  return [
+    normalizeString(event?.calendarId) || 'primary',
+    normalizeString(event?.summary).toLocaleLowerCase().replace(/\s+/g, ' ').trim()
+  ].join('|');
+}
+
+async function filterExistingGoogleCalendarPairsWithDebug({ pairs = [], dependencies, attempt }: any) {
+  const checkedEvents = new Map();
+  const accepted = [];
+  const rejected = [];
+  for (const pair of pairs) {
+    const { command, preview } = pair;
+    if (preview.taskId && dependencies.fetchTaskCalendarEvents) {
+      const linkedEvents = await dependencies.fetchTaskCalendarEvents(dependencies.pool, preview.taskId);
+      if (linkedEvents.length) {
+        rejected.push(compactRejection('rejected_existing_linked_task_event', command, preview, attempt, linkedEvents[0].summary || linkedEvents[0].googleEventId));
+        continue;
+      }
+    }
+    const event = command.event || preview.changes?.calendarEvent;
+    if (!event) {
+      rejected.push(compactRejection('rejected_event_missing_start_or_end', command, preview, attempt, 'missing event payload'));
+      continue;
+    }
+    const fingerprint = calendarEventDuplicateFingerprint(event);
+    if (!checkedEvents.has(fingerprint)) {
+      checkedEvents.set(fingerprint, findExistingGoogleCalendarEvent(event, dependencies));
+    }
+    const existingEvent = await checkedEvents.get(fingerprint);
+    if (existingEvent) {
+      rejected.push(compactRejection('rejected_existing_google_event', command, preview, attempt, existingEvent.summary || existingEvent.id));
+      continue;
+    }
+    accepted.push(pair);
+  }
+  return { accepted, rejected };
+}
+
+async function buildScheduleCalendarPreview({ rawCommands, tasks, calendars, memory, requestedDefaultCalendarId, dependencies, attempt }: any) {
+  const tasksById = new Map<string, any>(tasks.map((task) => [task.id, task]));
+  const allowedCalendarIds = new Set(calendars.map((calendar) => calendar.id));
+  const debug = {
+    generatedCount: rawCommands.length,
+    afterActionFilter: 0,
+    afterCalendarFilter: 0,
+    afterPastFilter: 0,
+    afterDuplicateBatchFilter: 0,
+    afterExistingGoogleFilter: 0,
+    afterMemoryFilter: 0
+  };
+  const rejected = [];
+  const withDefaultCalendar = applyDefaultCalendarToCommands(rawCommands, calendars, requestedDefaultCalendarId);
+
+  const actionFiltered = [];
+  for (const command of withDefaultCalendar) {
+    if (command.type !== 'create_calendar_event') {
+      rejected.push(compactRejection('rejected_wrong_action', command, null, attempt));
+      continue;
+    }
+    actionFiltered.push(command);
+  }
+  debug.afterActionFilter = actionFiltered.length;
+
+  const calendarFiltered = [];
+  for (const command of actionFiltered) {
+    const calendarId = command.event?.calendarId || 'primary';
+    if (allowedCalendarIds.size && !allowedCalendarIds.has(calendarId)) {
+      rejected.push(compactRejection('rejected_invalid_calendar', command, null, attempt, calendarId));
+      continue;
+    }
+    calendarFiltered.push(command);
+  }
+  debug.afterCalendarFilter = calendarFiltered.length;
+
+  const timingFiltered = [];
+  for (const command of calendarFiltered) {
+    const start = command.event?.start;
+    const end = command.event?.end;
+    if (!start || !end) {
+      rejected.push(compactRejection('rejected_event_missing_start_or_end', command, null, attempt));
+      continue;
+    }
+    if (calendarEventStartsInPast(command.event)) {
+      rejected.push(compactRejection('rejected_past', command, null, attempt, start));
+      continue;
+    }
+    timingFiltered.push(command);
+  }
+  debug.afterPastFilter = timingFiltered.length;
+
+  const seen = new Set();
+  const duplicateFiltered = [];
+  for (const command of timingFiltered) {
+    const fingerprint = calendarTitleFingerprint(command.event);
+    if (fingerprint && seen.has(fingerprint)) {
+      rejected.push(compactRejection('rejected_duplicate_title', command, null, attempt));
+      continue;
+    }
+    if (fingerprint) seen.add(fingerprint);
+    duplicateFiltered.push(command);
+  }
+  debug.afterDuplicateBatchFilter = duplicateFiltered.length;
+
+  const previewPairs = [];
+  for (const [index, command] of duplicateFiltered.entries()) {
+    try {
+      const preview = buildAiCommandsPreview([command], tasks)[0];
+      if (!preview) {
+        rejected.push(compactRejection('rejected_validation_error', command, null, attempt, 'preview not created'));
+        continue;
+      }
+      previewPairs.push({ command, preview });
+    } catch (error) {
+      rejected.push(compactRejection('rejected_validation_error', command, null, attempt, error.message || `command ${index + 1}`));
+    }
+  }
+
+  const existingFiltered = await filterExistingGoogleCalendarPairsWithDebug({
+    pairs: previewPairs,
+    dependencies,
+    attempt
+  });
+  rejected.push(...existingFiltered.rejected);
+  debug.afterExistingGoogleFilter = existingFiltered.accepted.length;
+
+  const memoryFiltered = filterAdvisorCommandPairsByMemory({
+    commands: existingFiltered.accepted.map((pair) => pair.command),
+    previews: existingFiltered.accepted.map((pair) => pair.preview),
+    memory,
+    action: 'schedule_calendar_events'
+  });
+  for (const item of memoryFiltered.rejected || []) {
+    rejected.push(compactRejection('rejected_memory', item.command, item.preview, attempt, 'matched advisor memory', {
+      memoryRules: item.memoryRules || []
+    }));
+  }
+  debug.afterMemoryFilter = memoryFiltered.previews.length;
+
+  return {
+    commands: memoryFiltered.commands,
+    previews: memoryFiltered.previews,
+    rejected,
+    debug
+  };
+}
+
+async function generateScheduleCalendarEventsWithDiagnostics({ tasks, tags, memory, calendars, requestedDefaultCalendarId, dependencies }) {
+  const targetPreviewCount = 8;
+  const maxAttempts = 2;
+  const excludeTaskIds = new Set();
+  const acceptedCommands = [];
+  const acceptedPreviews = [];
+  const rejected = [];
+  const debug = {
+    generatedCount: 0,
+    afterActionFilter: 0,
+    afterCalendarFilter: 0,
+    afterPastFilter: 0,
+    afterDuplicateBatchFilter: 0,
+    afterExistingGoogleFilter: 0,
+    afterMemoryFilter: 0,
+    attempts: 0,
+    rejectionReasons: {}
+  };
+  let advisor = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (acceptedPreviews.length >= targetPreviewCount) break;
+    advisor = await generateTaskAdvisorCommands({
+      action: 'schedule_calendar_events',
+      tasks,
+      tags,
+      memory,
+      calendars,
+      excludeTaskIds: [...excludeTaskIds],
+      maxCalendarEventCommands: 20
+    });
+    debug.attempts = attempt;
+    const processedTaskIds = new Set((advisor.commands || []).map((command) => command.taskId).filter(Boolean).map(String));
+    const attemptResult = await buildScheduleCalendarPreview({
+      rawCommands: advisor.commands || [],
+      tasks,
+      calendars,
+      memory,
+      requestedDefaultCalendarId,
+      dependencies,
+      attempt
+    });
+    ['generatedCount', 'afterActionFilter', 'afterCalendarFilter', 'afterPastFilter', 'afterDuplicateBatchFilter', 'afterExistingGoogleFilter', 'afterMemoryFilter']
+      .forEach((key) => addDebugCount(debug, key, attemptResult.debug[key] || 0));
+    acceptedCommands.push(...attemptResult.commands);
+    acceptedPreviews.push(...attemptResult.previews);
+    rejected.push(...attemptResult.rejected);
+    acceptedPreviews.forEach((preview) => preview.taskId && processedTaskIds.add(String(preview.taskId)));
+    attemptResult.rejected.forEach((item) => item.taskId && processedTaskIds.add(String(item.taskId)));
+    processedTaskIds.forEach((taskId) => excludeTaskIds.add(taskId));
+  }
+
+  debug.afterMemoryFilter = acceptedPreviews.length;
+  debug.rejectionReasons = countRejectionReasons(rejected);
+  logger.info('advisor.calendar.filter.result', {
+    metadata: {
+      generated: debug.generatedCount,
+      kept: acceptedPreviews.length,
+      rejected: debug.rejectionReasons,
+      rejectedTasks: rejected.map((item) => ({
+        taskId: item.taskId,
+        taskTitle: item.taskTitle,
+        reason: item.reason
+      }))
+    }
+  });
+  return {
+    advisor,
+    commands: acceptedCommands.slice(0, 20),
+    previews: acceptedPreviews.slice(0, 20),
+    debug: {
+      ...debug,
+      rejectedCount: rejected.length,
+      rejectionReasons: countRejectionReasons(rejected),
+      rejections: rejected
+    }
+  };
+}
+
 function createAdvisorRouter({
   fetchTasks,
   fetchTags,
@@ -250,7 +492,9 @@ function createAdvisorRouter({
   fetchAdvisorMemoryRules,
   saveAdvisorFeedback,
   upsertAdvisorMemoryRule,
-  deleteAdvisorMemoryRule
+  deleteAdvisorMemoryRule,
+  fetchTaskCalendarEvents,
+  insertTaskCalendarEvent
 }) {
   const router = express.Router();
 
@@ -276,8 +520,12 @@ function createAdvisorRouter({
 
   router.post('/ai/advisor/request', aiRateLimit, async (req, res, next) => {
     try {
+      const startedAt = Date.now();
       const action = normalizeString(req.body.action);
       const requestedDefaultCalendarId = normalizeString(req.body.defaultCalendarId);
+      (req as any).log?.('info', 'advisor.request.started', {
+        metadata: { action, requestedDefaultCalendarId }
+      });
       if (!resolveAdvisorAction(action)) {
         throw createValidationError([`action must be one of: ${Object.keys(ADVISOR_ACTIONS).join(', ')}`]);
       }
@@ -291,6 +539,39 @@ function createAdvisorRouter({
           : Promise.resolve([])
       ]);
       const memory = buildAdvisorMemoryContext(memoryRules);
+      if (action === 'schedule_calendar_events') {
+        const scheduled = await generateScheduleCalendarEventsWithDiagnostics({
+          tasks,
+          tags,
+          memory,
+          calendars,
+          requestedDefaultCalendarId,
+          dependencies: { pool, fetchGoogleConnection, saveGoogleConnection, fetchTaskCalendarEvents }
+        });
+        const labeledPreviews = addCalendarLabelsToPreviews(scheduled.previews, calendars);
+        (req as any).log?.('info', 'advisor.preview.generated', {
+          durationMs: Date.now() - startedAt,
+          metadata: {
+            action,
+            taskCount: tasks.length,
+            generatedCount: scheduled.debug.generatedCount,
+            commandCount: labeledPreviews.length,
+            rejectionReasons: scheduled.debug.rejectionReasons
+          }
+        });
+        return res.json({
+          mode: 'advisor_preview',
+          generatedAt: scheduled.advisor?.generatedAt || new Date().toISOString(),
+          source: scheduled.advisor?.source || 'ai',
+          model: scheduled.advisor?.model || null,
+          summary: scheduled.advisor?.summary || 'Propostas de eventos geradas para validacao.',
+          commandCount: labeledPreviews.length,
+          commands: labeledPreviews,
+          rawCommands: scheduled.commands,
+          debug: scheduled.debug
+        });
+      }
+
       const advisor = await generateTaskAdvisorCommands({
         action,
         tasks,
@@ -299,10 +580,7 @@ function createAdvisorRouter({
         calendars
       });
       const advisorCommands = filterPastCalendarCommands(
-          alignCalendarCommandsToTaskDueDate(
-          applyDefaultCalendarToCommands(advisor.commands, calendars, requestedDefaultCalendarId),
-          tasks
-        )
+        applyDefaultCalendarToCommands(advisor.commands, calendars, requestedDefaultCalendarId)
       );
       const prepared = buildAiCommandsPreview(advisorCommands, tasks);
       const actionFiltered = filterAdvisorCommandPairsByAction({
@@ -323,7 +601,7 @@ function createAdvisorRouter({
         ? await filterExistingGoogleCalendarCommandPairs({
           commands: duplicateFiltered.commands,
           previews: duplicateFiltered.previews,
-          dependencies: { pool, fetchGoogleConnection, saveGoogleConnection }
+          dependencies: { pool, fetchGoogleConnection, saveGoogleConnection, fetchTaskCalendarEvents }
         })
         : duplicateFiltered;
       const filtered = filterAdvisorCommandPairsByMemory({
@@ -342,6 +620,15 @@ function createAdvisorRouter({
         commandCount: filtered.previews.length,
         commands: addCalendarLabelsToPreviews(filtered.previews, calendars),
         rawCommands: filtered.commands
+      });
+      (req as any).log?.('info', 'advisor.preview.generated', {
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          action,
+          taskCount: tasks.length,
+          generatedCount: advisor.commands.length,
+          commandCount: filtered.previews.length
+        }
       });
     } catch (error) { next(error); }
   });
@@ -425,7 +712,11 @@ function createAdvisorRouter({
 
   router.post('/ai/commands/apply', async (req, res, next) => {
     try {
+      const startedAt = Date.now();
       const commands = getAiCommandsFromBody(req.body);
+      (req as any).log?.('info', 'advisor.command.apply.started', {
+        metadata: { commandCount: commands.length, commandTypes: commands.map((command) => command.type) }
+      });
       const result = await withTransaction(async (client) => {
         const applied = [];
         let tasks = await fetchTasks(client);
@@ -439,7 +730,9 @@ function createAdvisorRouter({
             findTaskById,
             pool,
             fetchGoogleConnection,
-            saveGoogleConnection
+            saveGoogleConnection,
+            fetchTaskCalendarEvents,
+            insertTaskCalendarEvent
           });
           applied.push(commandResult);
           tasks = await fetchTasks(client);
@@ -450,6 +743,10 @@ function createAdvisorRouter({
         mode: 'apply',
         appliedCount: result.length,
         results: result
+      });
+      (req as any).log?.('info', 'advisor.command.apply.completed', {
+        durationMs: Date.now() - startedAt,
+        metadata: { appliedCount: result.length }
       });
     } catch (error) { next(error); }
   });

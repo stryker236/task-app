@@ -9,13 +9,25 @@ const {
   buildAdvisorCommandRequest,
   buildAdvisorAdviceRequest
 } = require('./aiAdvisorPrompts');
-async function generateTaskAdvisorCommands({ action, tasks, tags = [], memory = [], calendars = [] }) {
+const { logger } = require('../logger');
+async function generateTaskAdvisorCommands({ action, tasks, tags = [], memory = [], calendars = [], excludeTaskIds = [], maxCalendarEventCommands = 20 }) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error('OPENAI_API_KEY is required to generate AI Advisor commands');
     (error as any).status = 503;
     throw error;
   }
-  const body = buildAdvisorCommandRequest({ action, tasks, tags, memory, calendars });
+  const body = buildAdvisorCommandRequest({ action, tasks, tags, memory, calendars, excludeTaskIds, maxCalendarEventCommands });
+  const startedAt = Date.now();
+  logger.info('advisor.openai.request', {
+    metadata: {
+      action,
+      model: body.model,
+      taskCount: tasks.length,
+      calendarCount: calendars.length,
+      excludedTaskCount: excludeTaskIds.length,
+      logPayload: process.env.LOG_AI_PAYLOADS === 'true' ? body : undefined
+    }
+  });
 
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: 'POST',
@@ -30,11 +42,21 @@ async function generateTaskAdvisorCommands({ action, tasks, tags = [], memory = 
 
   const outputText = extractOpenAiResponseText(responseBody);
   const parsed = JSON.parse(outputText);
+  const normalized = normalizeAdvisorCommands(parsed);
+  logger.info('advisor.openai.response', {
+    durationMs: Date.now() - startedAt,
+    metadata: {
+      action,
+      model: DEFAULT_MODEL,
+      commandCount: normalized.commands.length,
+      logPayload: process.env.LOG_AI_PAYLOADS === 'true' ? parsed : undefined
+    }
+  });
   return {
     generatedAt: new Date().toISOString(),
     source: 'ai',
     model: DEFAULT_MODEL,
-    ...normalizeAdvisorCommands(parsed)
+    ...normalized
   };
 }
 

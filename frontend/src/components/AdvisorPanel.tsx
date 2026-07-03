@@ -489,6 +489,62 @@ function ProposalChanges({ proposal, allTasks = [] }: { proposal: AdvisorPreview
   );
 }
 
+function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
+  const debug = proposals.debug;
+  if (!debug) return null;
+  const generated = debug.generatedCount || 0;
+  const available = debug.afterMemoryFilter ?? proposals.commandCount;
+  const filtered = Math.max(0, generated - available);
+  const reasons = Object.entries(debug.rejectionReasons || {});
+  const rejections = debug.rejections || [];
+
+  return (
+    <details className="advisor-debug-summary">
+      <summary>{generated} geradas, {available} disponiveis, {filtered} filtradas</summary>
+      <div className="advisor-debug-counts">
+        <span>Acao: {debug.afterActionFilter}</span>
+        <span>Calendario: {debug.afterCalendarFilter}</span>
+        <span>Tempo futuro: {debug.afterPastFilter}</span>
+        <span>Duplicados batch: {debug.afterDuplicateBatchFilter}</span>
+        <span>Google/ligacao: {debug.afterExistingGoogleFilter}</span>
+        <span>Memoria: {debug.afterMemoryFilter}</span>
+        {debug.attempts ? <span>Tentativas: {debug.attempts}</span> : null}
+      </div>
+      {reasons.length ? (
+        <div className="advisor-debug-reasons">
+          {reasons.map(([reason, count]) => <span key={reason}>{reason}: {count}</span>)}
+        </div>
+      ) : <p className="advisor-empty">Sem rejeicoes registadas.</p>}
+      {rejections.length ? (
+        <div className="advisor-debug-rejections">
+          {rejections.slice(0, 30).map((item, index) => (
+            <article key={`${item.reason}-${item.commandId || item.taskId || index}`}>
+              <strong>{item.reason}</strong>
+              <div>
+                <span>{item.taskTitle || item.summary || item.taskId || item.commandId || 'Sem task'}</span>
+                {item.details ? <small>{item.details}</small> : null}
+                {item.memoryRules?.length ? (
+                  <div className="advisor-debug-memory">
+                    {item.memoryRules.map((rule, ruleIndex) => (
+                      <section key={`${item.commandId || item.taskId || index}-memory-${ruleIndex}`}>
+                        <b>{rule.ruleType || 'memory'}{rule.supportCount ? ` · ${rule.supportCount}x` : ''}</b>
+                        {rule.summary ? <p>{rule.summary}</p> : null}
+                        {rule.titleKeywords?.length ? <small>keywords: {rule.titleKeywords.join(', ')}</small> : null}
+                        {rule.matchedReasons?.length ? <small>motivos: {rule.matchedReasons.join(', ')}</small> : null}
+                      </section>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          ))}
+          {rejections.length > 30 && <p className="advisor-empty">+{rejections.length - 30} rejeicoes adicionais</p>}
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
 export function AdvisorProposalBuffer({
   allTasks = [],
   googleCalendars = [],
@@ -566,6 +622,8 @@ export function AdvisorProposalBuffer({
           </button>
         </div>
       )}
+
+      <AdvisorDebugSummary proposals={proposals} />
 
       <AdvisorInteractionFeedback saved={interactionFeedbackSaved} action={action} onSave={onSaveInteractionFeedback} />
 

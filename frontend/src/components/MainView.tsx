@@ -6,6 +6,7 @@ import { AdvisorProposalBuffer } from './AdvisorPanel';
 import CalendarWeekView from './CalendarWeekView';
 import KanbanView from './KanbanView';
 import LearnedRulesView from './LearnedRulesView';
+import LogsView from './LogsView';
 import QueueView from './QueueView';
 import type { QueueSort } from './QueueView';
 import QuickQueue from './QuickQueue';
@@ -238,6 +239,10 @@ export default function MainView({
         onForget={onForgetAdvisorMemory}
       />
     );
+  }
+
+  if (view === 'logs') {
+    return <LogsView onError={onError} />;
   }
 
   if (loading) return <div className="loading">A carregar tarefas...</div>;

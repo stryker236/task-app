@@ -646,3 +646,42 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.calendar-due-date-marker {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 2px 7px;
+  border-top: 1px solid color-mix(in srgb, var(--event-color) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--event-color) 70%, transparent);
+  background: color-mix(in srgb, var(--event-color) 10%, var(--surface));
+  color: #215d61;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.calendar-due-date-marker i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--event-color);
+}
+
+.calendar-due-date-marker span {
+  color: #447276;
+  font-size: 9px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.calendar-due-date-marker strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}

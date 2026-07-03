@@ -13,6 +13,7 @@ import {
   type AdvisorMemoryRule,
   type TaskFilters
 } from '../api';
+import { clientLog } from '../logger';
 
 type AdvisorAdvice = Awaited<ReturnType<typeof getTaskAdvisorAdvice>>;
 type AdvisorBatch = {
@@ -24,6 +25,7 @@ type AdvisorBatch = {
   commandCount: number;
   commands: AiCommandPreview[];
   rawCommands?: AiCommand[];
+  debug?: import('../api').AdvisorPreviewDebug;
 };
 type ProposalStatus = 'accepted' | 'ignored';
 
@@ -74,7 +76,14 @@ export default function useAdvisorController({
 
     try {
       setAdvisorLoading(true);
+      clientLog('info', 'advisor.request.sent', '', { action, defaultCalendarId: options.defaultCalendarId || '' });
       const response = await requestTaskAdvisorCommands(action, options);
+      clientLog('info', 'advisor.proposals.received', '', {
+        action,
+        commandCount: response.commandCount,
+        generatedCount: response.debug?.generatedCount,
+        rejectionReasons: response.debug?.rejectionReasons
+      });
       setLastAdvisorAction(action);
       setProposalBatch(response);
       setProposalStatuses({});
@@ -119,6 +128,7 @@ export default function useAdvisorController({
 
     try {
       setApplyingProposalId(commandId);
+      clientLog('info', 'advisor.proposal.accepted', '', { commandId });
       await applyAiCommands([rawCommand]);
       setProposalStatuses((current) => ({ ...current, [commandId]: 'accepted' }));
       await fetchDashboardData(filters);
@@ -131,6 +141,7 @@ export default function useAdvisorController({
 
   function ignoreAdvisorProposal(commandId: string) {
     setProposalStatuses((current) => ({ ...current, [commandId]: 'ignored' }));
+    clientLog('info', 'advisor.proposal.ignored', '', { commandId });
   }
 
   async function applyAllAdvisorProposals() {
@@ -144,6 +155,7 @@ export default function useAdvisorController({
 
     try {
       setApplyingAllProposals(true);
+      clientLog('info', 'advisor.proposals.accepted_all', '', { count: pending.length });
       await applyAiCommands(pending.map(({ rawCommand }) => rawCommand));
       setProposalStatuses((current) => ({
         ...current,

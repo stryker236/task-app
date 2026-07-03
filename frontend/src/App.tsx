@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { SharedNote, Task, TaskStatus } from '../../shared/types';
+import type { SharedNote, Task, TaskCalendarEvent, TaskStatus } from '../../shared/types';
 import AdvisorPanel from './components/AdvisorPanel';
 import AppDialogs from './components/AppDialogs';
 import AppHeader from './components/AppHeader';
@@ -49,6 +49,7 @@ export default function App() {
 
   const [queueSort, setQueueSort] = useState<QueueSort>({ field: 'priority', direction: 'desc' });
   const [viewingTask, setViewingTask] = useState<Task | null>(null);
+  const [calendarEventTask, setCalendarEventTask] = useState<Task | null>(null);
   const [focusedSharedNoteId, setFocusedSharedNoteId] = useState('');
 
   useEffect(() => {
@@ -130,6 +131,15 @@ export default function App() {
     setView('sharedNotes');
   }
 
+  function refreshAfterCalendarEventCreated(event: TaskCalendarEvent) {
+    setViewingTask((current) => current?.id === event.taskId
+      ? { ...current, calendarEvents: [...(current.calendarEvents || []), event] }
+      : current);
+    fetchDashboardData(filters);
+    googleCalendar.loadCalendarWeekEvents();
+    googleCalendar.loadCalendarEvents();
+  }
+
   const taskCardActions: TaskCardActions & { onStatusChange: (task: Task, status: TaskStatus) => void } = {
     onEdit: taskForm.openEditTaskForm,
     onDelete: taskActions.deleteSingleTask,
@@ -141,6 +151,7 @@ export default function App() {
     onProgress: progressLog.setProgressTask,
     onAddProgressEntry: progressLog.saveTaskProgressEntry,
     onAddBlocker: taskForm.openCreateBlockingTaskForm,
+    onCreateCalendarEvent: setCalendarEventTask,
     onPostpone: taskActions.setPostponeTask,
     onArchive: taskActions.archiveSingleTask,
     onRestore: taskActions.restoreArchivedTask
@@ -165,7 +176,7 @@ export default function App() {
       <main>
         <DashboardCounters counters={counters} />
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'logs' && (
           <GoogleDailyPanel
             status={googleCalendar.googleStatus}
             loading={googleCalendar.googleLoading}
@@ -180,7 +191,7 @@ export default function App() {
           />
         )}
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'logs' && (
           <AdvisorPanel
             allTasks={allTasks}
             advice={advisorController.advisor}
@@ -217,14 +228,14 @@ export default function App() {
 
         <ViewTabs view={view} onChange={setView} />
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'logs' && (
           <BulkArchiveActions
             onArchiveDone={() => taskActions.archiveTasksWithStatus('done')}
             onArchiveCancelled={() => taskActions.archiveTasksWithStatus('cancelled')}
           />
         )}
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'logs' && (
           <Filters
             filters={filters}
             tags={availableTags}
@@ -341,6 +352,13 @@ export default function App() {
         onCreateSharedNote={taskActions.createTaskLinkedSharedNote}
         onDetachSharedNote={taskActions.detachTaskSharedNote}
         onOpenSharedNote={openSharedNoteInNotesView}
+        calendarEventTask={calendarEventTask}
+        googleCalendars={googleCalendar.googleCalendars}
+        advisorDefaultCalendarId={googleCalendar.advisorDefaultCalendarId}
+        onOpenCalendarEvent={setCalendarEventTask}
+        onCloseCalendarEvent={() => setCalendarEventTask(null)}
+        onCalendarEventCreated={refreshAfterCalendarEventCreated}
+        onError={setError}
         postponeTask={taskActions.postponeTask}
         onClosePostpone={() => taskActions.setPostponeTask(null)}
         onSavePostpone={taskActions.postponeTaskDueDate}

@@ -9,6 +9,7 @@ import {
   getGoogleStatus,
   sendGoogleDailyTaskEmail
 } from '../api';
+import { clientLog } from '../logger';
 
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10);
@@ -75,6 +76,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
 
   function setAdvisorDefaultCalendarId(calendarId: string) {
     setAdvisorDefaultCalendarIdState(calendarId);
+    clientLog('info', 'calendar.default.changed', '', { calendarId });
     if (calendarId) {
       localStorage.setItem('task-app:advisor-calendar-id', calendarId);
     } else {
@@ -162,9 +164,11 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     setGoogleLoading(true);
     setError?.('');
     try {
+      clientLog('info', 'calendar.events.load.started', '', { mode: 'day', date, calendarIds });
       const data = await getGoogleCalendarEvents(date, calendarIds);
       setCalendarEvents(data.events || []);
       setCalendarAccountEmail(data.accountEmail || null);
+      clientLog('info', 'calendar.events.load.completed', '', { mode: 'day', date, calendarIds, eventCount: data.events?.length || 0 });
     } catch (error) {
       setError?.(errorMessage(error));
     } finally {
@@ -185,9 +189,11 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     setError?.('');
     setCalendarWeekStartState(normalizedStart);
     try {
+      clientLog('info', 'calendar.events.load.started', '', { mode: 'week', start: normalizedStart, end, calendarIds });
       const data = await getGoogleCalendarEventsRange(normalizedStart, end, calendarIds);
       setWeeklyCalendarEvents(data.events || []);
       setCalendarAccountEmail(data.accountEmail || null);
+      clientLog('info', 'calendar.events.load.completed', '', { mode: 'week', start: normalizedStart, end, calendarIds, eventCount: data.events?.length || 0 });
     } catch (error) {
       setError?.(errorMessage(error));
     } finally {
@@ -206,9 +212,11 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     setError?.('');
     setCalendarWeekStartState(start);
     try {
+      clientLog('info', 'calendar.events.load.started', '', { mode: 'range', start, end, calendarIds });
       const data = await getGoogleCalendarEventsRange(start, end, calendarIds);
       setWeeklyCalendarEvents(data.events || []);
       setCalendarAccountEmail(data.accountEmail || null);
+      clientLog('info', 'calendar.events.load.completed', '', { mode: 'range', start, end, calendarIds, eventCount: data.events?.length || 0 });
     } catch (error) {
       setError?.(errorMessage(error));
     } finally {

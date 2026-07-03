@@ -63,6 +63,7 @@ export interface Task {
   needToAsk?: string[];
   blockedReason?: string;
   sharedNotes?: import('./sharedNotes').SharedNote[];
+  calendarEvents?: import('./google').TaskCalendarEvent[];
 }
 
 export type TaskInput = Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'completedAt' | 'cancelledAt' | 'activityLog'> &

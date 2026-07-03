@@ -102,3 +102,39 @@
 .shared-note-task-options span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .shared-note-task-options strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #3e485c; font-size: 12px; }
 .shared-note-task-options small { color: #8991a1; font-size: 10px; text-transform: capitalize; }
+.details-calendar-events {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.task-calendar-links {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.task-calendar-links a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid #d8e0ee;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #42506a;
+  text-decoration: none;
+}
+
+.task-calendar-links a:hover {
+  border-color: #9aabe0;
+}
+
+.task-calendar-links strong {
+  font-size: 12px;
+}
+
+.task-calendar-links span {
+  color: #7b8495;
+  font-size: 11px;
+}

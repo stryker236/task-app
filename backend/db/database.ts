@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
 const { randomUUID } = require('crypto');
 const { iso } = require('../utils/date');
+const { logger } = require('../logger');
 
 import type { PoolClient, Pool as PgPool } from 'pg';
 
@@ -20,7 +21,29 @@ const pool: PgPool = new Pool({
 	connectionTimeoutMillis: 10_000
 });
 
-pool.on('error', (error) => console.error('Unexpected PostgreSQL pool error', error));
+const rawPoolQuery = pool.query.bind(pool);
+(pool as any).query = async (...args) => {
+	const startedAt = Date.now();
+	try {
+		const result = await rawPoolQuery(...args);
+		const durationMs = Date.now() - startedAt;
+		if (durationMs >= Number(process.env.DB_SLOW_QUERY_MS || 250)) {
+			logger.warn('db.query.slow', {
+				durationMs,
+				metadata: { rowCount: result?.rowCount ?? null }
+			});
+		}
+		return result;
+	} catch (error) {
+		logger.error('db.query.failed', {
+			durationMs: Date.now() - startedAt,
+			metadata: { message: error.message }
+		});
+		throw error;
+	}
+};
+
+pool.on('error', (error) => logger.error('db.pool.error', { metadata: { message: error.message } }));
 
 function mapQuickQueueItem(row: DbRow) {
 	return {
@@ -71,15 +94,34 @@ function mapAdvisorMemoryRule(row: DbRow) {
 	};
 }
 
+function mapTaskCalendarEvent(row: DbRow) {
+	return {
+		id: String(row.id),
+		taskId: String(row.task_id),
+		googleEventId: row.google_event_id,
+		calendarId: row.calendar_id,
+		summary: row.summary,
+		start: iso(row.start_at),
+		end: iso(row.end_at),
+		htmlLink: row.html_link || null,
+		createdAt: iso(row.created_at),
+		updatedAt: iso(row.updated_at)
+	};
+}
+
 async function withTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
 	const client = await pool.connect();
+	const startedAt = Date.now();
 	try {
+		logger.info('db.transaction.started');
 		await client.query('BEGIN');
 		const result = await work(client);
 		await client.query('COMMIT');
+		logger.info('db.transaction.committed', { durationMs: Date.now() - startedAt });
 		return result;
 	} catch (error) {
 		await client.query('ROLLBACK');
+		logger.error('db.transaction.rolled_back', { durationMs: Date.now() - startedAt, metadata: { message: error.message } });
 		throw error;
 	} finally {
 		client.release();
@@ -111,6 +153,7 @@ async function fetchTasks(db: Queryable = pool) {
      GROUP BY task_shared_notes.task_id, shared_notes.id
      ORDER BY shared_notes.updated_at DESC, shared_notes.created_at DESC`
 	)).rows;
+	const calendarEventRows = (await db.query('SELECT * FROM task_calendar_events ORDER BY start_at')).rows;
 
 	const relations = new Map();
 	const checklists = new Map();
@@ -118,6 +161,7 @@ async function fetchTasks(db: Queryable = pool) {
 	const activities = new Map();
 	const revisions = new Map();
 	const sharedNotes = new Map();
+	const calendarEvents = new Map();
 
 	for (const row of relationRows) {
 		const id = String(row.task_id);
@@ -168,6 +212,10 @@ async function fetchTasks(db: Queryable = pool) {
 		const taskId = String(row.task_id);
 		sharedNotes.set(taskId, [...(sharedNotes.get(taskId) || []), mapSharedNote(row)]);
 	}
+	for (const row of calendarEventRows) {
+		const taskId = String(row.task_id);
+		calendarEvents.set(taskId, [...(calendarEvents.get(taskId) || []), mapTaskCalendarEvent(row)]);
+	}
 
 	return taskRows.map((row) => {
 		const id = String(row.id);
@@ -197,7 +245,8 @@ async function fetchTasks(db: Queryable = pool) {
 			archivedAt: iso(row.archived_at),
 			isArchived: Boolean(row.archived_at),
 			activityLog: activities.get(id) || [],
-			sharedNotes: sharedNotes.get(id) || []
+			sharedNotes: sharedNotes.get(id) || [],
+			calendarEvents: calendarEvents.get(id) || []
 		};
 	});
 }
@@ -680,6 +729,37 @@ async function deleteGoogleConnection(db: Queryable = pool) {
 	await db.query('DELETE FROM google_connections');
 }
 
+async function fetchTaskCalendarEvents(db: Queryable, taskId: string) {
+	const result = await db.query('SELECT * FROM task_calendar_events WHERE task_id = $1 ORDER BY start_at', [taskId]);
+	return result.rows.map(mapTaskCalendarEvent);
+}
+
+async function insertTaskCalendarEvent(db: Queryable, event: DbRow) {
+	const result = await db.query(
+		`INSERT INTO task_calendar_events (task_id, google_event_id, calendar_id, summary, start_at, end_at, html_link)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 ON CONFLICT (calendar_id, google_event_id)
+		 DO UPDATE SET
+		   task_id = EXCLUDED.task_id,
+		   summary = EXCLUDED.summary,
+		   start_at = EXCLUDED.start_at,
+		   end_at = EXCLUDED.end_at,
+		   html_link = EXCLUDED.html_link,
+		   updated_at = now()
+		 RETURNING *`,
+		[
+			event.taskId,
+			event.googleEventId,
+			event.calendarId,
+			event.summary,
+			event.start,
+			event.end,
+			event.htmlLink || null
+		]
+	);
+	return mapTaskCalendarEvent(result.rows[0]);
+}
+
 async function fetchAdvisorMemoryRules(db: Queryable = pool) {
 	const result = await db.query(
 		`SELECT *
@@ -780,6 +860,8 @@ module.exports = {
 	fetchGoogleConnection,
 	saveGoogleConnection,
 	deleteGoogleConnection,
+	fetchTaskCalendarEvents,
+	insertTaskCalendarEvent,
 	fetchAdvisorMemoryRules,
 	saveAdvisorFeedback,
 	upsertAdvisorMemoryRule,

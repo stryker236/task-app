@@ -44,6 +44,7 @@ type TaskDetailsProps = {
   onCreateSharedNote: (task: Task, title: string, body: string, tags: string[]) => Promise<Task | null>;
   onDetachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
   onOpenSharedNote: (note: SharedNote) => void;
+  onCreateCalendarEvent: (task: Task) => void;
 };
 
 function formatDate(value?: string | null) {
@@ -95,7 +96,8 @@ export default function TaskDetails({
   onAttachSharedNote,
   onCreateSharedNote,
   onDetachSharedNote,
-  onOpenSharedNote
+  onOpenSharedNote,
+  onCreateCalendarEvent
 }: TaskDetailsProps) {
   const [draft, setDraft] = useState<EditableTask>(() => editableTaskFromTask(task));
   const [dueDate, setDueDate] = useState(() => localDeadline(task.dueDateTime).date);
@@ -276,6 +278,25 @@ export default function TaskDetails({
               <select disabled={task.isArchived || !dueDate} value={dueTime.slice(3, 5)} onChange={(event) => setDueTime(`${dueTime.slice(0, 2) || '00'}:${event.target.value}`)}><option value="">MM</option>{MINUTES.map((minute) => <option value={minute} key={minute}>{minute}</option>)}</select>
               {!task.isArchived && <button type="button" className="button secondary small" onClick={saveDeadline}>Guardar prazo</button>}
             </div>
+          </section>
+
+          <section className="details-section details-calendar-events">
+            <h3>Calendario <span>{(draft.calendarEvents || []).length}</span></h3>
+            {(draft.calendarEvents || []).length ? (
+              <div className="task-calendar-links">
+                {(draft.calendarEvents || []).map((event) => (
+                  <a href={event.htmlLink || undefined} target={event.htmlLink ? '_blank' : undefined} rel={event.htmlLink ? 'noreferrer' : undefined} key={event.id}>
+                    <strong>{event.summary}</strong>
+                    <span>{formatDate(event.start)} - {formatDate(event.end)}</span>
+                  </a>
+                ))}
+              </div>
+            ) : <p className="details-empty">Sem evento ligado.</p>}
+            {!task.isArchived && !(draft.calendarEvents || []).length && (
+              <button type="button" className="button secondary small" onClick={() => onCreateCalendarEvent(task)}>
+                Criar evento
+              </button>
+            )}
           </section>
 
           <section className="details-section">

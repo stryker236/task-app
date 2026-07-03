@@ -1,8 +1,8 @@
 import type { TaskFilters } from '../api';
 
-export type ViewKey = 'kanban' | 'queue' | 'quickQueue' | 'collections' | 'sharedNotes' | 'calendar' | 'learnedRules' | 'archived';
+export type ViewKey = 'kanban' | 'queue' | 'quickQueue' | 'collections' | 'sharedNotes' | 'calendar' | 'learnedRules' | 'logs' | 'archived';
 
-export const VIEW_KEYS = ['kanban', 'queue', 'quickQueue', 'collections', 'sharedNotes', 'calendar', 'learnedRules', 'archived'] as const satisfies readonly ViewKey[];
+export const VIEW_KEYS = ['kanban', 'queue', 'quickQueue', 'collections', 'sharedNotes', 'calendar', 'learnedRules', 'logs', 'archived'] as const satisfies readonly ViewKey[];
 
 export const EMPTY_FILTERS: TaskFilters = {
   search: '',
@@ -27,5 +27,6 @@ export const createViewFilters = (): Record<ViewKey, TaskFilters> => ({
   sharedNotes: { ...EMPTY_FILTERS, tags: [] },
   calendar: { ...EMPTY_FILTERS, tags: [] },
   learnedRules: { ...EMPTY_FILTERS, tags: [] },
+  logs: { ...EMPTY_FILTERS, tags: [] },
   archived: { ...EMPTY_FILTERS, tags: [], archived: true, hideDone: false, hideCancelled: false }
 });

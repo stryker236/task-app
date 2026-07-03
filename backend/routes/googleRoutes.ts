@@ -3,6 +3,7 @@ const { randomBytes } = require('crypto');
 const { encryptJson, decryptJson } = require('../google/tokenCrypto');
 const { parseDateOnly } = require('../utils/date');
 const {
+  CALENDAR_SCOPE,
   GMAIL_SEND_SCOPE,
   GOOGLE_SCOPES,
   createCalendarClient,
@@ -11,6 +12,7 @@ const {
   createOAuthClient,
   getAccountEmail
 } = require('../google/googleClient');
+const { logger } = require('../logger');
 
 function toCalendar(calendar) {
   return {
@@ -107,7 +109,9 @@ function createGoogleRouter({
   saveGoogleConnection,
   deleteGoogleConnection,
   createGoogleOAuthState,
-  consumeGoogleOAuthState
+  consumeGoogleOAuthState,
+  fetchTaskCalendarEvents,
+  insertTaskCalendarEvent
 }) {
   const router = express.Router();
 
@@ -126,7 +130,7 @@ function createGoogleRouter({
         scopes: connection.scopes,
         encryptedTokens: { ...storedTokens, ...tokens },
         expiresAt: connection.expiresAt
-      }).catch((error) => console.error('Failed to persist refreshed Google tokens:', error.message));
+      }).catch((error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
     });
     return {
       connection,
@@ -137,6 +141,9 @@ function createGoogleRouter({
   router.get('/google/status', async (req, res, next) => {
     try {
       const connection = await fetchGoogleConnection();
+      (req as any).log?.('info', 'calendar.connection.status', {
+        metadata: { connected: Boolean(connection), scopes: connection?.scopes || [] }
+      });
       res.json({
         connected: Boolean(connection),
         accountEmail: connection?.accountEmail || null,
@@ -260,6 +267,7 @@ function createGoogleRouter({
 
   router.get('/google/calendar/events', async (req, res, next) => {
     try {
+      const startedAt = Date.now();
       const start = parseDateOnly(req.query.start);
       const end = parseDateOnly(req.query.end);
       const date = parseDateOnly(req.query.date) || new Date().toISOString().slice(0, 10);
@@ -272,6 +280,9 @@ function createGoogleRouter({
       const requestedCalendarIds = Array.isArray(req.query.calendarId)
         ? req.query.calendarId.map(String).filter(Boolean)
         : req.query.calendarId ? [String(req.query.calendarId)] : ['primary'];
+      (req as any).log?.('info', 'calendar.events.fetch.started', {
+        metadata: { rangeStart, rangeEnd, requestedCalendarIds }
+      });
       const calendarListResult = await calendar.calendarList.list({
         minAccessRole: 'reader',
         showDeleted: false,
@@ -301,6 +312,88 @@ function createGoogleRouter({
         accountEmail: connection.accountEmail,
         calendars: requestedCalendars,
         events
+      });
+      (req as any).log?.('info', 'calendar.events.fetch.completed', {
+        durationMs: Date.now() - startedAt,
+        metadata: { rangeStart, rangeEnd, calendarCount: requestedCalendars.length, eventCount: events.length }
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/google/calendar/events', async (req, res, next) => {
+    try {
+      const taskId = String(req.body?.taskId || '').trim();
+      const summary = String(req.body?.summary || '').trim();
+      const calendarId = String(req.body?.calendarId || 'primary').trim() || 'primary';
+      const description = String(req.body?.description || '').trim();
+      const location = String(req.body?.location || '').trim();
+      const start = String(req.body?.start || '').trim();
+      const end = String(req.body?.end || '').trim();
+      const timeZone = String(req.body?.timeZone || '').trim();
+      const startTime = Date.parse(start);
+      const endTime = Date.parse(end);
+
+      if (!taskId) return res.status(400).json({ error: 'taskId is required' });
+      if (!summary) return res.status(400).json({ error: 'summary is required' });
+      if (!start || Number.isNaN(startTime)) return res.status(400).json({ error: 'start must be a valid ISO date-time' });
+      if (!end || Number.isNaN(endTime)) return res.status(400).json({ error: 'end must be a valid ISO date-time' });
+      if (endTime <= startTime) return res.status(400).json({ error: 'end must be after start' });
+      if (startTime < Date.now()) return res.status(400).json({ error: 'start cannot be in the past' });
+
+      const tasks = await fetchTasks();
+      const task = tasks.find((item) => item.id === taskId);
+      if (!task) return res.status(404).json({ error: 'Task not found' });
+
+      const linkedEvents = await fetchTaskCalendarEvents(pool, taskId);
+      (req as any).log?.('info', 'calendar.event.duplicate_check', {
+        metadata: { taskId, linkedEventCount: linkedEvents.length, calendarId }
+      });
+      if (linkedEvents.length) {
+        return res.status(409).json({ error: 'Task already has a linked calendar event', event: linkedEvents[0] });
+      }
+
+      const { connection, authClient } = await getAuthorizedClient();
+      if (!connection.scopes?.includes(CALENDAR_SCOPE)) {
+        const error = new Error('Google Calendar write permission is required. Reconnect Google to grant calendar event access.');
+        (error as any).status = 409;
+        throw error;
+      }
+
+      const calendar = createCalendarClient(authClient);
+      (req as any).log?.('info', 'calendar.event.insert.started', {
+        metadata: { taskId, calendarId, start, end }
+      });
+      const result = await calendar.events.insert({
+        calendarId,
+        requestBody: {
+          summary: task.title,
+          description,
+          location,
+          start: {
+            dateTime: start,
+            ...(timeZone ? { timeZone } : {})
+          },
+          end: {
+            dateTime: end,
+            ...(timeZone ? { timeZone } : {})
+          }
+        }
+      });
+      const linkedEvent = await insertTaskCalendarEvent(pool, {
+        taskId,
+        googleEventId: result.data.id,
+        calendarId,
+        summary: result.data.summary || task.title,
+        start: result.data.start?.dateTime || start,
+        end: result.data.end?.dateTime || end,
+        htmlLink: result.data.htmlLink || null
+      });
+
+      res.status(201).json({ event: linkedEvent });
+      (req as any).log?.('info', 'calendar.event.insert.completed', {
+        metadata: { taskId, calendarId, googleEventId: linkedEvent.googleEventId, start: linkedEvent.start, end: linkedEvent.end }
       });
     } catch (error) {
       next(error);

@@ -14,6 +14,7 @@ export type TaskCardActions = {
   onProgress: (task: Task) => void;
   onAddProgressEntry: (task: Task, message: string) => Promise<boolean>;
   onAddBlocker: (task: Task) => void;
+  onCreateCalendarEvent: (task: Task) => void;
   onPostpone: (task: Task) => void;
   onArchive: (task: Task) => void;
   onRestore: (task: Task) => void;
@@ -59,6 +60,7 @@ export default function TaskCard({
   onOpenTask,
   onAddProgressEntry,
   onAddBlocker,
+  onCreateCalendarEvent,
   onPostpone,
   onArchive,
   onRestore,
@@ -215,6 +217,7 @@ export default function TaskCard({
         ) : (<>
           {timing === 'overdue' && <button type="button" className="postpone-action" onClick={() => onPostpone(task)}>Adiar</button>}
           {!['done', 'cancelled'].includes(task.status) && <button type="button" onClick={() => onAddBlocker(task)}>+ Bloqueio</button>}
+          {!(task.calendarEvents || []).length && <button type="button" onClick={() => onCreateCalendarEvent(task)}>Criar evento</button>}
           <button type="button" onClick={() => onDuplicate(task)}>Duplicar</button>
           <button type="button" onClick={() => onArchive(task)}>Arquivar</button>
         </>)}

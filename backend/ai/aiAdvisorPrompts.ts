@@ -13,8 +13,32 @@ function dueDateSortValue(task) {
   return Number.isNaN(value) ? Number.POSITIVE_INFINITY : value;
 }
 
-function selectCommandContextTasks({ action, tasks }) {
+function daySortValue(value) {
+  const date = new Date(value || 0);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function selectCommandContextTasks({ action, tasks, excludeTaskIds = [] }) {
   const active = tasks.filter((task) => !task.isArchived && ['new', 'in_progress', 'waiting'].includes(task.status));
+  const excluded = new Set(excludeTaskIds.map(String));
+  if (action === 'schedule_calendar_events') {
+    return active
+      .filter((task) => !(task.calendarEvents || []).length && !excluded.has(task.id))
+      .sort((a, b) => {
+        const priorityDifference = Number(b.priority || 0) - Number(a.priority || 0);
+        if (priorityDifference) return priorityDifference;
+        const statusDifference = advisorStatusPriority(a.status) - advisorStatusPriority(b.status);
+        if (statusDifference) return statusDifference;
+        const createdDayDifference = daySortValue(b.createdAt || b.updatedAt).localeCompare(daySortValue(a.createdAt || a.updatedAt));
+        if (createdDayDifference) return createdDayDifference;
+        const dueDifference = dueDateSortValue(a) - dueDateSortValue(b);
+        if (dueDifference) return dueDifference;
+        return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+      })
+      .slice(0, 120);
+  }
+
   if (action === 'suggest_tags') {
     const limit = Math.max(1, Math.ceil(active.length * 0.7));
     return active
@@ -70,7 +94,7 @@ function selectCommandContextTasks({ action, tasks }) {
     .slice(0, 160);
 }
 
-function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], calendars = [] }) {
+function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], calendars = [], excludeTaskIds = [], maxCalendarEventCommands = 20 }) {
   const advisorAction = resolveAdvisorAction(action);
   if (!advisorAction) {
     const error = new Error(`Unsupported advisor action: ${action}`);
@@ -80,7 +104,7 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
   }
 
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
-  const selectedTasks = selectCommandContextTasks({ action: advisorAction.key, tasks });
+  const selectedTasks = selectCommandContextTasks({ action: advisorAction.key, tasks, excludeTaskIds });
   const activeTasks = selectedTasks
     .map((task) => createCommandContextTask(task, tasksById));
   function calendarRole(calendar) {
@@ -155,7 +179,8 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
           'Suggest checklistItems when the task lacks concrete next steps. Preserve existing checklist items; return the complete desired checklist if changing it.',
           'Use add_relation for associated cards and relationship suggestions. Use blockedByTaskIds for concrete dependencies that prevent completion.',
           'For create_task, create only clear follow-up tasks that are missing from the existing list.',
-          'For create_calendar_event, propose a Google Calendar event only when the task has enough scheduling context. When the source task has dueDateTime, event.start must use that exact task dueDateTime; treat it as the task end/scheduling date. Creating events in the past is expressly forbidden: event.start must be strictly after today/current time from the user payload. Never propose an event that already exists in the selected calendar by title. Use the source taskId when the event comes from a task. The event summary must be exactly the original source task title, with no prefixes, suffixes, rewriting, or extra context. Use ISO date-time strings with explicit offsets when possible. Always set calendarId to defaultCalendarId. Do not choose calendars semantically.',
+          'For create_calendar_event, propose a Google Calendar event only when the task is a good candidate for scheduled work. If the source task has dueDateTime, use it as the initial suggestion only when the event itself should happen at that time. If the task looks like work that should be done before a deadline, suggest a practical time before dueDateTime. Creating events in the past is expressly forbidden: event.start must be strictly after today/current time from the user payload. Never propose an event that already exists in the selected calendar by title or linked task. Use the source taskId when the event comes from a task. The event summary must be exactly the original source task title, with no prefixes, suffixes, rewriting, or extra context. Use ISO date-time strings with explicit offsets when possible. Always set calendarId to defaultCalendarId. Do not choose calendars semantically.',
+          `For schedule_calendar_events, return up to ${Math.max(1, Math.min(20, Number(maxCalendarEventCommands) || 20))} create_calendar_event commands. Tasks without dueDateTime are also eligible. Do not stop after 3-5 suggestions if more eligible tasks exist. Prioritize by task priority, status, and concrete scheduling value; use dueDateTime only as a tie-breaker among otherwise similar tasks or as a useful initial time suggestion. If a task has no linked calendar event, it is eligible unless it is already scheduled or clearly unsuitable.`,
           'For add_relation, use relationType only when the relationship is strongly supported by the task data.',
           'Do not mark tasks done unless blockers and checklist are complete.',
           'Keep reasons short and concrete.'
@@ -209,6 +234,7 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
           calendarEventPolicy: {
             onlyForAction: 'schedule_calendar_events',
             allowedCommands: ['create_calendar_event'],
+            targetCommandCount: Math.max(1, Math.min(20, Number(maxCalendarEventCommands) || 20)),
             minimumStartDateTime: new Date().toISOString(),
             allowedCalendarIds,
             defaultCalendarId,
@@ -218,9 +244,11 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
             requireCalendarSelectionReason: false,
             forceDefaultCalendarId: true,
             userCanChangeCalendarInUi: true,
-            useTaskDueDateTimeWhenAvailable: true,
-            taskDueDateTimeIsEventStart: true,
-            dueDateTimeRepresentsTaskEndOrSchedulingDate: true,
+            useTaskDueDateTimeWhenAvailable: 'only_when_the_event_should_happen_at_that_time',
+            preferWorkBeforeDeadlineWhenAppropriate: true,
+            taskDueDateTimeCanRepresentDeadline: true,
+            tasksWithoutDueDateAreEligible: true,
+            dueDateTimeRankingRole: 'tie_breaker_not_primary_filter',
             defaultDurationMinutes: 30,
             minimumDurationMinutes: 15,
             maximumDurationMinutes: 240,
@@ -229,6 +257,7 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
             duplicateEventDefinition: 'Same selected calendar and same normalized title. Ignore start and end when checking duplicates.',
             requireConcreteTiming: true
           },
+          excludedTaskIds: excludeTaskIds,
           calendarUsageGuidelines: {
             mainEmailCalendar: 'Do not use for this app unless the task explicitly belongs on the personal main calendar.',
             aniversarios: 'Use only for special dates, birthdays, anniversaries, and similar date reminders.',

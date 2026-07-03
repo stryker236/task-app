@@ -47,6 +47,9 @@ function createTaskRouter({
         }
         return archived.rowCount;
       });
+      (req as any).log?.('info', 'task.archive', {
+        metadata: { status, archivedCount: result }
+      });
       return res.json({ archivedCount: result, status });
     } catch (error) { return next(error); }
   });
@@ -68,6 +71,9 @@ function createTaskRouter({
         await insertTask(client, created);
         await syncInverseRelationships(client, created, blocksTaskIds, created.createdAt);
         return findTaskById(client, created.id);
+      });
+      (req as any).log?.('info', 'task.create', {
+        metadata: { taskId: task?.id, title: task?.title, status: task?.status, dueDateTime: task?.dueDateTime }
       });
       res.status(201).json(task);
     } catch (error) { next(error); }
@@ -112,7 +118,15 @@ function createTaskRouter({
         const now = new Date().toISOString();
         const updated = applyTaskStatusTimestamps({ ...previous, ...validated, updatedAt: now }, previous.status, now);
         await updateTaskRecord(client, updated);
+        if (updated.dueDateTime !== previous.dueDateTime) {
+          (req as any).log?.('info', 'task.due_date_changed', {
+            metadata: { taskId: updated.id, title: updated.title, from: previous.dueDateTime, to: updated.dueDateTime }
+          });
+        }
         if (validated.status !== previous.status) {
+          (req as any).log?.('info', 'task.status_changed', {
+            metadata: { taskId: updated.id, title: updated.title, from: previous.status, to: validated.status }
+          });
           await insertActivity(client, updated.id, {
             id: randomUUID(), type: 'status',
             message: `Status changed from ${previous.status} to ${validated.status}`,
@@ -123,6 +137,9 @@ function createTaskRouter({
         return findTaskById(client, updated.id);
       });
       if (!task) return res.status(404).json({ error: 'Task not found' });
+      (req as any).log?.('info', 'task.update', {
+        metadata: { taskId: task.id, title: task.title, status: task.status, dueDateTime: task.dueDateTime }
+      });
       res.json(task);
     } catch (error) { next(error); }
   });
@@ -167,6 +184,9 @@ function createTaskRouter({
         return findTaskById(client, current.id);
       });
       if (!task) return res.status(404).json({ error: 'Task not found' });
+      (req as any).log?.('info', 'task.archive', {
+        metadata: { taskId: task.id, title: task.title }
+      });
       return res.json(task);
     } catch (error) { return next(error); }
   });
@@ -185,6 +205,9 @@ function createTaskRouter({
         return findTaskById(client, current.id);
       });
       if (!task) return res.status(404).json({ error: 'Task not found' });
+      (req as any).log?.('info', 'task.restore', {
+        metadata: { taskId: task.id, title: task.title }
+      });
       return res.json(task);
     } catch (error) { return next(error); }
   });

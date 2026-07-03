@@ -10,6 +10,7 @@ const {
   applyTaskStatusTimestamps
 } = require('../tasks/taskValidation');
 const { AI_COMMAND_TYPES } = require('../constants/aiConstants');
+const { logger } = require('../logger');
 
 function getAiCommandsFromBody(body) {
   const commands = Array.isArray(body?.commands) ? body.commands : [];
@@ -161,6 +162,10 @@ function alignCalendarEventToTaskDueDate(event, task) {
   };
 }
 
+function normalizeCalendarEventForTask(event, task) {
+  return task?.title ? { ...event, summary: task.title } : event;
+}
+
 async function getAuthorizedCalendarClient(dependencies) {
   const { pool, fetchGoogleConnection, saveGoogleConnection } = dependencies;
   if (!fetchGoogleConnection || !saveGoogleConnection || !pool) {
@@ -187,7 +192,7 @@ async function getAuthorizedCalendarClient(dependencies) {
       scopes: connection.scopes,
       encryptedTokens: { ...storedTokens, ...tokens },
       expiresAt: connection.expiresAt
-    }).catch((error) => console.error('Failed to persist refreshed Google tokens:', error.message));
+    }).catch((error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
   });
   return createCalendarClient(authClient);
 }
@@ -295,7 +300,7 @@ function prepareAiCommand(command, tasks, index) {
       (error as any).status = 404;
       throw error;
     }
-    const calendarEvent = alignCalendarEventToTaskDueDate(normalized.event, sourceTask);
+    const calendarEvent = normalizeCalendarEventForTask(normalized.event, sourceTask);
     if (calendarEventStartsInPast(calendarEvent)) {
       const error = createValidationError([`commands[${index}].event.start cannot be in the past`]);
       throw error;
@@ -314,8 +319,37 @@ function prepareAiCommand(command, tasks, index) {
 
 async function insertGoogleCalendarEvent(prepared, dependencies) {
   const event = prepared.calendarEvent;
+  const { fetchTaskCalendarEvents, insertTaskCalendarEvent, pool } = dependencies;
+  const linkedEvents = prepared.taskId && fetchTaskCalendarEvents
+    ? await fetchTaskCalendarEvents(pool, prepared.taskId)
+    : [];
+  if (linkedEvents.length) {
+    const linkedEvent = linkedEvents[0];
+    return {
+      id: linkedEvent.googleEventId,
+      summary: linkedEvent.summary,
+      start: { dateTime: linkedEvent.start },
+      end: { dateTime: linkedEvent.end },
+      htmlLink: linkedEvent.htmlLink,
+      alreadyExists: true,
+      linkedToTask: true
+    };
+  }
   const existingEvent = await findExistingGoogleCalendarEvent(event, dependencies);
-  if (existingEvent) return { ...existingEvent, alreadyExists: true };
+  if (existingEvent) {
+    if (prepared.taskId && insertTaskCalendarEvent) {
+      await insertTaskCalendarEvent(pool, {
+        taskId: prepared.taskId,
+        googleEventId: existingEvent.id,
+        calendarId: event.calendarId || 'primary',
+        summary: existingEvent.summary || event.summary,
+        start: existingEvent.start?.dateTime || existingEvent.start?.date || event.start,
+        end: existingEvent.end?.dateTime || existingEvent.end?.date || event.end,
+        htmlLink: existingEvent.htmlLink || null
+      });
+    }
+    return { ...existingEvent, alreadyExists: true };
+  }
 
   const calendar = await getAuthorizedCalendarClient(dependencies);
   const result = await calendar.events.insert({
@@ -334,6 +368,17 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
       }
     }
   });
+  if (prepared.taskId && insertTaskCalendarEvent) {
+    await insertTaskCalendarEvent(pool, {
+      taskId: prepared.taskId,
+      googleEventId: result.data.id,
+      calendarId: event.calendarId || 'primary',
+      summary: result.data.summary || event.summary,
+      start: result.data.start?.dateTime || result.data.start?.date || event.start,
+      end: result.data.end?.dateTime || result.data.end?.date || event.end,
+      htmlLink: result.data.htmlLink || null
+    });
+  }
   return { ...result.data, alreadyExists: false };
 }
 
@@ -436,6 +481,7 @@ module.exports = {
   calendarEventDuplicateFingerprint,
   calendarEventStartsInPast,
   alignCalendarEventToTaskDueDate,
+  normalizeCalendarEventForTask,
   findExistingGoogleCalendarEvent
 };
 

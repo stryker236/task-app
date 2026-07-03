@@ -31,6 +31,8 @@ const {
   fetchGoogleConnection,
   saveGoogleConnection,
   deleteGoogleConnection,
+  fetchTaskCalendarEvents,
+  insertTaskCalendarEvent,
   fetchAdvisorMemoryRules,
   saveAdvisorFeedback,
   upsertAdvisorMemoryRule,
@@ -46,6 +48,8 @@ const { createTaskRouter } = require('./routes/taskRoutes');
 const { createAdvisorRouter } = require('./routes/advisorRoutes');
 const { createQuickQueueRouter } = require('./routes/quickQueueRoutes');
 const { createGoogleRouter } = require('./routes/googleRoutes');
+const { createLogRouter } = require('./routes/logRoutes');
+const { logger, requestLogger } = require('./logger');
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
@@ -80,6 +84,7 @@ app.use(cors({
   }
 }));
 app.use(express.json({ limit: '1mb' }));
+app.use(requestLogger);
 
 const routeDependencies = {
   pool,
@@ -107,6 +112,8 @@ const routeDependencies = {
   fetchGoogleConnection,
   saveGoogleConnection,
   deleteGoogleConnection,
+  fetchTaskCalendarEvents,
+  insertTaskCalendarEvent,
   fetchAdvisorMemoryRules,
   saveAdvisorFeedback,
   upsertAdvisorMemoryRule,
@@ -124,10 +131,21 @@ app.use(createTaskRouter(routeDependencies));
 app.use(createAdvisorRouter(routeDependencies));
 app.use(createQuickQueueRouter(routeDependencies));
 app.use(createGoogleRouter(routeDependencies));
+app.use(createLogRouter());
 
 app.use((req: Request, res: Response) => res.status(404).json({ error: 'Route not found' }));
 app.use((error: HttpError, req: Request, res: Response, next: NextFunction) => {
-  console.error(error);
+  logger.error('http.request.error', {
+    requestId: (req as any).requestId || null,
+    route: req.originalUrl,
+    client: req.ip,
+    metadata: {
+      message: error.message,
+      status: error.status,
+      code: error.code,
+      details: error.details
+    }
+  });
   const databaseErrors: Record<string, string> = { '23505': 'A record with the same value already exists', '23503': 'A referenced task does not exist', '23514': 'Database constraint validation failed' };
   res.status(error.status || (error.code ? 400 : 500)).json({
     error: (error.code ? databaseErrors[error.code] : undefined) || error.message || 'Internal server error',
@@ -138,7 +156,7 @@ app.use((error: HttpError, req: Request, res: Response, next: NextFunction) => {
 let server: Server | undefined;
 
 async function shutdown(signal) {
-  console.log(`${signal} received. Closing HTTP server and PostgreSQL pool...`);
+  logger.info('server.shutdown.started', { metadata: { signal } });
   const forceExit = setTimeout(() => process.exit(1), 10_000);
   forceExit.unref();
   if (server) {
@@ -152,10 +170,10 @@ process.once('SIGTERM', () => shutdown('SIGTERM'));
 process.once('SIGINT', () => shutdown('SIGINT'));
 
 server = app.listen(PORT, HOST, () => {
-  console.log(`Task App API listening on http://${HOST}:${PORT}`);
+  logger.info('server.started', { metadata: { url: `http://${HOST}:${PORT}` } });
   checkConnection()
-    .then((connection) => console.log(`Connected to Supabase PostgreSQL database: ${connection.database}`))
-    .catch((error) => console.error('Supabase PostgreSQL is not ready:', error.message));
+    .then((connection) => logger.info('db.connection.ready', { metadata: { database: connection.database } }))
+    .catch((error) => logger.error('db.connection.failed', { metadata: { message: error.message } }));
 });
 
 export {};

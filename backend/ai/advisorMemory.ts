@@ -333,36 +333,78 @@ function previewAddedTags(preview: Record<string, any>) {
 }
 
 // Apply learned "do not show this again" style rules before proposals reach the UI.
-function shouldSuppressPreviewByMemory(preview: Record<string, any>, memory: any[] = [], action = '') {
+function memoryRuleSummary(rule: Record<string, any>) {
+  const parts = [];
+  if (rule.avoidSimilarSuggestions) parts.push('avoid similar');
+  if (rule.avoidTags?.length) parts.push(`avoid tags: ${rule.avoidTags.join(', ')}`);
+  if (rule.tagVolume && rule.tagVolume !== 'ok') parts.push(`tag volume: ${rule.tagVolume}`);
+  if (rule.unnecessaryEvent) parts.push('unnecessary event');
+  if (rule.wrongCalendar) parts.push('wrong calendar');
+  if (rule.dueDateDirection && rule.dueDateDirection !== 'ok') parts.push(`date/time: ${rule.dueDateDirection}`);
+  if (rule.calendarDurationDirection && rule.calendarDurationDirection !== 'ok') parts.push(`duration: ${rule.calendarDurationDirection}`);
+  if (rule.askForMoreContext) parts.push('ask for more context');
+  return parts.join('; ') || 'matched memory rule';
+}
+
+function matchingMemorySuppressions(preview: Record<string, any>, memory: any[] = [], action = '') {
   const title = previewTitle(preview);
   const addedTags = previewAddedTags(preview);
   const addedTagKeys = normalizedSet(addedTags);
 
-  return memory.some((rule) => {
-    if (rule.action && rule.action !== action) return false;
-    if (!titleMatchesRule(title, rule)) return false;
-    if (rule.avoidSimilarSuggestions && rule.appliesToCommandType === preview.type) return true;
+  return memory.flatMap((rule) => {
+    if (rule.action && rule.action !== action) return [];
+    if (!titleMatchesRule(title, rule)) return [];
+    const matchedReasons = [];
+    if (rule.avoidSimilarSuggestions && rule.appliesToCommandType === preview.type) matchedReasons.push('avoidSimilarSuggestions');
 
     if (rule.ruleType === 'tag_suggestion' && preview.type === 'update_task') {
       const avoidTags = normalizedSet(rule.avoidTags || []);
-      if ([...avoidTags].some((tag) => addedTagKeys.has(tag))) return true;
-      if (rule.tagVolume === 'less' && addedTags.length > 1) return true;
+      if ([...avoidTags].some((tag) => addedTagKeys.has(tag))) matchedReasons.push('avoidTags');
+      if (rule.tagVolume === 'less' && addedTags.length > 1) matchedReasons.push('tagVolumeLess');
     }
 
-    return false;
+    if (!matchedReasons.length) return [];
+    return [{
+      ruleType: rule.ruleType,
+      action: rule.action,
+      appliesToCommandType: rule.appliesToCommandType || '',
+      titleKeywords: rule.titleKeywords || [],
+      supportCount: rule.supportCount || 1,
+      matchedReasons,
+      summary: memoryRuleSummary(rule),
+      rule: {
+        avoidSimilarSuggestions: rule.avoidSimilarSuggestions,
+        avoidTags: rule.avoidTags || [],
+        tagVolume: rule.tagVolume,
+        unnecessaryEvent: rule.unnecessaryEvent,
+        wrongCalendar: rule.wrongCalendar,
+        dueDateDirection: rule.dueDateDirection,
+        calendarDurationDirection: rule.calendarDurationDirection,
+        askForMoreContext: rule.askForMoreContext
+      }
+    }];
   });
+}
+
+function shouldSuppressPreviewByMemory(preview: Record<string, any>, memory: any[] = [], action = '') {
+  return matchingMemorySuppressions(preview, memory, action).length > 0;
 }
 
 // Keep raw commands and their previews in sync while removing memory-suppressed proposals.
 function filterAdvisorCommandPairsByMemory({ commands = [], previews = [], memory = [], action = '' }: Record<string, any>) {
   const keptCommands = [];
   const keptPreviews = [];
+  const rejected = [];
   previews.forEach((preview, index) => {
-    if (shouldSuppressPreviewByMemory(preview, memory, action)) return;
+    const suppressions = matchingMemorySuppressions(preview, memory, action);
+    if (suppressions.length) {
+      rejected.push({ command: commands[index], preview, memoryRules: suppressions });
+      return;
+    }
     keptPreviews.push(preview);
     keptCommands.push(commands[index]);
   });
-  return { commands: keptCommands, previews: keptPreviews };
+  return { commands: keptCommands, previews: keptPreviews, rejected };
 }
 
 module.exports = {
@@ -372,6 +414,7 @@ module.exports = {
   inferAdvisorMemoryRule,
   inferAdvisorInteractionMemoryRule,
   buildAdvisorMemoryContext,
+  matchingMemorySuppressions,
   filterAdvisorCommandPairsByMemory
 };
 

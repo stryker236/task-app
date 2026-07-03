@@ -83,3 +83,93 @@
   .advisor-proposal-actions { flex-direction: row; flex-wrap: wrap; }
   .advisor-change-list div { grid-template-columns: 1fr; gap: 3px; }
 }
+.advisor-debug-summary {
+  margin: 10px 0;
+  padding: 9px;
+  border: 1px solid #dfe6f2;
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.advisor-debug-summary summary {
+  cursor: pointer;
+  color: #40506a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.advisor-debug-counts,
+.advisor-debug-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.advisor-debug-counts span,
+.advisor-debug-reasons span {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #eef2fa;
+  color: #526179;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.advisor-debug-rejections {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.advisor-debug-rejections article {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid #edf0f4;
+}
+
+.advisor-debug-rejections strong {
+  color: #6a5260;
+  font-size: 10px;
+}
+
+.advisor-debug-rejections span,
+.advisor-debug-rejections small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #647086;
+  font-size: 10px;
+}
+
+.advisor-debug-memory {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.advisor-debug-memory section {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid #ead6dc;
+  border-radius: 7px;
+  background: #fff8fa;
+}
+
+.advisor-debug-memory b {
+  color: #7a3448;
+  font-size: 10px;
+}
+
+.advisor-debug-memory p {
+  margin: 0;
+  color: #694859;
+  font-size: 10px;
+  line-height: 1.35;
+}

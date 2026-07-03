@@ -1,4 +1,5 @@
-import type { ChecklistItem, SharedNote, Tag, Task, TaskInput } from '../../../shared/types';
+import type { ChecklistItem, GoogleCalendar, SharedNote, Tag, Task, TaskCalendarEvent, TaskInput } from '../../../shared/types';
+import CalendarEventDialog from './CalendarEventDialog';
 import PostponeDialog from './PostponeDialog';
 import ProgressLog from './ProgressLog';
 import TaskDetails from './TaskDetails';
@@ -36,6 +37,13 @@ type AppDialogsProps = {
   onCreateSharedNote: (task: Task, title: string, body: string, tags: string[]) => Promise<Task | null>;
   onDetachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
   onOpenSharedNote: (note: SharedNote) => void;
+  calendarEventTask: Task | null;
+  googleCalendars: GoogleCalendar[];
+  advisorDefaultCalendarId: string;
+  onOpenCalendarEvent: (task: Task) => void;
+  onCloseCalendarEvent: () => void;
+  onCalendarEventCreated: (event: TaskCalendarEvent) => void;
+  onError: (message: string) => void;
   postponeTask: Task | null;
   onClosePostpone: () => void;
   onSavePostpone: (task: Task, dueDateTime: string) => void;
@@ -72,6 +80,13 @@ export default function AppDialogs({
   onCreateSharedNote,
   onDetachSharedNote,
   onOpenSharedNote,
+  calendarEventTask,
+  googleCalendars,
+  advisorDefaultCalendarId,
+  onOpenCalendarEvent,
+  onCloseCalendarEvent,
+  onCalendarEventCreated,
+  onError,
   postponeTask,
   onClosePostpone,
   onSavePostpone,
@@ -119,6 +134,17 @@ export default function AppDialogs({
           onCreateSharedNote={onCreateSharedNote}
           onDetachSharedNote={onDetachSharedNote}
           onOpenSharedNote={onOpenSharedNote}
+          onCreateCalendarEvent={onOpenCalendarEvent}
+        />
+      )}
+      {calendarEventTask && (
+        <CalendarEventDialog
+          task={calendarEventTask}
+          calendars={googleCalendars}
+          defaultCalendarId={advisorDefaultCalendarId}
+          onClose={onCloseCalendarEvent}
+          onCreated={onCalendarEventCreated}
+          onError={onError}
         />
       )}
       {postponeTask && (
