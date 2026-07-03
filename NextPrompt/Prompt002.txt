@@ -1,0 +1,75 @@
+1. Medir onde as sugestões estão a morrer
+     Hoje há vários filtros antes da UI: ação correta, calendário válido, eventos no passado, duplicados, memória, etc.
+     Primeiro eu adicionaria uma resposta de debug no /ai/advisor/request, por exemplo:
+      - generatedCount
+      - afterActionFilter
+      - afterCalendarFilter
+      - afterPastFilter
+      - afterDuplicateBatchFilter
+      - afterExistingGoogleFilter
+      - afterMemoryFilter
+      - rejectionReasons
+
+     Sem isto estamos a adivinhar.
+
+  2. Separar “gerar candidatos” de “filtrar candidatos”
+     Para schedule_calendar_events, o backend devia produzir uma lista de candidatos com estado:
+      - accepted_for_preview
+      - rejected_past
+      - rejected_duplicate_title
+      - rejected_existing_google_event
+      - rejected_invalid_calendar
+      - rejected_memory
+      - rejected_missing_due_date_or_time
+
+     A UI pode continuar a mostrar só os válidos, mas nós conseguimos ver porque os outros caíram.
+
+  3. Aumentar o número de tasks enviadas ao advisor
+     Hoje provavelmente o contexto está limitado e ordenado. Para agendamentos, eu faria um selector próprio:
+      - tasks ativas com dueDateTime
+      - tasks sem evento conhecido
+      - tasks sem status done/cancelled
+      - prioridade alta primeiro
+      - incluir mais tasks, por exemplo 80-120
+
+  4. Pedir mais propostas ao modelo
+     No prompt, para schedule_calendar_events, pedir explicitamente:
+      - “return up to 20 create_calendar_event commands”
+      - “prefer tasks with dueDateTime”
+      - “do not stop after 3-5 suggestions”
+      - “if a task has dueDateTime, it is eligible for conversion unless already scheduled”
+
+  5. Adicionar retry controlado
+     Se depois dos filtros sobrarem poucas sugestões, fazer retry automático:
+      - primeira tentativa: pedir 20
+      - se sobrarem menos de, por exemplo, 8, pedir nova tentativa com excludeTaskIds dos já aceites/rejeitados
+      - máximo 2 ou 3 tentativas para não gastar demasiado
+
+  6. Não forçar evento = dueDate
+     Eu removeria a regra rígida que força event.start = task.dueDateTime.
+     Melhor:
+      - dueDateTime é deadline
+      - evento pode ser antes da deadline
+      - se o modelo não tiver melhor razão, usa dueDateTime
+      - preview deixa-te editar calendário/data depois
+
+  7. Guardar ligação task → evento
+     Isto é importante para escalar.
+     Criar uma tabela tipo task_calendar_events:
+     Depois o advisor sabe exatamente quais tasks já têm evento, sem depender só do título.
+
+  8. Mostrar painel de “rejeitadas” em modo debug
+     Na UI, talvez escondido em <details>:
+      - “12 sugestões geradas, 5 chegaram à UI”
+      - lista das rejeitadas e motivo
+
+  Primeira implementação que eu faria
+
+  Eu começaria por instrumentação + retry simples:
+
+  1. Backend retorna contadores e motivos de rejeição.
+  2. Prompt pede até 20 eventos.
+  3. Se menos de 8 previews válidos, backend tenta mais uma vez excluindo tasks já processadas.
+  4. UI mostra “Geradas X, disponíveis Y, filtradas Z”.
+
+  Só depois mexia em tabela task_calendar_events, porque isso já é uma mudança mais estrutural.

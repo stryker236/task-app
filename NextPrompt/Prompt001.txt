@@ -1,0 +1,44 @@
+ Faz sentido separar os conceitos:
+
+  - dueDateTime = prazo/fim da task.
+  - calendar event = bloco no calendário para executar/lembrar/participar.
+  - Uma task pode ter dueDateTime e não ter evento.
+  - Uma task pode ter evento numa data diferente do dueDateTime.
+  - O advisor pode sugerir converter uma task em evento, mas não deve assumir automaticamente que o evento é igual ao prazo.
+
+  Eu mudaria para este modelo:
+
+  1. Mostrar due dates no calendário como camada visual separada
+     Mantemos o que acabámos de fazer, mas visualmente claro: Due date, não evento Google.
+
+  2. Adicionar ação manual na task: Criar evento
+     Na task/details/card, um botão cria uma proposta de evento editável:
+      - título default = título da task
+      - calendário default = configuração do app
+      - data/hora default = dueDateTime se existir, senão agora/próximo horário útil
+      - mas editável antes de criar
+
+  3. Advisor sugere “Criar evento” apenas como proposta
+     O advisor pode escolher tasks candidatas a evento, mas a data proposta não precisa ser igual ao dueDateTime.
+     Regra boa:
+      - se a task tem dueDateTime, usar isso como sugestão inicial só quando fizer sentido
+      - se a task parece trabalho que deve ser feito antes do prazo, sugerir um horário antes do dueDateTime
+      - nunca criar no passado
+      - título sempre igual à task
+      - calendário sempre default, editável por ti
+
+  4. Guardar ligação task → evento
+     Idealmente, quando crias o evento, guardar no backend algo como:
+      - task_calendar_events
+      - taskId
+      - googleEventId
+      - calendarId
+      - summary
+      - start
+      - end
+
+     Assim sabemos que a task já tem evento sem depender só do título.
+
+  5. Mudar duplicate check
+     Em vez de só comparar título no Google, primeiro verificar se a task já tem evento ligado.
+     Enquanto não tivermos essa tabela, usar título é aceitável, mas é frágil.
