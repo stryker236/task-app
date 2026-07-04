@@ -20,8 +20,8 @@ main { padding: 24px 30px 44px; }
 .counter-alert strong { color: var(--danger); }
 
 .view-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-.view-tabs button { border: 0; border-bottom: 3px solid transparent; padding: 11px 16px; background: transparent; color: var(--muted); font-weight: 650; }
-.view-tabs button.active { color: var(--blue); border-bottom-color: var(--blue); }
+.view-tabs a { border: 0; border-bottom: 3px solid transparent; padding: 11px 16px; background: transparent; color: var(--muted); font-weight: 650; text-decoration: none; }
+.view-tabs a.active { color: var(--blue); border-bottom-color: var(--blue); }
 
 .google-login-screen {
   min-height: 100vh;

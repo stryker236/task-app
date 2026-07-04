@@ -101,11 +101,13 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     }
   }
 
-  async function connectGoogle() {
+  async function connectGoogle(returnToPath = `${window.location.pathname}${window.location.search}`) {
     setGoogleLoading(true);
     setError?.('');
     try {
-      const returnTo = `${window.location.origin}${window.location.pathname}`;
+      const returnTo = returnToPath.startsWith('http')
+        ? returnToPath
+        : `${window.location.origin}${returnToPath.startsWith('/') ? returnToPath : `/${returnToPath}`}`;
       const { url } = await getGoogleOAuthUrl(returnTo);
       window.location.href = url; // Redirect the user to the Google OAuth URL for authentication and authorization
     } catch (error) {

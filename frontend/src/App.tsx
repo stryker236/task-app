@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import type { SharedNote, Task, TaskCalendarEvent, TaskStatus } from '../../shared/types';
 import AdvisorPanel from './components/AdvisorPanel';
 import AppDialogs from './components/AppDialogs';
@@ -22,9 +23,23 @@ import useTagActions from './hooks/useTagActions';
 import useTaskActions from './hooks/useTaskActions';
 import useTaskFormController from './hooks/useTaskFormController';
 import { advisorCalendarPreviewEvents, taskDueDateCalendarEvents } from './utils/advisorCalendarPreviews';
+import { loginPath, viewFromPath, viewPath } from './utils/routes';
 import { isOverdue, isToday } from './utils/taskDates';
 
+function safeInternalReturnTo(value: string | null) {
+  if (!value || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/login')) return '/';
+  return value;
+}
+
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isLoginRoute = location.pathname.replace(/\/+$/, '') === '/login';
+  const routeView = viewFromPath(location.pathname);
+  const view = routeView || 'kanban';
+  const protectedReturnTo = `${location.pathname}${location.search}${location.hash}`;
+  const loginReturnTo = safeInternalReturnTo(new URLSearchParams(location.search).get('returnTo'));
+
   const [darkMode, setDarkMode] = useState(() => {
     const stored = localStorage.getItem('task-app:theme');
     if (stored) return stored === 'dark';
@@ -39,14 +54,12 @@ export default function App() {
     setFiltersByView,
     filters,
     setFilters,
-    view,
-    setView,
     loading,
     error,
     setError,
     counters,
     fetchDashboardData
-  } = useDashboardData();
+  } = useDashboardData(view);
 
   const [queueSort, setQueueSort] = useState<QueueSort>({ field: 'priority', direction: 'desc' });
   const [viewingTask, setViewingTask] = useState<Task | null>(null);
@@ -129,7 +142,11 @@ export default function App() {
   function openSharedNoteInNotesView(note: SharedNote) {
     setViewingTask(null);
     setFocusedSharedNoteId(note.id);
-    setView('sharedNotes');
+    navigate(viewPath('sharedNotes'));
+  }
+
+  function setView(nextView: typeof view) {
+    navigate(viewPath(nextView));
   }
 
   function refreshAfterCalendarEventCreated(event: TaskCalendarEvent) {
@@ -170,14 +187,26 @@ export default function App() {
     ] satisfies Array<[string, Task[]]>;
   }, [tasks]);
 
-  if (!googleCalendar.googleStatus.connected) {
+  if (!routeView && !isLoginRoute) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (isLoginRoute && googleCalendar.googleStatus.connected) {
+    return <Navigate to={loginReturnTo} replace />;
+  }
+
+  if (!isLoginRoute && !googleCalendar.googleLoading && !googleCalendar.googleStatus.connected) {
+    return <Navigate to={loginPath(protectedReturnTo)} replace />;
+  }
+
+  if (isLoginRoute || !googleCalendar.googleStatus.connected) {
     return (
       <div className="app-shell">
         <GoogleLoginScreen
           status={googleCalendar.googleStatus}
           loading={googleCalendar.googleLoading}
           error={error}
-          onConnect={googleCalendar.connectGoogle}
+          onConnect={() => googleCalendar.connectGoogle(loginReturnTo)}
         />
       </div>
     );
@@ -240,7 +269,7 @@ export default function App() {
           />
         )}
 
-        <ViewTabs view={view} onChange={setView} />
+        <ViewTabs view={view} />
 
         {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'logs' && (
           <BulkArchiveActions
