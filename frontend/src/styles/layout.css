@@ -20,8 +20,15 @@ main { padding: 24px 30px 44px; }
 .counter-alert strong { color: var(--danger); }
 
 .view-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-.view-tabs button { border: 0; border-bottom: 3px solid transparent; padding: 11px 16px; background: transparent; color: var(--muted); font-weight: 650; }
-.view-tabs button.active { color: var(--blue); border-bottom-color: var(--blue); }
+.view-tabs a { border: 0; border-bottom: 3px solid transparent; padding: 11px 16px; background: transparent; color: var(--muted); font-weight: 650; text-decoration: none; }
+.view-tabs a.active { color: var(--blue); border-bottom-color: var(--blue); }
+
+.google-login-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--bg); }
+.google-login-panel { width: min(420px, 100%); display: grid; gap: 18px; padding: 28px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow); }
+.google-login-panel span { color: var(--muted); font-weight: 800; text-transform: uppercase; font-size: 0.78rem; }
+.google-login-panel h1 { margin: 6px 0 8px; }
+.google-login-panel p { margin: 0; color: var(--muted); }
+.google-login-error { color: var(--danger) !important; font-weight: 700; }
 
 .bulk-archive-actions { display: flex; justify-content: flex-end; align-items: center; gap: 7px; margin: 0 0 10px; }
 .bulk-archive-actions > span { color: #7c8596; font-size: 10px; font-weight: 800; text-transform: uppercase; }

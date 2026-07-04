@@ -3,10 +3,22 @@ export interface GoogleStatus {
   accountEmail: string | null;
   scopes: string[];
   expiresAt?: string | null;
+  requiresReconnect?: boolean;
+}
+
+export interface GoogleOAuthUrlRequest {
+  returnTo?: string;
+}
+
+export interface GoogleOAuthUrlResponse {
+  url: string;
+  expiresAt: string;
 }
 
 export interface GoogleCalendarEvent {
   id: string;
+  rawId?: string;
+  googleEventId?: string;
   calendarId: string;
   calendarSummary: string;
   calendarColor: string | null;

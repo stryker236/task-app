@@ -95,11 +95,14 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     }
   }
 
-  async function connectGoogle() {
+  async function connectGoogle(returnToPath = `${window.location.pathname}${window.location.search}`) {
     setGoogleLoading(true);
     setError?.('');
     try {
-      const { url } = await getGoogleOAuthUrl();
+      const returnTo = returnToPath.startsWith('http')
+        ? returnToPath
+        : `${window.location.origin}${returnToPath.startsWith('/') ? returnToPath : `/${returnToPath}`}`;
+      const { url } = await getGoogleOAuthUrl(returnTo);
       window.location.href = url;
     } catch (error) {
       setError?.(errorMessage(error));

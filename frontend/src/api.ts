@@ -1,4 +1,4 @@
-import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendar, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, SharedNote, SharedNoteInput, Tag, Task, TaskCalendarEvent, TaskInput, TaskStatus } from '../../shared/types';
+import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendar, GoogleCalendarEvent, GoogleOAuthUrlRequest, GoogleOAuthUrlResponse, GoogleStatus, QuickQueueItem, SharedNote, SharedNoteInput, Tag, Task, TaskCalendarEvent, TaskInput, TaskStatus } from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -341,7 +341,10 @@ export const moveQuickQueueItem = (id: string, direction: 1 | -1) => requestJson
 export const clearDoneQuickQueueItems = () => requestJson<QuickQueueItem[]>('/quick-queue/done', { method: 'DELETE' });
 
 export const getGoogleStatus = () => requestJson<GoogleStatus>('/google/status');
-export const getGoogleOAuthUrl = () => requestJson<{ url: string; expiresAt: string }>('/google/oauth/url', { method: 'POST' });
+export const getGoogleOAuthUrl = (returnTo = '') => requestJson<GoogleOAuthUrlResponse>('/google/oauth/url', {
+  method: 'POST',
+  body: JSON.stringify({ returnTo } satisfies GoogleOAuthUrlRequest)
+});
 export const disconnectGoogle = () => requestJson<void>('/google/connection', { method: 'DELETE' });
 export const sendGoogleDailyTaskEmail = (calendarId = '', date = '') => requestJson<{
   id: string;
