@@ -327,6 +327,7 @@ function buildAdvisorAdviceRequest({ tasks, limit }) {
 
 module.exports = {
   resolveAdvisorAction,
+  selectCommandContextTasks,
   buildAdvisorCommandRequest,
   buildAdvisorAdviceRequest
 };

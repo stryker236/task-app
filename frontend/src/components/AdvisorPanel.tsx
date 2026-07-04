@@ -497,11 +497,17 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
   const filtered = Math.max(0, generated - available);
   const reasons = Object.entries(debug.rejectionReasons || {});
   const rejections = debug.rejections || [];
+  const candidateAttempts = debug.candidateAttempts || [];
+  const notProposedCandidates = debug.notProposedCandidates || [];
 
   return (
     <details className="advisor-debug-summary">
       <summary>{generated} geradas, {available} disponiveis, {filtered} filtradas</summary>
       <div className="advisor-debug-counts">
+        {debug.candidateTaskCount != null ? <span>Candidatas: {debug.candidateTaskCount}</span> : null}
+        {debug.candidateTasksWithoutDueDate != null ? <span>Sem due date: {debug.candidateTasksWithoutDueDate}</span> : null}
+        {debug.notProposedCount != null ? <span>Nao propostas: {debug.notProposedCount}</span> : null}
+        {debug.notProposedWithoutDueDateCount != null ? <span>Nao propostas sem due date: {debug.notProposedWithoutDueDateCount}</span> : null}
         <span>Acao: {debug.afterActionFilter}</span>
         <span>Calendario: {debug.afterCalendarFilter}</span>
         <span>Tempo futuro: {debug.afterPastFilter}</span>
@@ -515,6 +521,46 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
           {reasons.map(([reason, count]) => <span key={reason}>{reason}: {count}</span>)}
         </div>
       ) : <p className="advisor-empty">Sem rejeicoes registadas.</p>}
+      {candidateAttempts.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Candidatas por tentativa</strong>
+          {candidateAttempts.map((attempt) => (
+            <article key={`candidate-attempt-${attempt.attempt}`}>
+              <div>
+                <b>Tentativa {attempt.attempt}</b>
+                <span>{attempt.candidateCount} candidatas</span>
+                <span>{attempt.candidateTasksWithoutDueDate} sem due date</span>
+                <span>{attempt.returnedTaskCount} devolvidas pelo modelo</span>
+                <span>{attempt.notProposedCount} nao propostas</span>
+              </div>
+              {attempt.notProposedCandidates?.length ? (
+                <ul>
+                  {attempt.notProposedCandidates.slice(0, 20).map((task) => (
+                    <li key={`${attempt.attempt}-${task.taskId}`}>
+                      <span>{task.taskTitle || task.title || task.taskId}</span>
+                      <small>p{task.priority ?? '-'} - {task.status || '-'} - {task.dueDateTime || 'sem due date'}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      ) : null}
+      {notProposedCandidates.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Nao propostas pelo modelo neste request</strong>
+          <ul>
+            {notProposedCandidates.slice(0, 40).map((task) => (
+              <li key={`not-proposed-${task.taskId}`}>
+                <span>{task.taskTitle || task.title || task.taskId}</span>
+                <small>p{task.priority ?? '-'} - {task.status || '-'} - {task.dueDateTime || 'sem due date'}</small>
+              </li>
+            ))}
+          </ul>
+          {notProposedCandidates.length > 40 && <p className="advisor-empty">+{notProposedCandidates.length - 40} candidatas nao propostas</p>}
+        </div>
+      ) : null}
       {rejections.length ? (
         <div className="advisor-debug-rejections">
           {rejections.slice(0, 30).map((item, index) => (

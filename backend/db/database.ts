@@ -759,7 +759,7 @@ async function insertTaskCalendarEvent(db: Queryable, event: DbRow) {
 	);
 	return mapTaskCalendarEvent(result.rows[0]);
 }
-
+// TODO: Make limit configurable
 async function fetchAdvisorMemoryRules(db: Queryable = pool) {
 	const result = await db.query(
 		`SELECT *

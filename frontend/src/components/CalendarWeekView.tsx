@@ -37,7 +37,7 @@ type CalendarWeekViewProps = {
   onDisconnect: () => void;
   onLoadEvents: (date: string, calendarIds?: string[]) => void;
   onLoadRangeEvents: (start: string, end: string, calendarIds?: string[]) => void;
-  onSendDailyTaskEmail: () => Promise<{ to: string; todayCount: number; overdueCount: number } | null>;
+  onSendDailyTaskEmail: (date?: string) => Promise<{ to: string; date?: string; calendarSummary?: string; eventCount?: number; totalMinutes?: number; todayCount: number; overdueCount: number } | null>;
   advisorLoading: boolean;
   onRequestAdvisorCalendarEvents: () => void;
 };
@@ -148,6 +148,25 @@ function isAdvisorPreviewEvent(event: CalendarDisplayEvent): event is AdvisorCal
 
 function isTaskDueDateEvent(event: CalendarDisplayEvent): event is TaskDueDateCalendarEvent {
   return 'taskDueDate' in event && event.taskDueDate;
+}
+
+function eventTitle(event: CalendarDisplayEvent) {
+  return event.summary || '(Sem titulo)';
+}
+
+function eventTimeRange(event: CalendarDisplayEvent) {
+  const start = formatEventTime(event.start);
+  const end = event.end ? formatEventTime(event.end) : '';
+  return end ? `${start} - ${end}` : start;
+}
+
+function eventTooltip(event: CalendarDisplayEvent) {
+  return [
+    eventTitle(event),
+    eventTimeRange(event),
+    isAdvisorPreviewEvent(event) ? 'Proposta do advisor' : isTaskDueDateEvent(event) ? 'Due date da task' : event.calendarSummary,
+    event.location || ''
+  ].filter(Boolean).join('\n');
 }
 
 function isAllDayEvent(event: CalendarDisplayEvent) {
@@ -286,6 +305,7 @@ export default function CalendarWeekView({
 }: CalendarWeekViewProps) {
   const [calendarMode, setCalendarMode] = useState<'week' | 'month'>('week');
   const [monthAnchor, setMonthAnchor] = useState(weekStart);
+  const [emailDate, setEmailDate] = useState(() => inputValueFromDate(new Date()));
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const monthRange = monthGridRange(monthAnchor);
   const monthDays = daysBetween(monthRange.start, monthRange.end);
@@ -333,17 +353,21 @@ export default function CalendarWeekView({
           {status.connected ? (
             <>
               {canSendEmail ? (
-                <button
-                  type="button"
-                  className="button primary small"
-                  onClick={async () => {
-                    const result = await onSendDailyTaskEmail();
-                    if (result) window.alert(`Email enviado para ${result.to}. Hoje: ${result.todayCount}; atrasadas: ${result.overdueCount}.`);
-                  }}
-                  disabled={loading}
-                >
-                  {loading ? 'A enviar...' : 'Enviar email do dia'}
-                </button>
+                <label className="calendar-email-date">
+                  <span>Email do dia</span>
+                  <input type="date" value={emailDate} onChange={(event) => setEmailDate(event.target.value)} />
+                  <button
+                    type="button"
+                    className="button primary small"
+                    onClick={async () => {
+                      const result = await onSendDailyTaskEmail(emailDate);
+                      if (result) window.alert(`Email enviado para ${result.to}. Data: ${result.date || emailDate}. Calendario: ${result.calendarSummary || 'default'}. Eventos: ${result.eventCount ?? 0}; due dates: ${result.todayCount}; atrasadas: ${result.overdueCount}.`);
+                    }}
+                    disabled={loading || !emailDate}
+                  >
+                    {loading ? 'A enviar...' : 'Enviar'}
+                  </button>
+                </label>
               ) : (
                 <button type="button" className="button primary small" onClick={onConnect} disabled={loading}>
                   Ativar envio de email
@@ -497,11 +521,12 @@ export default function CalendarWeekView({
                           target={event.htmlLink ? '_blank' : undefined}
                           rel={event.htmlLink ? 'noreferrer' : undefined}
                           key={event.id}
+                          title={eventTooltip(event)}
                           style={{ '--event-color': event.calendarColor || '#315efb' } as CSSProperties}
                         >
                           <i aria-hidden="true" />
                           <span>{isAllDayEvent(event) ? 'Todo o dia' : formatEventTime(event.start)}</span>
-                          <strong>{isAdvisorPreviewEvent(event) ? `[AI] ${event.summary || '(Sem titulo)'}` : isTaskDueDateEvent(event) ? `[Due] ${event.summary || '(Sem titulo)'}` : event.summary || '(Sem titulo)'}</strong>
+                          <strong>{eventTitle(event)}</strong>
                         </a>
                       ))}
                       {dayEvents.length > 5 && <em>+{dayEvents.length - 5} mais</em>}
@@ -542,9 +567,10 @@ export default function CalendarWeekView({
                           target={event.htmlLink ? '_blank' : undefined}
                           rel={event.htmlLink ? 'noreferrer' : undefined}
                           key={event.id}
+                          title={eventTooltip(event)}
                           style={{ '--event-color': event.calendarColor || '#315efb' } as CSSProperties}
                         >
-                          {isAdvisorPreviewEvent(event) ? `[Preview AI] ${event.summary}` : isTaskDueDateEvent(event) ? `[Due] ${event.summary}` : event.summary}
+                          <strong>{eventTitle(event)}</strong>
                         </a>
                       ))}
                     </div>
@@ -575,6 +601,7 @@ export default function CalendarWeekView({
                             target={event.htmlLink ? '_blank' : undefined}
                             rel={event.htmlLink ? 'noreferrer' : undefined}
                             key={event.id}
+                            title={eventTooltip(event)}
                             style={{
                               '--event-color': event.calendarColor || '#315efb',
                               top: `${placement.top}px`,
@@ -583,12 +610,11 @@ export default function CalendarWeekView({
                               width: `calc(((100% - 10px) / ${laneCount}) - 3px)`
                             } as CSSProperties}
                           >
-                            {isAdvisorPreviewEvent(event) && <em>Preview AI</em>}
+                            <strong>{eventTitle(event)}</strong>
                             {isTaskDueDateEvent(event) && <em>Due date</em>}
-                            <strong>{event.summary || '(Sem titulo)'}</strong>
-                            <span>{formatEventTime(event.start)}{event.end ? ` - ${formatEventTime(event.end)}` : ''}</span>
-                            <small>{event.calendarSummary}</small>
-                            {event.location && <small>{event.location}</small>}
+                            <span>{eventTimeRange(event)}</span>
+                            {!isAdvisorPreviewEvent(event) && <small>{event.calendarSummary}</small>}
+                            {!isAdvisorPreviewEvent(event) && event.location && <small>{event.location}</small>}
                           </a>
                         );
                       })}

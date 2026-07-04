@@ -71,6 +71,23 @@ export type AdvisorPreviewDebug = {
   afterMemoryFilter: number;
   rejectedCount?: number;
   attempts?: number;
+  candidateTaskCount?: number;
+  candidateTasksWithDueDate?: number;
+  candidateTasksWithoutDueDate?: number;
+  notProposedCount?: number;
+  notProposedWithoutDueDateCount?: number;
+  notProposedCandidates?: AdvisorCandidateDebug[];
+  candidateAttempts?: Array<{
+    attempt: number;
+    candidateCount: number;
+    candidateTasksWithDueDate: number;
+    candidateTasksWithoutDueDate: number;
+    returnedTaskCount: number;
+    returnedTaskIds: string[];
+    notProposedCount: number;
+    notProposedWithoutDueDateCount: number;
+    notProposedCandidates: AdvisorCandidateDebug[];
+  }>;
   rejectionReasons?: Record<string, number>;
   rejections?: Array<{
     status: string;
@@ -92,6 +109,19 @@ export type AdvisorPreviewDebug = {
       rule?: Record<string, unknown>;
     }>;
   }>;
+};
+
+export type AdvisorCandidateDebug = {
+  attempt?: number;
+  taskId: string;
+  taskTitle?: string;
+  title?: string;
+  status?: string;
+  priority?: number | null;
+  dueDateTime?: string | null;
+  hasDueDateTime?: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type DeleteTagsResult = {
@@ -313,7 +343,17 @@ export const clearDoneQuickQueueItems = () => requestJson<QuickQueueItem[]>('/qu
 export const getGoogleStatus = () => requestJson<GoogleStatus>('/google/status');
 export const getGoogleOAuthUrl = () => requestJson<{ url: string; expiresAt: string }>('/google/oauth/url', { method: 'POST' });
 export const disconnectGoogle = () => requestJson<void>('/google/connection', { method: 'DELETE' });
-export const sendGoogleDailyTaskEmail = () => requestJson<{ id: string; to: string; todayCount: number; overdueCount: number }>('/google/gmail/daily-tasks', { method: 'POST', body: JSON.stringify({}) });
+export const sendGoogleDailyTaskEmail = (calendarId = '', date = '') => requestJson<{
+  id: string;
+  to: string;
+  date?: string;
+  calendarId?: string;
+  calendarSummary?: string;
+  eventCount?: number;
+  totalMinutes?: number;
+  todayCount: number;
+  overdueCount: number;
+}>('/google/gmail/daily-tasks', { method: 'POST', body: JSON.stringify({ calendarId, date }) });
 export const getGoogleCalendars = () => requestJson<{ accountEmail: string | null; calendars: GoogleCalendar[] }>('/google/calendars');
 
 export type CreateGoogleCalendarEventInput = {

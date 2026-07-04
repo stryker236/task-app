@@ -229,12 +229,12 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     loadCalendarWeekEvents(calendarWeekStart, calendarIds);
   }
 
-  async function sendDailyTaskEmail() {
+  async function sendDailyTaskEmail(date = '') {
     if (!googleStatus.connected) return null;
     setGoogleLoading(true);
     setError?.('');
     try {
-      return await sendGoogleDailyTaskEmail();
+      return await sendGoogleDailyTaskEmail(advisorDefaultCalendarId, date);
     } catch (error) {
       setError?.(errorMessage(error));
       return null;

@@ -203,19 +203,19 @@ function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<str
     ruleType: action === 'priority_management'
       ? 'priority_suggestion'
       : action === 'suggest_due_dates'
-      ? 'due_date_suggestion'
-      : action === 'schedule_calendar_events'
-      ? 'calendar_event_suggestion'
-      : commandPreview?.type === 'update_task' && (feedback.goodTags.length || feedback.badTags.length || feedback.tagVolume !== 'ok')
-      ? 'tag_suggestion'
-      : 'advisor_suggestion',
+        ? 'due_date_suggestion'
+        : action === 'schedule_calendar_events'
+          ? 'calendar_event_suggestion'
+          : commandPreview?.type === 'update_task' && (feedback.goodTags.length || feedback.badTags.length || feedback.tagVolume !== 'ok')
+            ? 'tag_suggestion'
+            : 'advisor_suggestion',
     titleFingerprint: fingerprint,
     action: String(action || ''),
     rule
   };
 }
 
-// Turn feedback on a whole Advisor batch into an action-level preference.
+// Mapping. Turn feedback on a whole Advisor batch into an action-level preference.
 function inferAdvisorInteractionMemoryRule({ action, interaction, feedback }: Record<string, any>) {
   const rule: Record<string, any> = {
     action,
@@ -253,11 +253,11 @@ function inferAdvisorInteractionMemoryRule({ action, interaction, feedback }: Re
   };
 }
 
-// Convert database rows into a compact, prompt-safe memory block for the AI request.
+// Mapping. Convert database rows into a compact, prompt-safe memory block for the AI request.
 function buildAdvisorMemoryContext(rules: any[] = []) {
   return rules
     .filter((item) => item?.rule && Object.keys(item.rule).length)
-    .slice(0, 40)
+    .slice(0, 40) // TODO: dinamically limit based on token count instead of row count
     .map((item) => ({
       ruleType: item.ruleType,
       action: item.action,
@@ -296,7 +296,7 @@ function normalizedSet(values: unknown[] = []) {
   return new Set(values.map((value) => sanitizeWord(String(value || ''))).filter(Boolean));
 }
 
-// Decide whether a stored rule is relevant to this task/event title.
+// TODO: Think in a way to make this more robust.
 function titleMatchesRule(title: string, rule: Record<string, any>) {
   const titleWords = normalizedSet(titleFingerprint(title).split(' '));
   const ruleWords = normalizedSet(rule.titleKeywords || []);
@@ -305,12 +305,12 @@ function titleMatchesRule(title: string, rule: Record<string, any>) {
   return overlap >= Math.min(2, ruleWords.size);
 }
 
-// Public wrapper used by memory filtering to get the best title for any proposal type.
+// TODO: Remove this redundant function once all code is migrated to advisorPreviewTitle.
 function previewTitle(preview: Record<string, any>) {
   return advisorPreviewTitle(preview);
 }
 
-// Resolve the title affected by a proposal, including calendar events that do not edit a task.
+// TODO: Verify if this make sense to open so many possibilities
 function advisorPreviewTitle(preview: Record<string, any>) {
   const changes = preview?.changes && typeof preview.changes === 'object' ? preview.changes : {};
   return preview?.taskTitle
@@ -386,10 +386,6 @@ function matchingMemorySuppressions(preview: Record<string, any>, memory: any[] 
   });
 }
 
-function shouldSuppressPreviewByMemory(preview: Record<string, any>, memory: any[] = [], action = '') {
-  return matchingMemorySuppressions(preview, memory, action).length > 0;
-}
-
 // Keep raw commands and their previews in sync while removing memory-suppressed proposals.
 function filterAdvisorCommandPairsByMemory({ commands = [], previews = [], memory = [], action = '' }: Record<string, any>) {
   const keptCommands = [];
@@ -418,4 +414,4 @@ module.exports = {
   filterAdvisorCommandPairsByMemory
 };
 
-export {};
+export { };

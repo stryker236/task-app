@@ -137,6 +137,69 @@
   font-size: 10px;
 }
 
+.advisor-debug-candidates {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #edf0f4;
+}
+
+.advisor-debug-candidates > strong {
+  color: #40506a;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.advisor-debug-candidates article {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid #e4eaf4;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.advisor-debug-candidates article > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.advisor-debug-candidates b,
+.advisor-debug-candidates article span {
+  color: #526179;
+  font-size: 10px;
+}
+
+.advisor-debug-candidates ul {
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.advisor-debug-candidates li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, auto);
+  gap: 8px;
+  min-width: 0;
+}
+
+.advisor-debug-candidates li span,
+.advisor-debug-candidates li small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #647086;
+  font-size: 10px;
+}
+
 .advisor-debug-rejections span,
 .advisor-debug-rejections small {
   min-width: 0;

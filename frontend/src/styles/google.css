@@ -134,6 +134,33 @@
   flex-wrap: wrap;
 }
 
+.calendar-email-date {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 5px 8px;
+  align-items: end;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.calendar-email-date span {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.calendar-email-date input {
+  min-height: 31px;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  padding: 5px 7px;
+  background: var(--surface);
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
 .calendar-week-controls {
   margin-bottom: 14px;
 }
@@ -540,7 +567,9 @@
 
 .calendar-all-day-event.is-advisor-preview,
 .calendar-timed-event.is-advisor-preview {
-  border-style: dashed;
+  border-style: solid;
+  outline: 1px dashed color-mix(in srgb, var(--event-color) 70%, transparent);
+  outline-offset: -3px;
   background: color-mix(in srgb, var(--event-color) 20%, var(--surface));
 }
 
@@ -555,6 +584,15 @@
   padding: 4px 7px;
   font-size: 12px;
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-all-day-event strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -610,6 +648,12 @@
   box-shadow: 0 4px 12px rgba(25, 35, 55, .08);
 }
 
+.calendar-timed-event.is-advisor-preview {
+  gap: 1px;
+  padding: 5px 7px;
+  box-shadow: none;
+}
+
 .calendar-timed-event:hover,
 .calendar-all-day-event:hover {
   border-color: var(--event-color);
@@ -623,6 +667,11 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.calendar-timed-event.is-advisor-preview strong {
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .calendar-timed-event em {
@@ -645,6 +694,12 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.calendar-timed-event.is-advisor-preview span {
+  color: color-mix(in srgb, var(--event-color) 65%, var(--text-soft));
+  font-size: 10px;
+  font-weight: 850;
 }
 .calendar-due-date-marker {
   position: absolute;

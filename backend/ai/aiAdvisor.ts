@@ -10,6 +10,7 @@ const {
   buildAdvisorAdviceRequest
 } = require('./aiAdvisorPrompts');
 const { logger } = require('../logger');
+
 async function generateTaskAdvisorCommands({ action, tasks, tags = [], memory = [], calendars = [], excludeTaskIds = [], maxCalendarEventCommands = 20 }) {
   if (!process.env.OPENAI_API_KEY) {
     const error = new Error('OPENAI_API_KEY is required to generate AI Advisor commands');

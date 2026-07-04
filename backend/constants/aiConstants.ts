@@ -28,7 +28,7 @@ const ADVISOR_ACTIONS = {
   },
   schedule_calendar_events: {
     label: 'Schedule calendar events',
-    instruction: 'Review active cards and propose Google Calendar events for tasks that have enough timing context to be scheduled. Prefer tasks with due dates, today/overdue urgency, or clear estimated duration. Create calendar events only; do not update tasks or create tasks for this action.'
+    instruction: 'Review active cards and propose Google Calendar events for schedulable tasks. Prioritize tasks with due dates, overdue/today urgency, or clear estimated duration, and schedule them fairly across available time. For tasks with due dates, respect the due date whenever possible by placing the event before or on the due date, avoiding last-minute scheduling unless necessary. Also consider tasks without due dates. When timing context is missing, schedule them reasonably close to the current day based on available time, urgency signals, estimated duration, and workload balance. Avoid collisions with existing events.'
   }
 } as const;
 

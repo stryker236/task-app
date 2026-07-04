@@ -30,6 +30,8 @@ function toCalendar(calendar) {
 function toCalendarEvent(event, sourceCalendar) {
   return {
     id: `${sourceCalendar.id}:${event.id}`,
+    rawId: event.id,
+    googleEventId: event.id,
     calendarId: sourceCalendar.id,
     calendarSummary: sourceCalendar.summary,
     calendarColor: sourceCalendar.backgroundColor,
@@ -43,12 +45,36 @@ function toCalendarEvent(event, sourceCalendar) {
   };
 }
 
-function getLocalDayBounds() {
-  const start = new Date();
+function getLocalDayBounds(dateValue = '') {
+  const start = parseDateOnly(dateValue) ? new Date(`${dateValue}T00:00:00`) : new Date();
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
   return { start, end };
+}
+
+function formatTime(value) {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'dia todo';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+}
+
+function durationMinutes(start, end) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(start || '')) || /^\d{4}-\d{2}-\d{2}$/.test(String(end || ''))) return null;
+  const startTime = Date.parse(start || '');
+  const endTime = Date.parse(end || '');
+  if (Number.isNaN(startTime) || Number.isNaN(endTime) || endTime <= startTime) return null;
+  return Math.max(1, Math.round((endTime - startTime) / 60000));
+}
+
+function formatDuration(minutes) {
+  if (!minutes || minutes <= 0) return 'tempo por definir';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h${String(remainder).padStart(2, '0')}` : `${hours}h`;
 }
 
 function formatTaskLine(task) {
@@ -82,6 +108,92 @@ function buildDailyTasksEmail(tasks) {
   return {
     subject: `Plano do dia - ${dateLabel}`,
     body: lines.join('\n'),
+    todayCount: todayTasks.length,
+    overdueCount: overdueTasks.length
+  };
+}
+
+function taskByLinkedGoogleEvent(tasks, calendarId, googleEventId) {
+  if (!googleEventId) return null;
+  return tasks.find((task) => (task.calendarEvents || []).some((event) => (
+    event.googleEventId === googleEventId
+    && (!calendarId || event.calendarId === calendarId)
+  ))) || null;
+}
+
+function formatWarmTaskLine(task) {
+  const due = task.dueDateTime ? formatTime(task.dueDateTime) : 'Sem hora';
+  const priority = ['Baixa', 'Normal', 'Alta', 'Urgente'][Math.max(0, Number(task.priority || 1) - 1)] || `P${task.priority}`;
+  const tags = task.tags?.length ? ` [${task.tags.join(', ')}]` : '';
+  const estimate = task.estimatedMinutes ? ` - estimativa ${formatDuration(Number(task.estimatedMinutes))}` : '';
+  return `- ${due} - ${task.title} - ${priority} - ${task.status}${estimate}${tags}`;
+}
+
+function buildCalendarAgendaEmail({ tasks, events, calendarSummary, date }) {
+  const { start, end } = getLocalDayBounds(date);
+  const active = (task) => !task.isArchived && !['done', 'cancelled'].includes(task.status);
+  const agendaItems = events
+    .map((event) => {
+      const linkedTask = taskByLinkedGoogleEvent(tasks, event.calendarId, event.googleEventId || event.rawId);
+      const eventDuration = durationMinutes(event.start, event.end);
+      const taskEstimate = Number(linkedTask?.estimatedMinutes || 0) || null;
+      return {
+        event,
+        linkedTask,
+        start: event.start || '',
+        title: linkedTask?.title || event.summary || '(Sem titulo)',
+        duration: eventDuration || taskEstimate,
+        estimateSource: eventDuration ? 'calendario' : taskEstimate ? 'task' : ''
+      };
+    })
+    .sort((left, right) => String(left.start || '').localeCompare(String(right.start || '')));
+  const todayTasks = tasks
+    .filter((task) => active(task) && task.dueDateTime && new Date(task.dueDateTime) >= start && new Date(task.dueDateTime) < end)
+    .sort((left, right) => new Date(left.dueDateTime).getTime() - new Date(right.dueDateTime).getTime());
+  const overdueTasks = tasks
+    .filter((task) => active(task) && task.dueDateTime && new Date(task.dueDateTime) < start)
+    .sort((left, right) => new Date(left.dueDateTime).getTime() - new Date(right.dueDateTime).getTime());
+  const dateLabel = new Intl.DateTimeFormat('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(start);
+  const totalMinutes = agendaItems.reduce((total, item) => total + (item.duration || 0), 0);
+  const agendaLines = agendaItems.length
+    ? agendaItems.map((item) => {
+      const time = item.event.start && item.event.end ? `${formatTime(item.event.start)}-${formatTime(item.event.end)}` : formatTime(item.event.start) || 'Sem hora';
+      const source = item.estimateSource === 'task' ? 'estimativa da task' : item.estimateSource === 'calendario' ? 'no calendario' : 'estimativa em falta';
+      const status = item.linkedTask?.status ? ` - ${item.linkedTask.status}` : '';
+      const tags = item.linkedTask?.tags?.length ? ` - #${item.linkedTask.tags.join(' #')}` : '';
+      return `- ${time} - ${item.title} - ${formatDuration(item.duration)} (${source})${status}${tags}`;
+    })
+    : [`- Ainda nao tens eventos no calendario "${calendarSummary}" para hoje.`];
+  const lines = [
+    'Bom dia! Aqui vai um resumo calmo e pratico do teu dia.',
+    '',
+    `Hoje e ${dateLabel}. Vou focar-me no calendario "${calendarSummary}".`,
+    agendaItems.length
+      ? `Tens ${agendaItems.length} bloco${agendaItems.length === 1 ? '' : 's'} planeado${agendaItems.length === 1 ? '' : 's'}, num total aproximado de ${formatDuration(totalMinutes)}.`
+      : 'Nao encontrei blocos planeados nesse calendario para hoje.',
+    '',
+    'Agenda do calendario default',
+    ...agendaLines,
+    '',
+    'Notas rapidas',
+    agendaItems.length
+      ? '- Segue a ordem dos blocos e ajusta se algum compromisso real mudar.'
+      : '- Se quiseres um plano mais acionavel, cria eventos para as tasks que queres mesmo executar hoje.',
+    overdueTasks.length
+      ? `- Tens ${overdueTasks.length} task${overdueTasks.length === 1 ? '' : 's'} atrasada${overdueTasks.length === 1 ? '' : 's'}; vale reservar um bloco curto para limpar isto.`
+      : '- Nao tens tasks atrasadas com prazo, bom sinal.',
+    '',
+    `Tasks com due date hoje (${todayTasks.length})`,
+    ...(todayTasks.length ? todayTasks.map(formatWarmTaskLine) : ['- Sem tarefas com prazo para hoje.']),
+    '',
+    `Tasks atrasadas (${overdueTasks.length})`,
+    ...(overdueTasks.length ? overdueTasks.map(formatWarmTaskLine) : ['- Sem tarefas atrasadas.'])
+  ];
+  return {
+    subject: `O teu plano de hoje - ${dateLabel}`,
+    body: lines.join('\n'),
+    eventCount: agendaItems.length,
+    totalMinutes,
     todayCount: todayTasks.length,
     overdueCount: overdueTasks.length
   };
@@ -241,7 +353,34 @@ function createGoogleRouter({
         (error as any).status = 400;
         throw error;
       }
-      const email = buildDailyTasksEmail(await fetchTasks());
+      const calendar = createCalendarClient(authClient);
+      const calendarListResult = await calendar.calendarList.list({
+        minAccessRole: 'reader',
+        showDeleted: false,
+        showHidden: false
+      });
+      const calendars = (calendarListResult.data.items || []).map(toCalendar);
+      const requestedCalendarId = String(req.body?.calendarId || '').trim();
+      const requestedDate = parseDateOnly(req.body?.date) || new Date().toISOString().slice(0, 10);
+      const defaultCalendar = calendars.find((item) => requestedCalendarId && item.id === requestedCalendarId)
+        || calendars.find((item) => String(item.summary || '').toLocaleLowerCase() === 'aiadvisor')
+        || calendars.find((item) => item.primary)
+        || calendars[0]
+        || { id: 'primary', summary: 'primary' };
+      const { start, end } = getLocalDayBounds(requestedDate);
+      const eventsResult = await calendar.events.list({
+        calendarId: defaultCalendar.id,
+        timeMin: start.toISOString(),
+        timeMax: end.toISOString(),
+        singleEvents: true,
+        orderBy: 'startTime'
+      });
+      const email = buildCalendarAgendaEmail({
+        tasks: await fetchTasks(),
+        events: (eventsResult.data.items || []).map((event) => toCalendarEvent(event, defaultCalendar)),
+        calendarSummary: defaultCalendar.summary || defaultCalendar.id,
+        date: requestedDate
+      });
       const gmail = createGmailClient(authClient);
       const result = await gmail.users.messages.send({
         userId: 'me',
@@ -257,6 +396,11 @@ function createGoogleRouter({
       res.json({
         id: result.data.id,
         to,
+        date: requestedDate,
+        calendarId: defaultCalendar.id,
+        calendarSummary: defaultCalendar.summary || defaultCalendar.id,
+        eventCount: email.eventCount,
+        totalMinutes: email.totalMinutes,
         todayCount: email.todayCount,
         overdueCount: email.overdueCount
       });
