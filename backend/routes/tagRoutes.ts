@@ -1,4 +1,5 @@
 const express = require('express');
+const { logInfo, requestLogMeta } = require('../logger');
 const { createValidationError } = require('../tasks/taskValidation');
 
 function createTagRouter({ fetchTags, deleteUnusedTag, deleteUnusedTags }) {
@@ -15,6 +16,14 @@ function createTagRouter({ fetchTags, deleteUnusedTag, deleteUnusedTags }) {
       const result = await deleteUnusedTag(req.params.id, { force });
       if (result === 'not_found') return res.status(404).json({ error: 'Tag not found' });
       if (result === 'in_use') return res.status(409).json({ error: 'Tag is still used by one or more active tasks' });
+      logInfo(requestLogMeta(req, {
+        event: 'tag.delete',
+        entity: 'tag',
+        entityId: req.params.id,
+        tagId: req.params.id,
+        force,
+        result
+      }), 'tag deleted');
       return res.status(204).send();
     } catch (error) { return next(error); }
   });
@@ -27,6 +36,16 @@ function createTagRouter({ fetchTags, deleteUnusedTag, deleteUnusedTags }) {
       if (ids.length > 200) throw createValidationError(['ids must have at most 200 items']);
 
       const result = await deleteUnusedTags(ids, { force });
+      logInfo(requestLogMeta(req, {
+        event: 'tag.delete_bulk',
+        entity: 'tag',
+        requestedCount: ids.length,
+        deactivatedCount: result.deletedIds.length,
+        inUseCount: result.inUseIds.length,
+        notFoundCount: result.notFoundIds.length,
+        removedActiveTaskTagCount: result.removedActiveTaskTagCount,
+        force
+      }), 'tags bulk deleted');
       res.json({
         deactivatedCount: result.deletedIds.length,
         deactivatedIds: result.deletedIds,

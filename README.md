@@ -273,7 +273,7 @@ In development, the frontend uses `/api` and Vite proxies requests to `http://12
 
 ## Docker Compose
 
-The database remains in Supabase. Compose only runs frontend and backend locally.
+The database remains in Supabase. Compose runs frontend, backend, and the local logging stack.
 
 ```bash
 docker compose up --build
@@ -285,6 +285,8 @@ Services:
 Frontend: http://localhost:5173
 Backend:  http://localhost:4000
 Health:   http://localhost:4000/health
+Grafana:  http://localhost:3001
+Loki:     http://localhost:3100
 ```
 
 Stop:
@@ -292,6 +294,106 @@ Stop:
 ```bash
 docker compose down
 ```
+
+## Logging
+
+The backend always writes structured JSON logs to stdout using `pino` and `pino-http`.
+
+There is no `pino-pretty`, no environment-specific formatting, and no local log file. Development and production use the same JSON format so logs are easy to ship and query later.
+
+The Docker logging stack is:
+
+- Backend app: writes JSON logs to stdout.
+- Promtail: reads Docker container logs and sends them to Loki.
+- Loki: stores and queries logs at `http://localhost:3100`.
+- Grafana: UI at `http://localhost:3001`, with Loki auto-loaded as the default datasource.
+
+Start everything:
+
+```bash
+docker compose up --build
+```
+
+Open Grafana:
+
+```text
+http://localhost:3001
+```
+
+Default Grafana login:
+
+```text
+admin / admin
+```
+
+Follow backend logs directly:
+
+```bash
+docker compose logs -f backend
+```
+
+Stop everything:
+
+```bash
+docker compose down
+```
+
+Backend log code:
+
+```ts
+const { logInfo, logWarn, logError } = require('./logger');
+
+logInfo({
+  event: 'user.login.success',
+  requestId,
+  userId: '123',
+  entity: 'user',
+  entityId: '123'
+}, 'user logged in');
+
+logWarn({
+  event: 'calendar.connection.expiring',
+  requestId,
+  userId: '123'
+}, 'calendar connection is near expiry');
+
+logError({
+  event: 'calendar.sync.failed',
+  requestId,
+  userId: '123',
+  err: error
+}, 'calendar sync failed');
+```
+
+Example JSON log line:
+
+```json
+{"level":30,"time":"2026-07-04T13:30:00.000Z","event":"http.request.finished","requestId":"6f53a370-6d60-4d52-9588-c6cfd0d22b55","route":"/tasks","method":"GET","statusCode":200,"durationMs":18,"msg":"request finished"}
+```
+
+Grafana/Loki queries:
+
+```logql
+{container_name=~".*backend.*"} | json
+```
+
+```logql
+{container_name=~".*backend.*"} | json | event="user.login.success"
+```
+
+```logql
+{container_name=~".*backend.*"} | json | statusCode >= 500
+```
+
+```logql
+{container_name=~".*backend.*"} | json | userId="123"
+```
+
+```logql
+{container_name=~".*backend.*"} | json | requestId="PASTE_REQUEST_ID_HERE"
+```
+
+Sensitive fields are redacted by the backend logger, including passwords, tokens, access/refresh tokens, authorization headers, and cookies. Do not log full request bodies.
 
 ## Database migrations with Supabase CLI
 

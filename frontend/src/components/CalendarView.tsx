@@ -51,6 +51,7 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
         onLoadEvents={googleCalendar.loadCalendarWeekEvents}
         onLoadRangeEvents={googleCalendar.loadCalendarRangeEvents}
         onSendDailyTaskEmail={googleCalendar.sendDailyTaskEmail}
+        onDeleteDefaultCalendarEvents={googleCalendar.deleteDefaultCalendarEvents}
         advisorLoading={advisor.advisorLoading}
         onRequestAdvisorCalendarEvents={() => advisor.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId })}
       />

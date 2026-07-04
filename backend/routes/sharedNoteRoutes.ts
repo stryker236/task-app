@@ -1,4 +1,5 @@
 const express = require('express');
+const { logInfo, requestLogMeta } = require('../logger');
 const { createValidationError, normalizeArray, normalizeString } = require('../tasks/taskValidation');
 
 function normalizeSharedNotePayload(body: Record<string, any>, { partial = false } = {}) {
@@ -53,6 +54,15 @@ function createSharedNoteRouter({
     try {
       const payload = normalizeSharedNotePayload(req.body || {});
       const note = await withTransaction((client) => createSharedNote(client, payload));
+      logInfo(requestLogMeta(req, {
+        event: 'shared_note.create',
+        entity: 'shared_note',
+        entityId: note?.id,
+        noteId: note?.id,
+        titleLength: note?.title?.length || 0,
+        bodyLength: note?.body?.length || 0,
+        tagCount: note?.tags?.length || 0
+      }), 'shared note created');
       res.status(201).json(note);
     } catch (error) {
       next(error);
@@ -65,6 +75,16 @@ function createSharedNoteRouter({
       if (!Object.keys(payload).length) throw createValidationError(['title, body or tags is required']);
       const note = await withTransaction((client) => updateSharedNote(client, req.params.id, payload));
       if (!note) return res.status(404).json({ error: 'Shared note not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'shared_note.update',
+        entity: 'shared_note',
+        entityId: note.id,
+        noteId: note.id,
+        changedFields: Object.keys(payload),
+        titleLength: note.title?.length || 0,
+        bodyLength: note.body?.length || 0,
+        tagCount: note.tags?.length || 0
+      }), 'shared note updated');
       return res.json(note);
     } catch (error) {
       return next(error);
@@ -75,6 +95,12 @@ function createSharedNoteRouter({
     try {
       const archived = await withTransaction((client) => archiveSharedNote(client, req.params.id));
       if (!archived) return res.status(404).json({ error: 'Shared note not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'shared_note.archive',
+        entity: 'shared_note',
+        entityId: req.params.id,
+        noteId: req.params.id
+      }), 'shared note archived');
       return res.status(204).end();
     } catch (error) {
       return next(error);
@@ -91,6 +117,13 @@ function createSharedNoteRouter({
         return findTaskById(client, req.params.taskId);
       });
       if (!task) return res.status(404).json({ error: 'Task or shared note not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.shared_note.attach',
+        entity: 'task',
+        entityId: task.id,
+        taskId: task.id,
+        noteId
+      }), 'shared note attached to task');
       return res.json(task);
     } catch (error) {
       return next(error);
@@ -108,6 +141,15 @@ function createSharedNoteRouter({
         return findTaskById(client, req.params.taskId);
       });
       if (!task) return res.status(404).json({ error: 'Task not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.shared_note.create_and_attach',
+        entity: 'task',
+        entityId: task.id,
+        taskId: task.id,
+        titleLength: payload.title?.length || 0,
+        bodyLength: payload.body?.length || 0,
+        tagCount: payload.tags?.length || 0
+      }), 'shared note created and attached to task');
       return res.status(201).json(task);
     } catch (error) {
       return next(error);
@@ -123,6 +165,13 @@ function createSharedNoteRouter({
         return findTaskById(client, req.params.taskId);
       });
       if (!task) return res.status(404).json({ error: 'Task not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.shared_note.detach',
+        entity: 'task',
+        entityId: task.id,
+        taskId: task.id,
+        noteId: req.params.noteId
+      }), 'shared note detached from task');
       return res.json(task);
     } catch (error) {
       return next(error);

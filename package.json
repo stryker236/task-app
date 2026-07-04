@@ -12,9 +12,12 @@
     "db:push": "supabase db push",
     "db:dump": "supabase db dump --linked --schema public",
     "db:dump:file": "supabase db dump --linked --schema public --file schema-current.sql",
-    "db:reset": "supabase db reset"
+    "db:reset": "supabase db reset",
+    "docker:up": "docker compose up --build",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "husky": "^9.1.7",
     "supabase": "^2.108.0"
   }
 }

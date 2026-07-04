@@ -1,5 +1,5 @@
 const express = require('express');
-const { logger, readLogs } = require('../logger');
+const { logger } = require('../logger');
 
 function createLogRouter() {
   const router = express.Router();
@@ -9,8 +9,9 @@ function createLogRouter() {
     const event = String(req.body?.event || 'client.log');
     logger.log(level, event, {
       requestId: req.body?.requestId || (req as any).requestId || null,
-      client: req.ip,
+      userId: req.body?.userId || undefined,
       route: req.originalUrl,
+      method: req.method,
       metadata: {
         message: req.body?.message || '',
         metadata: req.body?.metadata || {}
@@ -22,17 +23,8 @@ function createLogRouter() {
   router.get('/logs', async (req, res, next) => {
     try {
       res.json({
-        logs: await readLogs({
-          level: String(req.query.level || ''),
-          event: String(req.query.event || ''),
-          requestId: String(req.query.requestId || ''),
-          requestIds: req.query.requestIds,
-          excludeRequestIds: req.query.excludeRequestIds,
-          events: req.query.events,
-          excludeEvents: req.query.excludeEvents,
-          search: String(req.query.search || ''),
-          limit: Number(req.query.limit || 200)
-        })
+        logs: [],
+        message: 'Backend logs are written as JSON to stdout. Use Grafana/Loki for log search.'
       });
     } catch (error) {
       next(error);

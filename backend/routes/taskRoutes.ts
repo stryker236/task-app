@@ -1,5 +1,6 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
+const { logInfo, requestLogMeta } = require('../logger');
 const { filterTasksByQuery } = require('../tasks/taskFilters');
 const { buildNewTask } = require('../tasks/taskFactory');
 const {
@@ -47,9 +48,12 @@ function createTaskRouter({
         }
         return archived.rowCount;
       });
-      (req as any).log?.('info', 'task.archive', {
-        metadata: { status, archivedCount: result }
-      });
+      logInfo(requestLogMeta(req, {
+        event: 'task.archive',
+        entity: 'task',
+        status,
+        archivedCount: result
+      }), 'tasks bulk archived');
       return res.json({ archivedCount: result, status });
     } catch (error) { return next(error); }
   });
@@ -72,15 +76,26 @@ function createTaskRouter({
         await syncInverseRelationships(client, created, blocksTaskIds, created.createdAt);
         return findTaskById(client, created.id);
       });
-      (req as any).log?.('info', 'task.create', {
-        metadata: { taskId: task?.id, title: task?.title, status: task?.status, dueDateTime: task?.dueDateTime }
-      });
+      logInfo(requestLogMeta(req, {
+        event: 'task.create',
+        entity: 'task',
+        entityId: task?.id,
+        taskId: task?.id,
+        title: task?.title,
+        status: task?.status,
+        priority: task?.priority,
+        dueDateTime: task?.dueDateTime,
+        tagCount: task?.tags?.length || 0,
+        checklistCount: task?.checklistItems?.length || 0,
+        blockedByCount: task?.blockedByTaskIds?.length || 0
+      }), 'task created');
       res.status(201).json(task);
     } catch (error) { next(error); }
   });
 
   router.put('/tasks/:id', async (req, res, next) => {
     try {
+      let updateLog: Record<string, any> | null = null;
       const task = await withTransaction(async (client) => {
         const tasks = await fetchTasks(client);
         const previous = tasks.find((item) => item.id === req.params.id);
@@ -117,16 +132,30 @@ function createTaskRouter({
         }
         const now = new Date().toISOString();
         const updated = applyTaskStatusTimestamps({ ...previous, ...validated, updatedAt: now }, previous.status, now);
+        const changedFields = ['title', 'notes', 'requestedBy', 'priority', 'status', 'dueDateTime', 'estimatedMinutes', 'isFavorite', 'blockedReason']
+          .filter((field) => JSON.stringify(previous[field] ?? null) !== JSON.stringify(updated[field] ?? null));
         await updateTaskRecord(client, updated);
         if (updated.dueDateTime !== previous.dueDateTime) {
-          (req as any).log?.('info', 'task.due_date_changed', {
-            metadata: { taskId: updated.id, title: updated.title, from: previous.dueDateTime, to: updated.dueDateTime }
-          });
+          logInfo(requestLogMeta(req, {
+            event: 'task.due_date_changed',
+            entity: 'task',
+            entityId: updated.id,
+            taskId: updated.id,
+            title: updated.title,
+            from: previous.dueDateTime,
+            to: updated.dueDateTime
+          }), 'task due date changed');
         }
         if (validated.status !== previous.status) {
-          (req as any).log?.('info', 'task.status_changed', {
-            metadata: { taskId: updated.id, title: updated.title, from: previous.status, to: validated.status }
-          });
+          logInfo(requestLogMeta(req, {
+            event: 'task.status_changed',
+            entity: 'task',
+            entityId: updated.id,
+            taskId: updated.id,
+            title: updated.title,
+            from: previous.status,
+            to: validated.status
+          }), 'task status changed');
           await insertActivity(client, updated.id, {
             id: randomUUID(), type: 'status',
             message: `Status changed from ${previous.status} to ${validated.status}`,
@@ -134,12 +163,26 @@ function createTaskRouter({
           });
         }
         if (hasInverse) await syncInverseRelationships(client, updated, inverseIds, now);
+        updateLog = {
+          taskId: updated.id,
+          title: updated.title,
+          status: updated.status,
+          priority: updated.priority,
+          dueDateTime: updated.dueDateTime,
+          changedFields,
+          tagCount: updated.tags?.length || 0,
+          checklistCount: updated.checklistItems?.length || 0,
+          blockedByCount: updated.blockedByTaskIds?.length || 0
+        };
         return findTaskById(client, updated.id);
       });
       if (!task) return res.status(404).json({ error: 'Task not found' });
-      (req as any).log?.('info', 'task.update', {
-        metadata: { taskId: task.id, title: task.title, status: task.status, dueDateTime: task.dueDateTime }
-      });
+      logInfo(requestLogMeta(req, {
+        event: 'task.update',
+        entity: 'task',
+        entityId: task.id,
+        ...(updateLog || { taskId: task.id, title: task.title, status: task.status, dueDateTime: task.dueDateTime })
+      }), 'task updated');
       res.json(task);
     } catch (error) { next(error); }
   });
@@ -166,6 +209,12 @@ function createTaskRouter({
         return true;
       });
       if (!deleted) return res.status(404).json({ error: 'Task not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.delete',
+        entity: 'task',
+        entityId: req.params.id,
+        taskId: req.params.id
+      }), 'task deleted');
       res.status(204).end();
     } catch (error) { next(error); }
   });
@@ -184,9 +233,13 @@ function createTaskRouter({
         return findTaskById(client, current.id);
       });
       if (!task) return res.status(404).json({ error: 'Task not found' });
-      (req as any).log?.('info', 'task.archive', {
-        metadata: { taskId: task.id, title: task.title }
-      });
+      logInfo(requestLogMeta(req, {
+        event: 'task.archive',
+        entity: 'task',
+        entityId: task.id,
+        taskId: task.id,
+        title: task.title
+      }), 'task archived');
       return res.json(task);
     } catch (error) { return next(error); }
   });
@@ -205,9 +258,13 @@ function createTaskRouter({
         return findTaskById(client, current.id);
       });
       if (!task) return res.status(404).json({ error: 'Task not found' });
-      (req as any).log?.('info', 'task.restore', {
-        metadata: { taskId: task.id, title: task.title }
-      });
+      logInfo(requestLogMeta(req, {
+        event: 'task.restore',
+        entity: 'task',
+        entityId: task.id,
+        taskId: task.id,
+        title: task.title
+      }), 'task restored');
       return res.json(task);
     } catch (error) { return next(error); }
   });
@@ -238,6 +295,14 @@ function createTaskRouter({
       });
       if (!result) return res.status(404).json({ error: 'Task not found' });
       if (result.missingItem) return res.status(404).json({ error: 'Checklist item not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.checklist_item.update',
+        entity: 'task',
+        entityId: req.params.id,
+        taskId: req.params.id,
+        checklistItemId: req.params.itemId,
+        isDone: req.body.isDone
+      }), 'task checklist item updated');
       return res.json(result.task);
     } catch (error) { return next(error); }
   });
@@ -266,6 +331,14 @@ function createTaskRouter({
         return { task: await findTaskById(client, task.id), entry };
       });
       if (!result) return res.status(404).json({ error: 'Task not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.progress.create',
+        entity: 'task',
+        entityId: result.task?.id || req.params.id,
+        taskId: result.task?.id || req.params.id,
+        progressEntryId: result.entry?.id,
+        messageLength: result.entry?.message?.length || 0
+      }), 'task progress entry created');
       res.status(201).json(result);
     } catch (error) { next(error); }
   });
@@ -304,6 +377,14 @@ function createTaskRouter({
       });
       if (!result) return res.status(404).json({ error: 'Task not found' });
       if (result.missingEntry) return res.status(404).json({ error: 'Progress entry not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.progress.update',
+        entity: 'task',
+        entityId: result.task?.id || req.params.id,
+        taskId: result.task?.id || req.params.id,
+        progressEntryId: req.params.entryId,
+        messageLength: result.entry?.message?.length || 0
+      }), 'task progress entry updated');
       res.json(result);
     } catch (error) { next(error); }
   });
@@ -332,6 +413,15 @@ function createTaskRouter({
         return { task: await findTaskById(client, blocker.id), blockedTask: await findTaskById(client, target.id) };
       });
       if (!result) return res.status(404).json({ error: 'Task not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.blocker.create',
+        entity: 'task',
+        entityId: result.task?.id,
+        blockerTaskId: result.task?.id,
+        blockerTitle: result.task?.title,
+        blockedTaskId: result.blockedTask?.id,
+        blockedTaskTitle: result.blockedTask?.title
+      }), 'blocking task created');
       res.status(201).json(result);
     } catch (error) { next(error); }
   });
@@ -365,6 +455,14 @@ function createTaskRouter({
         return findTaskById(client, task.id);
       });
       if (!duplicate) return res.status(404).json({ error: 'Task not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.duplicate',
+        entity: 'task',
+        entityId: duplicate.id,
+        sourceTaskId: req.params.id,
+        duplicateTaskId: duplicate.id,
+        duplicateTitle: duplicate.title
+      }), 'task duplicated');
       res.status(201).json(duplicate);
     } catch (error) { next(error); }
   });

@@ -5,6 +5,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 const { pool, withTransaction, insertTask, insertActivity } = require('../db/database');
 const { isUuid } = require('../utils/uuid');
+const { logInfo, logError } = require('../logger');
 
 const sourcePath = path.join(__dirname, '..', 'tasks.json');
 
@@ -92,12 +93,19 @@ async function importTasks() {
     }
   });
 
-  console.log(`Imported ${source.length} tasks into Supabase PostgreSQL.`);
+  logInfo({
+    event: 'db.import.completed',
+    entity: 'task',
+    importedCount: source.length
+  }, `Imported ${source.length} tasks into Supabase PostgreSQL`);
 }
 
 importTasks()
   .catch((error: Error) => {
-    console.error(`Import failed: ${error.message}`);
+    logError({
+      event: 'db.import.failed',
+      err: error
+    }, 'Import failed');
     process.exitCode = 1;
   })
   .finally(() => pool.end());
