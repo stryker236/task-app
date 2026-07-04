@@ -63,7 +63,8 @@ type MainViewProps = {
   onDisconnectGoogle: () => void;
   onLoadCalendarWeekEvents: (date: string, calendarIds?: string[]) => void;
   onLoadCalendarRangeEvents: (start: string, end: string, calendarIds?: string[]) => void;
-  onSendDailyTaskEmail: () => Promise<{ to: string; todayCount: number; overdueCount: number } | null>;
+  onSendDailyTaskEmail: (date?: string) => Promise<{ to: string; date?: string; calendarSummary?: string; eventCount?: number; totalMinutes?: number; todayCount: number; overdueCount: number } | null>;
+  onDeleteDefaultCalendarEvents: () => Promise<{ calendarSummary: string; deletedCount: number; unlinkedCount: number } | null>;
   advisorLoading: boolean;
   advisorProposals: AdvisorPreview | null;
   advisorCurrentAction: string;
@@ -130,6 +131,7 @@ export default function MainView({
   onLoadCalendarWeekEvents,
   onLoadCalendarRangeEvents,
   onSendDailyTaskEmail,
+  onDeleteDefaultCalendarEvents,
   advisorLoading,
   advisorProposals,
   advisorCurrentAction,
@@ -199,6 +201,7 @@ export default function MainView({
           onLoadEvents={onLoadCalendarWeekEvents}
           onLoadRangeEvents={onLoadCalendarRangeEvents}
           onSendDailyTaskEmail={onSendDailyTaskEmail}
+          onDeleteDefaultCalendarEvents={onDeleteDefaultCalendarEvents}
           advisorLoading={advisorLoading}
           onRequestAdvisorCalendarEvents={onRequestAdvisorCalendarEvents}
         />

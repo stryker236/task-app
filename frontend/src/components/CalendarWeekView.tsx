@@ -38,6 +38,7 @@ type CalendarWeekViewProps = {
   onLoadEvents: (date: string, calendarIds?: string[]) => void;
   onLoadRangeEvents: (start: string, end: string, calendarIds?: string[]) => void;
   onSendDailyTaskEmail: (date?: string) => Promise<{ to: string; date?: string; calendarSummary?: string; eventCount?: number; totalMinutes?: number; todayCount: number; overdueCount: number } | null>;
+  onDeleteDefaultCalendarEvents: () => Promise<{ calendarSummary: string; deletedCount: number; unlinkedCount: number } | null>;
   advisorLoading: boolean;
   onRequestAdvisorCalendarEvents: () => void;
 };
@@ -300,6 +301,7 @@ export default function CalendarWeekView({
   onLoadEvents,
   onLoadRangeEvents,
   onSendDailyTaskEmail,
+  onDeleteDefaultCalendarEvents,
   advisorLoading,
   onRequestAdvisorCalendarEvents
 }: CalendarWeekViewProps) {
@@ -409,6 +411,20 @@ export default function CalendarWeekView({
               disabled={advisorLoading || loading}
             >
               {advisorLoading ? 'A preparar...' : canCreateCalendarEvents ? 'Criar eventos' : 'Ativar criacao'}
+            </button>
+            <button
+              type="button"
+              className="button secondary small"
+              onClick={async () => {
+                const calendar = calendars.find((item) => item.id === advisorDefaultCalendarId);
+                const calendarName = calendar?.summary || advisorDefaultCalendarId || 'default';
+                if (!window.confirm(`Apagar TODOS os eventos do calendario "${calendarName}"? Esta acao nao pode ser desfeita.`)) return;
+                const result = await onDeleteDefaultCalendarEvents();
+                if (result) window.alert(`Eventos apagados de "${result.calendarSummary}": ${result.deletedCount}. Ligacoes locais removidas: ${result.unlinkedCount}.`);
+              }}
+              disabled={!canCreateCalendarEvents || loading}
+            >
+              Apagar eventos default
             </button>
           </div>
 

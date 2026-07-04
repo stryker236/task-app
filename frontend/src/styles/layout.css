@@ -23,6 +23,60 @@ main { padding: 24px 30px 44px; }
 .view-tabs button { border: 0; border-bottom: 3px solid transparent; padding: 11px 16px; background: transparent; color: var(--muted); font-weight: 650; }
 .view-tabs button.active { color: var(--blue); border-bottom-color: var(--blue); }
 
+.google-login-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--surface-soft);
+}
+
+.google-login-panel {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 28px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.google-login-panel span {
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.google-login-panel h1 {
+  margin: 4px 0 6px;
+  color: var(--text-strong);
+  font-size: 26px;
+}
+
+.google-login-panel p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.google-login-panel .button {
+  width: 100%;
+  justify-content: center;
+}
+
+.google-login-error {
+  border: 1px solid #f1b8b8;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff5f5;
+  color: #8a2c2c !important;
+  font-size: 12px !important;
+}
+
 .bulk-archive-actions { display: flex; justify-content: flex-end; align-items: center; gap: 7px; margin: 0 0 10px; }
 .bulk-archive-actions > span { color: #7c8596; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 

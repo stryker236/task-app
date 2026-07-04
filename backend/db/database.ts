@@ -4,10 +4,38 @@ const { iso } = require('../utils/date');
 const { logger } = require('../logger');
 
 import type { PoolClient, Pool as PgPool } from 'pg';
+import type { TaskCalendarEvent } from '../../shared/types';
 
 type Queryable = PgPool | PoolClient;
 type QueryPatch = Record<string, unknown>;
 type DbRow = Record<string, any>;
+
+type GoogleConnection = {
+	id: string;
+	accountEmail: string | null;
+	scopes: string[];
+	encryptedTokens: unknown;
+	expiresAt: string | null;
+	createdAt: string | null;
+	updatedAt: string | null;
+};
+
+type GoogleConnectionInput = {
+	accountEmail: string | null;
+	scopes: string[];
+	encryptedTokens: unknown;
+	expiresAt?: string | null;
+};
+
+type TaskCalendarEventInput = {
+	taskId: string;
+	googleEventId: string;
+	calendarId: string;
+	summary: string;
+	start: string;
+	end: string;
+	htmlLink?: string | null;
+};
 
 if (!process.env.DATABASE_URL) {
 	throw new Error('DATABASE_URL is required. Copy .env.example to .env and add the Supabase PostgreSQL connection string.');
@@ -56,7 +84,7 @@ function mapQuickQueueItem(row: DbRow) {
 	};
 }
 
-function mapGoogleConnection(row: DbRow) {
+function mapGoogleConnection(row: DbRow): GoogleConnection {
 	return {
 		id: String(row.id),
 		accountEmail: row.account_email,
@@ -94,7 +122,7 @@ function mapAdvisorMemoryRule(row: DbRow) {
 	};
 }
 
-function mapTaskCalendarEvent(row: DbRow) {
+function mapTaskCalendarEvent(row: DbRow): TaskCalendarEvent {
 	return {
 		id: String(row.id),
 		taskId: String(row.task_id),
@@ -708,19 +736,18 @@ async function moveQuickQueueItem(db: Queryable, id: string, direction: number) 
 	return fetchQuickQueueItems(db);
 }
 
-async function fetchGoogleConnection(db: Queryable = pool) {
-	await db.query('DELETE FROM google_connections WHERE expires_at <= now()');
+async function fetchGoogleConnection(db: Queryable = pool): Promise<GoogleConnection | null> {
 	const result = await db.query('SELECT * FROM google_connections ORDER BY created_at DESC LIMIT 1');
 	return result.rows[0] ? mapGoogleConnection(result.rows[0]) : null;
 }
 
-async function saveGoogleConnection(db: Queryable, { accountEmail, scopes, encryptedTokens, expiresAt }: DbRow) {
+async function saveGoogleConnection(db: Queryable, { accountEmail, scopes, encryptedTokens, expiresAt }: GoogleConnectionInput): Promise<GoogleConnection> {
 	await db.query('DELETE FROM google_connections');
 	const result = await db.query(
 		`INSERT INTO google_connections (account_email, scopes, encrypted_tokens, expires_at)
      VALUES ($1, $2, $3::jsonb, $4)
      RETURNING *`,
-		[accountEmail, scopes, JSON.stringify(encryptedTokens), expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()]
+		[accountEmail, scopes, JSON.stringify(encryptedTokens), expiresAt || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()]
 	);
 	return mapGoogleConnection(result.rows[0]);
 }
@@ -729,12 +756,12 @@ async function deleteGoogleConnection(db: Queryable = pool) {
 	await db.query('DELETE FROM google_connections');
 }
 
-async function fetchTaskCalendarEvents(db: Queryable, taskId: string) {
+async function fetchTaskCalendarEvents(db: Queryable, taskId: string): Promise<TaskCalendarEvent[]> {
 	const result = await db.query('SELECT * FROM task_calendar_events WHERE task_id = $1 ORDER BY start_at', [taskId]);
 	return result.rows.map(mapTaskCalendarEvent);
 }
 
-async function insertTaskCalendarEvent(db: Queryable, event: DbRow) {
+async function insertTaskCalendarEvent(db: Queryable, event: TaskCalendarEventInput): Promise<TaskCalendarEvent> {
 	const result = await db.query(
 		`INSERT INTO task_calendar_events (task_id, google_event_id, calendar_id, summary, start_at, end_at, html_link)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -758,6 +785,11 @@ async function insertTaskCalendarEvent(db: Queryable, event: DbRow) {
 		]
 	);
 	return mapTaskCalendarEvent(result.rows[0]);
+}
+
+async function deleteTaskCalendarEventsByCalendarId(db: Queryable, calendarId: string) {
+	const result = await db.query('DELETE FROM task_calendar_events WHERE calendar_id = $1', [calendarId]);
+	return result.rowCount || 0;
 }
 // TODO: Make limit configurable
 async function fetchAdvisorMemoryRules(db: Queryable = pool) {
@@ -862,6 +894,7 @@ module.exports = {
 	deleteGoogleConnection,
 	fetchTaskCalendarEvents,
 	insertTaskCalendarEvent,
+	deleteTaskCalendarEventsByCalendarId,
 	fetchAdvisorMemoryRules,
 	saveAdvisorFeedback,
 	upsertAdvisorMemoryRule,

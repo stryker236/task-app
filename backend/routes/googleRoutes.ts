@@ -14,9 +14,121 @@ const {
 } = require('../google/googleClient');
 const { logger } = require('../logger');
 
-function toCalendar(calendar) {
+import type { Credentials, OAuth2Client } from 'google-auth-library';
+import type { calendar_v3 } from 'googleapis';
+import type { Pool, PoolClient } from 'pg';
+import type {
+  GoogleCalendar,
+  GoogleCalendarEvent,
+  GoogleOAuthUrlRequest,
+  Task,
+  TaskCalendarEvent
+} from '../../shared/types';
+
+const GOOGLE_CONNECTION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const GOOGLE_TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000;
+
+type Queryable = Pool | PoolClient;
+
+type GoogleConnection = {
+  id: string;
+  accountEmail: string | null;
+  scopes: string[];
+  encryptedTokens: unknown;
+  expiresAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+type OAuthStatePayload = {
+  returnTo: string;
+};
+
+type EncodedOAuthStateInput = OAuthStatePayload & {
+  nonce: string;
+};
+
+type AuthorizedGoogleClient = {
+  connection: GoogleConnection;
+  authClient: OAuth2Client;
+};
+
+type GoogleRouteDependencies = {
+  pool: Pool;
+  withTransaction: <T>(work: (client: PoolClient) => Promise<T>) => Promise<T>;
+  fetchTasks: () => Promise<Task[]>;
+  fetchGoogleConnection: () => Promise<GoogleConnection | null>;
+  saveGoogleConnection: (db: Queryable, connection: {
+    accountEmail: string | null;
+    scopes: string[];
+    encryptedTokens: unknown;
+    expiresAt: string;
+  }) => Promise<GoogleConnection>;
+  deleteGoogleConnection: (db?: Queryable) => Promise<void>;
+  createGoogleOAuthState: (db: Queryable, state: string, expiresAt: string) => Promise<void>;
+  consumeGoogleOAuthState: (db: Queryable, state: string) => Promise<boolean>;
+  fetchTaskCalendarEvents: (db: Queryable, taskId: string) => Promise<TaskCalendarEvent[]>;
+  insertTaskCalendarEvent: (db: Queryable, event: {
+    taskId: string;
+    googleEventId: string;
+    calendarId: string;
+    summary: string;
+    start: string;
+    end: string;
+    htmlLink: string | null;
+  }) => Promise<TaskCalendarEvent>;
+  deleteTaskCalendarEventsByCalendarId?: (db: Queryable, calendarId: string) => Promise<number>;
+};
+
+function frontendFallbackUrl(): string {
+  return process.env.FRONTEND_URL || process.env.CORS_ORIGIN?.split(',')?.[0] || 'http://localhost:5173';
+}
+
+function allowedFrontendOrigins(): string[] {
+  return [
+    frontendFallbackUrl(),
+    ...(process.env.CORS_ORIGIN || '').split(',')
+  ].map((origin) => {
+    try {
+      return new URL(origin.trim()).origin;
+    } catch {
+      return '';
+    }
+  }).filter(Boolean);
+}
+
+function safeFrontendReturnTo(value: unknown): string {
+  const fallback = frontendFallbackUrl().replace(/\/$/, '');
+  if (!value) return fallback;
+  try {
+    const parsed = new URL(String(value));
+    if (!allowedFrontendOrigins().includes(parsed.origin)) return fallback;
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return fallback;
+  }
+}
+
+function encodeOAuthState({ nonce, returnTo }: EncodedOAuthStateInput): string {
+  const payload = Buffer.from(JSON.stringify({ returnTo }), 'utf8').toString('base64url');
+  return `${nonce}.${payload}`;
+}
+
+function decodeOAuthStateReturnTo(state: unknown): string {
+  const encoded = String(state || '').split('.')[1] || '';
+  if (!encoded) return '';
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as OAuthStatePayload;
+    return safeFrontendReturnTo(payload.returnTo);
+  } catch {
+    return '';
+  }
+}
+
+function toCalendar(calendar: calendar_v3.Schema$CalendarListEntry): GoogleCalendar {
   return {
-    id: calendar.id,
+    id: calendar.id || '',
     summary: calendar.summary || '(Sem nome)',
     description: calendar.description || '',
     backgroundColor: calendar.backgroundColor || null,
@@ -27,11 +139,11 @@ function toCalendar(calendar) {
   };
 }
 
-function toCalendarEvent(event, sourceCalendar) {
+function toCalendarEvent(event: calendar_v3.Schema$Event, sourceCalendar: GoogleCalendar): GoogleCalendarEvent {
   return {
     id: `${sourceCalendar.id}:${event.id}`,
-    rawId: event.id,
-    googleEventId: event.id,
+    rawId: event.id || undefined,
+    googleEventId: event.id || undefined,
     calendarId: sourceCalendar.id,
     calendarSummary: sourceCalendar.summary,
     calendarColor: sourceCalendar.backgroundColor,
@@ -213,6 +325,61 @@ function encodeEmail({ to, from, subject, body }) {
   return Buffer.from(message, 'utf8').toString('base64url');
 }
 
+function shouldRefreshGoogleToken(tokens: Credentials | null | undefined): boolean {
+  const expiryDate = Number(tokens?.expiry_date || 0);
+  return !tokens?.access_token || !expiryDate || expiryDate <= Date.now() + GOOGLE_TOKEN_REFRESH_WINDOW_MS;
+}
+
+function isGoogleAuthRefreshError(error: any): boolean {
+  const message = String(error?.message || '').toLowerCase();
+  const status = Number(error?.response?.status || error?.code || error?.status || 0);
+  const reason = String(error?.response?.data?.error || '').toLowerCase();
+  return status === 400 || status === 401 || message.includes('invalid_grant') || reason.includes('invalid_grant');
+}
+
+async function fetchWritableGoogleCalendars(calendar: calendar_v3.Calendar): Promise<GoogleCalendar[]> {
+  const result = await calendar.calendarList.list({
+    minAccessRole: 'writer',
+    showDeleted: false,
+    showHidden: false
+  });
+  return (result.data.items || []).map(toCalendar);
+}
+
+function resolveDefaultWritableCalendar(calendars: GoogleCalendar[], requestedCalendarId = ''): GoogleCalendar | null {
+  return calendars.find((item) => requestedCalendarId && item.id === requestedCalendarId)
+    || calendars.find((item) => String(item.summary || '').toLocaleLowerCase() === 'aiadvisor')
+    || calendars.find((item) => item.primary)
+    || calendars[0]
+    || null;
+}
+
+async function deleteAllCalendarEvents(calendar: calendar_v3.Calendar, calendarId: string): Promise<number> {
+  let pageToken: string | undefined = undefined;
+  let deletedCount = 0;
+  do {
+    const result = await calendar.events.list({
+      calendarId,
+      maxResults: 2500,
+      pageToken,
+      showDeleted: false
+    });
+    const events = result.data.items || [];
+    for (const event of events) {
+      if (!event.id) continue;
+      try {
+        await calendar.events.delete({ calendarId, eventId: event.id });
+        deletedCount += 1;
+      } catch (error: any) {
+        const status = Number(error?.response?.status || error?.code || error?.status || 0);
+        if (![404, 410].includes(status)) throw error;
+      }
+    }
+    pageToken = result.data.nextPageToken || undefined;
+  } while (pageToken);
+  return deletedCount;
+}
+
 function createGoogleRouter({
   pool,
   withTransaction,
@@ -223,27 +390,49 @@ function createGoogleRouter({
   createGoogleOAuthState,
   consumeGoogleOAuthState,
   fetchTaskCalendarEvents,
-  insertTaskCalendarEvent
-}) {
+  insertTaskCalendarEvent,
+  deleteTaskCalendarEventsByCalendarId
+}: GoogleRouteDependencies) {
   const router = express.Router();
-
-  async function getAuthorizedClient() {
+  // Get 
+  async function getAuthorizedClient(): Promise<AuthorizedGoogleClient> {
     const connection = await fetchGoogleConnection();
     if (!connection) {
       const error = new Error('Google Calendar is not connected');
       (error as any).status = 409;
       throw error;
     }
-    const storedTokens = decryptJson(connection.encryptedTokens);
+    const storedTokens = decryptJson(connection.encryptedTokens) as Credentials;
     const authClient = createOAuthClient(storedTokens);
     authClient.on('tokens', (tokens) => {
       saveGoogleConnection(pool, {
         accountEmail: connection.accountEmail,
         scopes: connection.scopes,
         encryptedTokens: { ...storedTokens, ...tokens },
-        expiresAt: connection.expiresAt
-      }).catch((error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
+        expiresAt: new Date(Date.now() + GOOGLE_CONNECTION_TTL_MS).toISOString()
+        }).catch((error: Error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
     });
+    if (shouldRefreshGoogleToken(storedTokens)) {
+      try {
+        await authClient.getAccessToken();
+        await saveGoogleConnection(pool, {
+          accountEmail: connection.accountEmail,
+          scopes: connection.scopes,
+          encryptedTokens: { ...storedTokens, ...authClient.credentials },
+          expiresAt: new Date(Date.now() + GOOGLE_CONNECTION_TTL_MS).toISOString()
+        });
+        logger.info('calendar.connection.token_refreshed', { metadata: { accountEmail: connection.accountEmail } });
+      } catch (error: any) {
+        logger.warn('calendar.connection.token_refresh_failed', { metadata: { message: error.message } });
+        if (isGoogleAuthRefreshError(error)) {
+          await deleteGoogleConnection(pool);
+          const authError = new Error('Google session expired. Reconnect Google to continue.');
+          (authError as any).status = 401;
+          throw authError;
+        }
+        throw error;
+      }
+    }
     return {
       connection,
       authClient
@@ -253,15 +442,44 @@ function createGoogleRouter({
   router.get('/google/status', async (req, res, next) => {
     try {
       const connection = await fetchGoogleConnection();
-      (req as any).log?.('info', 'calendar.connection.status', {
-        metadata: { connected: Boolean(connection), scopes: connection?.scopes || [] }
-      });
-      res.json({
-        connected: Boolean(connection),
-        accountEmail: connection?.accountEmail || null,
-        scopes: connection?.scopes || [],
-        expiresAt: connection?.expiresAt || null
-      });
+      if (!connection) {
+        (req as any).log?.('info', 'calendar.connection.status', {
+          metadata: { connected: false, scopes: [] }
+        });
+        return res.json({
+          connected: false,
+          accountEmail: null,
+          scopes: [],
+          expiresAt: null
+        });
+      }
+
+      try {
+        const authorized = await getAuthorizedClient();
+        (req as any).log?.('info', 'calendar.connection.status', {
+          metadata: { connected: true, scopes: authorized.connection.scopes || [], tokenChecked: true }
+        });
+        return res.json({
+          connected: true,
+          accountEmail: authorized.connection.accountEmail || null,
+          scopes: authorized.connection.scopes || [],
+          expiresAt: authorized.connection.expiresAt || null
+        });
+      } catch (error: any) {
+        if (Number(error?.status || error?.code || 0) === 401) {
+          (req as any).log?.('warn', 'calendar.connection.status_expired', {
+            metadata: { connected: false, accountEmail: connection.accountEmail || null }
+          });
+          return res.json({
+            connected: false,
+            accountEmail: null,
+            scopes: [],
+            expiresAt: null,
+            requiresReconnect: true
+          });
+        }
+        throw error;
+      }
     } catch (error) {
       next(error);
     }
@@ -269,10 +487,17 @@ function createGoogleRouter({
 
   router.post('/google/oauth/url', async (req, res, next) => {
     try {
-      const state = randomBytes(24).toString('hex');
+      const body = (req.body || {}) as GoogleOAuthUrlRequest;
+      // this generates a random value and sets a returnTo URL to return to the app
+      const state = encodeOAuthState({
+        nonce: randomBytes(24).toString('hex'),
+        returnTo: safeFrontendReturnTo(body.returnTo)
+      });
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      // Save the token in the database
       await withTransaction((client) => createGoogleOAuthState(client, state, expiresAt));
-      res.json({ url: createGoogleAuthUrl(state), expiresAt });
+      // Generate the Google OAuth URL with the state
+      res.json({ url: createGoogleAuthUrl(state), expiresAt }); // This url is not mine, it is generated by the Google OAuth client library and is used to redirect the user to Google's OAuth 2.0 server for authentication and authorization.
     } catch (error) {
       next(error);
     }
@@ -283,6 +508,7 @@ function createGoogleRouter({
       const code = String(req.query.code || '');
       const state = String(req.query.state || '');
       if (!code || !state) return res.status(400).send('Missing OAuth code or state');
+      const returnTo = decodeOAuthStateReturnTo(state) || frontendFallbackUrl().replace(/\/$/, '');
 
       const connection = await withTransaction(async (client) => {
         const validState = await consumeGoogleOAuthState(client, state);
@@ -300,12 +526,14 @@ function createGoogleRouter({
           accountEmail,
           scopes: GOOGLE_SCOPES,
           encryptedTokens: encryptJson(tokenResult.tokens),
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          expiresAt: new Date(Date.now() + GOOGLE_CONNECTION_TTL_MS).toISOString()
         });
       });
 
-      const frontendUrl = process.env.FRONTEND_URL || process.env.CORS_ORIGIN?.split(',')?.[0] || 'http://localhost:5173';
-      return res.redirect(`${frontendUrl.replace(/\/$/, '')}?google=connected&email=${encodeURIComponent(connection.accountEmail || '')}`);
+      const redirectUrl = new URL(returnTo);
+      redirectUrl.searchParams.set('google', 'connected');
+      if (connection.accountEmail) redirectUrl.searchParams.set('email', connection.accountEmail);
+      return res.redirect(redirectUrl.toString());
     } catch (error) {
       return next(error);
     }
@@ -466,6 +694,54 @@ function createGoogleRouter({
     }
   });
 
+  router.delete('/google/calendar/events/default', async (req, res, next) => {
+    try {
+      const calendarId = String(req.body?.calendarId || '').trim();
+      const confirmation = String(req.body?.confirmation || '').trim();
+      if (confirmation !== 'DELETE_DEFAULT_CALENDAR_EVENTS') {
+        const error = new Error('confirmation must be DELETE_DEFAULT_CALENDAR_EVENTS');
+        (error as any).status = 400;
+        throw error;
+      }
+
+      const { connection, authClient } = await getAuthorizedClient();
+      if (!connection.scopes?.includes(CALENDAR_SCOPE)) {
+        const error = new Error('Google Calendar write permission is required. Reconnect Google to grant calendar event access.');
+        (error as any).status = 409;
+        throw error;
+      }
+
+      const calendar = createCalendarClient(authClient);
+      const calendars = await fetchWritableGoogleCalendars(calendar);
+      const defaultCalendar = resolveDefaultWritableCalendar(calendars, calendarId);
+      if (!defaultCalendar) {
+        const error = new Error('No writable calendar is available');
+        (error as any).status = 404;
+        throw error;
+      }
+
+      (req as any).log?.('info', 'calendar.events.delete_all.started', {
+        metadata: { calendarId: defaultCalendar.id, calendarSummary: defaultCalendar.summary }
+      });
+      const deletedCount = await deleteAllCalendarEvents(calendar, defaultCalendar.id);
+      const unlinkedCount = deleteTaskCalendarEventsByCalendarId
+        ? await deleteTaskCalendarEventsByCalendarId(pool, defaultCalendar.id)
+        : 0;
+      (req as any).log?.('info', 'calendar.events.delete_all.completed', {
+        metadata: { calendarId: defaultCalendar.id, deletedCount, unlinkedCount }
+      });
+
+      res.json({
+        calendarId: defaultCalendar.id,
+        calendarSummary: defaultCalendar.summary || defaultCalendar.id,
+        deletedCount,
+        unlinkedCount
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post('/google/calendar/events', async (req, res, next) => {
     try {
       const taskId = String(req.body?.taskId || '').trim();
@@ -525,6 +801,11 @@ function createGoogleRouter({
           }
         }
       });
+      if (!result.data.id) {
+        const error = new Error('Google Calendar did not return an event id');
+        (error as any).status = 502;
+        throw error;
+      }
       const linkedEvent = await insertTaskCalendarEvent(pool, {
         taskId,
         googleEventId: result.data.id,

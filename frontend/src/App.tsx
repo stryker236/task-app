@@ -7,6 +7,7 @@ import BulkArchiveActions from './components/BulkArchiveActions';
 import DashboardCounters from './components/DashboardCounters';
 import Filters from './components/Filters';
 import GoogleDailyPanel from './components/GoogleDailyPanel';
+import GoogleLoginScreen from './components/GoogleLoginScreen';
 import MainView from './components/MainView';
 import type { QueueSort } from './components/QueueView';
 import type { TaskCardActions } from './components/TaskCard';
@@ -169,6 +170,19 @@ export default function App() {
     ] satisfies Array<[string, Task[]]>;
   }, [tasks]);
 
+  if (!googleCalendar.googleStatus.connected) {
+    return (
+      <div className="app-shell">
+        <GoogleLoginScreen
+          status={googleCalendar.googleStatus}
+          loading={googleCalendar.googleLoading}
+          error={error}
+          onConnect={googleCalendar.connectGoogle}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <AppHeader onCreateTask={taskForm.openCreateTaskForm} darkMode={darkMode} onToggleDarkMode={() => setDarkMode((current) => !current)} />
@@ -297,6 +311,7 @@ export default function App() {
           onLoadCalendarWeekEvents={googleCalendar.loadCalendarWeekEvents}
           onLoadCalendarRangeEvents={googleCalendar.loadCalendarRangeEvents}
           onSendDailyTaskEmail={googleCalendar.sendDailyTaskEmail}
+          onDeleteDefaultCalendarEvents={googleCalendar.deleteDefaultCalendarEvents}
           advisorLoading={advisorController.advisorLoading}
           advisorProposals={advisorController.proposalBatch}
           advisorCurrentAction={advisorController.lastAdvisorAction}
