@@ -219,6 +219,8 @@ export default function App() {
       <main>
         <DashboardCounters counters={counters} />
 
+        <ViewTabs view={view} />
+
         {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'logs' && (
           <GoogleDailyPanel
             status={googleCalendar.googleStatus}
@@ -269,7 +271,6 @@ export default function App() {
           />
         )}
 
-        <ViewTabs view={view} />
 
         {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'logs' && (
           <BulkArchiveActions
