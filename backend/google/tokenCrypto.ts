@@ -8,6 +8,7 @@ type EncryptedJsonPayload = {
   tag: string;
 };
 
+// Get the right encryption key from environment variables, supporting hex, base64, or UTF-8 formats
 function getEncryptionKey() {
   const raw = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY;
   if (!raw) {
@@ -16,8 +17,10 @@ function getEncryptionKey() {
     throw error;
   }
 
+  // Check if the key is a 64-character hex string (32 bytes)
   if (/^[a-f0-9]{64}$/i.test(raw)) return Buffer.from(raw, 'hex');
 
+  // Check if the key is a base64-encoded string (32 bytes)
   try {
     const base64 = Buffer.from(raw, 'base64');
     if (base64.length === 32) return base64;

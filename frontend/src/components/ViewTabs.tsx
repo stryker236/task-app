@@ -1,4 +1,6 @@
+import { NavLink } from 'react-router-dom';
 import type { ViewKey } from '../constants/tasks';
+import { viewPath } from '../utils/routes';
 
 const TABS = [
   ['kanban', 'Kanban'],
@@ -14,21 +16,20 @@ const TABS = [
 
 type ViewTabsProps = {
   view: ViewKey;
-  onChange: (view: ViewKey) => void;
 };
 
-export default function ViewTabs({ view, onChange }: ViewTabsProps) {
+export default function ViewTabs({ view }: ViewTabsProps) {
   return (
     <nav className="view-tabs" aria-label="Vista">
       {TABS.map(([value, label]) => (
-        <button
+        <NavLink
           key={value}
           className={view === value ? 'active' : ''}
-          type="button"
-          onClick={() => onChange(value)}
+          to={viewPath(value)}
+          end={value === 'kanban'}
         >
           {label}
-        </button>
+        </NavLink>
       ))}
     </nav>
   );

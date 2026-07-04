@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
 import {
+  deleteDefaultGoogleCalendarEvents,
   disconnectGoogle,
   getGoogleCalendars,
   getGoogleCalendarEvents,
@@ -44,6 +45,10 @@ function addDaysInputValue(value: string, days: number) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isGoogleSessionExpired(error: unknown) {
+  return errorMessage(error).toLowerCase().includes('google session expired');
 }
 
 function storedAdvisorCalendarId() {
@@ -90,19 +95,24 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       setGoogleStatus(await getGoogleStatus());
     } catch (error) {
       setError?.(errorMessage(error));
+      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
     } finally {
       setGoogleLoading(false);
     }
   }
 
-  async function connectGoogle() {
+  async function connectGoogle(returnToPath = `${window.location.pathname}${window.location.search}`) {
     setGoogleLoading(true);
     setError?.('');
     try {
-      const { url } = await getGoogleOAuthUrl();
-      window.location.href = url;
+      const returnTo = returnToPath.startsWith('http')
+        ? returnToPath
+        : `${window.location.origin}${returnToPath.startsWith('/') ? returnToPath : `/${returnToPath}`}`;
+      const { url } = await getGoogleOAuthUrl(returnTo);
+      window.location.href = url; // Redirect the user to the Google OAuth URL for authentication and authorization
     } catch (error) {
       setError?.(errorMessage(error));
+      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
       setGoogleLoading(false);
     }
   }
@@ -149,6 +159,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       return calendars;
     } catch (error) {
       setError?.(errorMessage(error));
+      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
       return [];
     } finally {
       setGoogleLoading(false);
@@ -171,6 +182,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       clientLog('info', 'calendar.events.load.completed', '', { mode: 'day', date, calendarIds, eventCount: data.events?.length || 0 });
     } catch (error) {
       setError?.(errorMessage(error));
+      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
     } finally {
       setGoogleLoading(false);
     }
@@ -196,6 +208,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       clientLog('info', 'calendar.events.load.completed', '', { mode: 'week', start: normalizedStart, end, calendarIds, eventCount: data.events?.length || 0 });
     } catch (error) {
       setError?.(errorMessage(error));
+      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
     } finally {
       setGoogleLoading(false);
     }
@@ -219,6 +232,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       clientLog('info', 'calendar.events.load.completed', '', { mode: 'range', start, end, calendarIds, eventCount: data.events?.length || 0 });
     } catch (error) {
       setError?.(errorMessage(error));
+      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
     } finally {
       setGoogleLoading(false);
     }
@@ -237,6 +251,25 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       return await sendGoogleDailyTaskEmail(advisorDefaultCalendarId, date);
     } catch (error) {
       setError?.(errorMessage(error));
+      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+      return null;
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
+  async function deleteDefaultCalendarEvents() {
+    if (!googleStatus.connected) return null;
+    setGoogleLoading(true);
+    setError?.('');
+    try {
+      const result = await deleteDefaultGoogleCalendarEvents(advisorDefaultCalendarId);
+      await loadCalendarWeekEvents(calendarWeekStart, selectedCalendarIds);
+      await loadCalendarEvents(calendarDate, selectedCalendarIds);
+      return result;
+    } catch (error) {
+      setError?.(errorMessage(error));
+      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
       return null;
     } finally {
       setGoogleLoading(false);
@@ -244,6 +277,13 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
   }
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('google')) {
+      params.delete('google');
+      params.delete('email');
+      const nextSearch = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`);
+    }
     refreshGoogleStatus();
   }, []);
 
@@ -282,6 +322,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     loadCalendarEvents,
     loadCalendarWeekEvents,
     loadCalendarRangeEvents,
-    sendDailyTaskEmail
+    sendDailyTaskEmail,
+    deleteDefaultCalendarEvents
   };
 }

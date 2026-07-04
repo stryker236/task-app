@@ -1,4 +1,24 @@
-import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendar, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, SharedNote, SharedNoteInput, Tag, Task, TaskCalendarEvent, TaskInput, TaskStatus } from '../../shared/types';
+import type {
+  AiCommand,
+  AiCommandPreview,
+  ChecklistItem,
+  CreateGoogleCalendarEventInput,
+  CreateGoogleCalendarEventResponse,
+  DeleteDefaultGoogleCalendarEventsResponse,
+  GoogleCalendarEventsResponse,
+  GoogleCalendarsResponse,
+  GoogleOAuthUrlRequest,
+  GoogleOAuthUrlResponse,
+  GoogleStatus,
+  QuickQueueItem,
+  SendGoogleDailyTaskEmailResponse,
+  SharedNote,
+  SharedNoteInput,
+  Tag,
+  Task,
+  TaskInput,
+  TaskStatus
+} from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -341,35 +361,25 @@ export const moveQuickQueueItem = (id: string, direction: 1 | -1) => requestJson
 export const clearDoneQuickQueueItems = () => requestJson<QuickQueueItem[]>('/quick-queue/done', { method: 'DELETE' });
 
 export const getGoogleStatus = () => requestJson<GoogleStatus>('/google/status');
-export const getGoogleOAuthUrl = () => requestJson<{ url: string; expiresAt: string }>('/google/oauth/url', { method: 'POST' });
+export const getGoogleOAuthUrl = (returnTo = '') => requestJson<GoogleOAuthUrlResponse>('/google/oauth/url', {
+  method: 'POST',
+  body: JSON.stringify({ returnTo } satisfies GoogleOAuthUrlRequest)
+});
 export const disconnectGoogle = () => requestJson<void>('/google/connection', { method: 'DELETE' });
-export const sendGoogleDailyTaskEmail = (calendarId = '', date = '') => requestJson<{
-  id: string;
-  to: string;
-  date?: string;
-  calendarId?: string;
-  calendarSummary?: string;
-  eventCount?: number;
-  totalMinutes?: number;
-  todayCount: number;
-  overdueCount: number;
-}>('/google/gmail/daily-tasks', { method: 'POST', body: JSON.stringify({ calendarId, date }) });
-export const getGoogleCalendars = () => requestJson<{ accountEmail: string | null; calendars: GoogleCalendar[] }>('/google/calendars');
+export const sendGoogleDailyTaskEmail = (calendarId = '', date = '') => requestJson<SendGoogleDailyTaskEmailResponse>(
+  '/google/gmail/daily-tasks',
+  { method: 'POST', body: JSON.stringify({ calendarId, date }) }
+);
+export const getGoogleCalendars = () => requestJson<GoogleCalendarsResponse>('/google/calendars');
 
-export type CreateGoogleCalendarEventInput = {
-  taskId: string;
-  summary: string;
-  calendarId: string;
-  description?: string;
-  location?: string;
-  start: string;
-  end: string;
-  timeZone?: string;
-};
-
-export const createGoogleCalendarEvent = (event: CreateGoogleCalendarEventInput) => requestJson<{ event: TaskCalendarEvent }>('/google/calendar/events', {
+export const createGoogleCalendarEvent = (event: CreateGoogleCalendarEventInput) => requestJson<CreateGoogleCalendarEventResponse>('/google/calendar/events', {
   method: 'POST',
   body: JSON.stringify(event)
+});
+
+export const deleteDefaultGoogleCalendarEvents = (calendarId = '') => requestJson<DeleteDefaultGoogleCalendarEventsResponse>('/google/calendar/events/default', {
+  method: 'DELETE',
+  body: JSON.stringify({ calendarId, confirmation: 'DELETE_DEFAULT_CALENDAR_EVENTS' })
 });
 
 function calendarIdsQuery(calendarIds: string[] = []) {
@@ -380,14 +390,14 @@ function calendarIdsQuery(calendarIds: string[] = []) {
 
 export const getGoogleCalendarEvents = (date: string, calendarIds: string[] = []) => {
   const query = calendarIdsQuery(calendarIds);
-  return requestJson<{ date: string; accountEmail: string | null; events: GoogleCalendarEvent[] }>(
+  return requestJson<GoogleCalendarEventsResponse>(
     `/google/calendar/events?date=${encodeURIComponent(date)}${query ? `&${query}` : ''}`
   );
 };
 
 export const getGoogleCalendarEventsRange = (start: string, end: string, calendarIds: string[] = []) => {
   const query = calendarIdsQuery(calendarIds);
-  return requestJson<{ start: string; end: string; accountEmail: string | null; events: GoogleCalendarEvent[] }>(
+  return requestJson<GoogleCalendarEventsResponse>(
     `/google/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}${query ? `&${query}` : ''}`
   );
 };

@@ -6,6 +6,7 @@ import type { Credentials } from 'google-auth-library/build/src/auth/credentials
 
 type HttpError = Error & { status: number };
 
+// Get the Google Configuration from environment variables
 function getGoogleConfig() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -20,6 +21,7 @@ function getGoogleConfig() {
   return { clientId, clientSecret, redirectUri };
 }
 
+
 function createOAuthClient(tokens: Credentials | null = null): OAuth2Client {
   const { clientId, clientSecret, redirectUri } = getGoogleConfig();
   const client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
@@ -29,6 +31,8 @@ function createOAuthClient(tokens: Credentials | null = null): OAuth2Client {
 
 function createGoogleAuthUrl(state: string) {
   const client = createOAuthClient();
+  // This url will be used to redirect the user to Google's OAuth 2.0 server for authentication and authorization.
+  // Not mine
   return client.generateAuthUrl({
     access_type: 'offline',
     include_granted_scopes: true,

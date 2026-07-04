@@ -3,10 +3,22 @@ export interface GoogleStatus {
   accountEmail: string | null;
   scopes: string[];
   expiresAt?: string | null;
+  requiresReconnect?: boolean;
+}
+
+export interface GoogleOAuthUrlRequest {
+  returnTo?: string;
+}
+
+export interface GoogleOAuthUrlResponse {
+  url: string;
+  expiresAt: string;
 }
 
 export interface GoogleCalendarEvent {
   id: string;
+  rawId?: string;
+  googleEventId?: string;
   calendarId: string;
   calendarSummary: string;
   calendarColor: string | null;
@@ -30,6 +42,11 @@ export interface GoogleCalendar {
   accessRole: string | null;
 }
 
+export interface GoogleCalendarsResponse {
+  accountEmail: string | null;
+  calendars: GoogleCalendar[];
+}
+
 export interface TaskCalendarEvent {
   id: string;
   taskId: string;
@@ -41,4 +58,47 @@ export interface TaskCalendarEvent {
   htmlLink: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CreateGoogleCalendarEventInput {
+  taskId: string;
+  summary: string;
+  calendarId: string;
+  description?: string;
+  location?: string;
+  start: string;
+  end: string;
+  timeZone?: string;
+}
+
+export interface CreateGoogleCalendarEventResponse {
+  event: TaskCalendarEvent;
+}
+
+export interface DeleteDefaultGoogleCalendarEventsResponse {
+  calendarId: string;
+  calendarSummary: string;
+  deletedCount: number;
+  unlinkedCount: number;
+}
+
+export interface GoogleCalendarEventsResponse {
+  date?: string;
+  start?: string;
+  end?: string;
+  accountEmail: string | null;
+  calendars?: GoogleCalendar[];
+  events: GoogleCalendarEvent[];
+}
+
+export interface SendGoogleDailyTaskEmailResponse {
+  id: string;
+  to: string;
+  date?: string;
+  calendarId?: string;
+  calendarSummary?: string;
+  eventCount?: number;
+  totalMinutes?: number;
+  todayCount: number;
+  overdueCount: number;
 }
