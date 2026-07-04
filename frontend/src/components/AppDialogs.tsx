@@ -1,4 +1,5 @@
-import type { ChecklistItem, GoogleCalendar, SharedNote, Tag, Task, TaskCalendarEvent, TaskInput } from '../../../shared/types';
+import type { ChecklistItem, SharedNote, Tag, Task, TaskCalendarEvent, TaskInput } from '../../../shared/types';
+import { useGoogleCalendarContext } from '../context/GoogleCalendarContext';
 import CalendarEventDialog from './CalendarEventDialog';
 import PostponeDialog from './PostponeDialog';
 import ProgressLog from './ProgressLog';
@@ -38,8 +39,6 @@ type AppDialogsProps = {
   onDetachSharedNote: (task: Task, noteId: string) => Promise<Task | null>;
   onOpenSharedNote: (note: SharedNote) => void;
   calendarEventTask: Task | null;
-  googleCalendars: GoogleCalendar[];
-  advisorDefaultCalendarId: string;
   onOpenCalendarEvent: (task: Task) => void;
   onCloseCalendarEvent: () => void;
   onCalendarEventCreated: (event: TaskCalendarEvent) => void;
@@ -81,8 +80,6 @@ export default function AppDialogs({
   onDetachSharedNote,
   onOpenSharedNote,
   calendarEventTask,
-  googleCalendars,
-  advisorDefaultCalendarId,
   onOpenCalendarEvent,
   onCloseCalendarEvent,
   onCalendarEventCreated,
@@ -92,6 +89,8 @@ export default function AppDialogs({
   onSavePostpone,
   postponing
 }: AppDialogsProps) {
+  const googleCalendar = useGoogleCalendarContext();
+
   return (
     <>
       {formOpen && (
@@ -140,8 +139,8 @@ export default function AppDialogs({
       {calendarEventTask && (
         <CalendarEventDialog
           task={calendarEventTask}
-          calendars={googleCalendars}
-          defaultCalendarId={advisorDefaultCalendarId}
+          calendars={googleCalendar.googleCalendars}
+          defaultCalendarId={googleCalendar.advisorDefaultCalendarId}
           onClose={onCloseCalendarEvent}
           onCreated={onCalendarEventCreated}
           onError={onError}

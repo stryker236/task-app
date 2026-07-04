@@ -1,9 +1,8 @@
-import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus, QuickQueueItem, Task, TaskStatus } from '../../../shared/types';
-import type { AdvisorMemoryRule, TaskFilters } from '../api';
-import type { AdvisorFeedbackInput, AdvisorPreview } from '../api';
+import type { QuickQueueItem, Task, TaskStatus } from '../../../shared/types';
+import type { TaskFilters } from '../api';
 import type { ViewKey } from '../constants/tasks';
-import { AdvisorProposalBuffer } from './AdvisorPanel';
-import CalendarWeekView from './CalendarWeekView';
+import { useAdvisorContext } from '../context/AdvisorContext';
+import CalendarView from './CalendarView';
 import KanbanView from './KanbanView';
 import LearnedRulesView from './LearnedRulesView';
 import LogsView from './LogsView';
@@ -13,14 +12,8 @@ import QuickQueue from './QuickQueue';
 import SharedNotesView from './SharedNotesView';
 import TaskCard from './TaskCard';
 import type { TaskCardActions } from './TaskCard';
-import type { AdvisorCalendarPreviewEvent, TaskDueDateCalendarEvent } from '../utils/advisorCalendarPreviews';
-
-const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar';
 
 type CollectionSection = [string, Task[]];
-type ProposalStatus = 'accepted' | 'ignored';
-type ProposalStatuses = Record<string, ProposalStatus>;
-type ProposalFeedbackStatuses = Record<string, 'saved'>;
 
 type MainViewProps = {
   view: ViewKey;
@@ -44,49 +37,6 @@ type MainViewProps = {
   onError: (message: string) => void;
   onTasksChanged: () => Promise<void>;
   focusedSharedNoteId: string;
-  googleStatus: GoogleStatus;
-  googleLoading: boolean;
-  calendarWeekStart: string;
-  calendarWeekEnd: string;
-  weeklyCalendarEvents: GoogleCalendarEvent[];
-  advisorCalendarPreviewEvents: AdvisorCalendarPreviewEvent[];
-  taskDueDateCalendarEvents: TaskDueDateCalendarEvent[];
-  googleCalendars: GoogleCalendar[];
-  selectedCalendarIds: string[];
-  advisorDefaultCalendarId: string;
-  calendarAccountEmail: string | null;
-  weeklyCalendarBusyCount: number;
-  onCalendarWeekChange: (date: string) => void;
-  onCalendarFilterChange: (calendarIds: string[]) => void;
-  onAdvisorDefaultCalendarChange: (calendarId: string) => void;
-  onConnectGoogle: () => void;
-  onDisconnectGoogle: () => void;
-  onLoadCalendarWeekEvents: (date: string, calendarIds?: string[]) => void;
-  onLoadCalendarRangeEvents: (start: string, end: string, calendarIds?: string[]) => void;
-  onSendDailyTaskEmail: (date?: string) => Promise<{ to: string; date?: string; calendarSummary?: string; eventCount?: number; totalMinutes?: number; todayCount: number; overdueCount: number } | null>;
-  onDeleteDefaultCalendarEvents: () => Promise<{ calendarSummary: string; deletedCount: number; unlinkedCount: number } | null>;
-  advisorLoading: boolean;
-  advisorProposals: AdvisorPreview | null;
-  advisorCurrentAction: string;
-  proposalStatuses: ProposalStatuses;
-  proposalFeedbackStatuses: ProposalFeedbackStatuses;
-  interactionFeedbackSaved: boolean;
-  applyingProposalId: string | null;
-  applyingAllProposals: boolean;
-  onRequestAdvisorCalendarEvents: () => void;
-  onApplyAdvisorProposal: (commandId: string) => void;
-  onIgnoreAdvisorProposal: (commandId: string) => void;
-  onApplyAllAdvisorProposals: () => void;
-  onIgnoreAllAdvisorProposals: () => void;
-  onClearAdvisorProposals: () => void;
-  onChangeAdvisorProposalCalendar: (commandId: string, calendarId: string, calendarSummary: string) => void;
-  onSaveAdvisorProposalFeedback: (commandId: string, feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
-  onSaveAdvisorInteractionFeedback: (feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
-  onOpenAdvisorTask: (taskId: string) => void;
-  advisorMemoryRules: AdvisorMemoryRule[];
-  advisorMemoryLoading: boolean;
-  onRefreshAdvisorMemory: () => void;
-  onForgetAdvisorMemory: (id: string) => void;
 };
 
 export default function MainView({
@@ -110,51 +60,10 @@ export default function MainView({
   onOpenTask,
   onError,
   onTasksChanged,
-  focusedSharedNoteId,
-  googleStatus,
-  googleLoading,
-  calendarWeekStart,
-  calendarWeekEnd,
-  weeklyCalendarEvents,
-  advisorCalendarPreviewEvents,
-  taskDueDateCalendarEvents,
-  googleCalendars,
-  selectedCalendarIds,
-  advisorDefaultCalendarId,
-  calendarAccountEmail,
-  weeklyCalendarBusyCount,
-  onCalendarWeekChange,
-  onCalendarFilterChange,
-  onAdvisorDefaultCalendarChange,
-  onConnectGoogle,
-  onDisconnectGoogle,
-  onLoadCalendarWeekEvents,
-  onLoadCalendarRangeEvents,
-  onSendDailyTaskEmail,
-  onDeleteDefaultCalendarEvents,
-  advisorLoading,
-  advisorProposals,
-  advisorCurrentAction,
-  proposalStatuses,
-  proposalFeedbackStatuses,
-  interactionFeedbackSaved,
-  applyingProposalId,
-  applyingAllProposals,
-  onRequestAdvisorCalendarEvents,
-  onApplyAdvisorProposal,
-  onIgnoreAdvisorProposal,
-  onApplyAllAdvisorProposals,
-  onIgnoreAllAdvisorProposals,
-  onClearAdvisorProposals,
-  onChangeAdvisorProposalCalendar,
-  onSaveAdvisorProposalFeedback,
-  onSaveAdvisorInteractionFeedback,
-  onOpenAdvisorTask,
-  advisorMemoryRules,
-  advisorMemoryLoading,
-  onRefreshAdvisorMemory,
-  onForgetAdvisorMemory
+  focusedSharedNoteId
 }: MainViewProps) {
+  const advisor = useAdvisorContext();
+
   if (view === 'quickQueue') {
     return (
       <QuickQueue
@@ -175,71 +84,16 @@ export default function MainView({
   }
 
   if (view === 'calendar') {
-    const calendarWriteReady = googleStatus.connected && googleStatus.scopes.includes(CALENDAR_WRITE_SCOPE);
-    const showAdvisorBuffer = advisorCurrentAction === 'schedule_calendar_events' || (advisorProposals?.commands || []).some((command) => command.type === 'create_calendar_event');
-
-    return (
-      <>
-        <CalendarWeekView
-          status={googleStatus}
-          loading={googleLoading}
-          weekStart={calendarWeekStart}
-          weekEnd={calendarWeekEnd}
-          events={weeklyCalendarEvents}
-          advisorPreviewEvents={advisorCalendarPreviewEvents}
-          taskDueDateEvents={taskDueDateCalendarEvents}
-          calendars={googleCalendars}
-          selectedCalendarIds={selectedCalendarIds}
-          advisorDefaultCalendarId={advisorDefaultCalendarId}
-          accountEmail={calendarAccountEmail}
-          busyCount={weeklyCalendarBusyCount}
-          onWeekChange={onCalendarWeekChange}
-          onCalendarFilterChange={onCalendarFilterChange}
-          onAdvisorDefaultCalendarChange={onAdvisorDefaultCalendarChange}
-          onConnect={onConnectGoogle}
-          onDisconnect={onDisconnectGoogle}
-          onLoadEvents={onLoadCalendarWeekEvents}
-          onLoadRangeEvents={onLoadCalendarRangeEvents}
-          onSendDailyTaskEmail={onSendDailyTaskEmail}
-          onDeleteDefaultCalendarEvents={onDeleteDefaultCalendarEvents}
-          advisorLoading={advisorLoading}
-          onRequestAdvisorCalendarEvents={onRequestAdvisorCalendarEvents}
-        />
-        {showAdvisorBuffer && (
-          <AdvisorProposalBuffer
-            allTasks={allTasks}
-            googleCalendars={googleCalendars}
-            proposals={advisorProposals}
-            action={advisorCurrentAction}
-            proposalStatuses={proposalStatuses}
-            proposalFeedbackStatuses={proposalFeedbackStatuses}
-            interactionFeedbackSaved={interactionFeedbackSaved}
-            applyingProposalId={applyingProposalId}
-            applyingAllProposals={applyingAllProposals}
-            calendarWriteReady={calendarWriteReady}
-            onConnectGoogle={onConnectGoogle}
-            onApplyProposal={onApplyAdvisorProposal}
-            onIgnoreProposal={onIgnoreAdvisorProposal}
-            onApplyAllProposals={onApplyAllAdvisorProposals}
-            onIgnoreAllProposals={onIgnoreAllAdvisorProposals}
-            onClearProposals={onClearAdvisorProposals}
-            onChangeProposalCalendar={onChangeAdvisorProposalCalendar}
-            onSaveProposalFeedback={onSaveAdvisorProposalFeedback}
-            onSaveInteractionFeedback={onSaveAdvisorInteractionFeedback}
-            onOpenTask={onOpenAdvisorTask}
-          />
-        )}
-      </>
-    );
+    return <CalendarView allTasks={allTasks} />;
   }
 
   if (view === 'learnedRules') {
     return (
       <LearnedRulesView
-        rules={advisorMemoryRules}
-        loading={advisorMemoryLoading}
-        onRefresh={onRefreshAdvisorMemory}
-        onForget={onForgetAdvisorMemory}
+        rules={advisor.advisorMemoryRules}
+        loading={advisor.advisorMemoryLoading}
+        onRefresh={advisor.refreshAdvisorMemoryRules}
+        onForget={advisor.forgetAdvisorMemoryRule}
       />
     );
   }

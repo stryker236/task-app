@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import type { SharedNote, Task, TaskCalendarEvent, TaskStatus } from '../../shared/types';
-import AdvisorPanel from './components/AdvisorPanel';
+import AdvisorPanelContainer from './components/AdvisorPanelContainer';
 import AppDialogs from './components/AppDialogs';
 import AppHeader from './components/AppHeader';
 import BulkArchiveActions from './components/BulkArchiveActions';
@@ -14,6 +14,8 @@ import type { QueueSort } from './components/QueueView';
 import type { TaskCardActions } from './components/TaskCard';
 import ViewTabs from './components/ViewTabs';
 import { EMPTY_FILTERS } from './constants/tasks';
+import { AdvisorProvider } from './context/AdvisorContext';
+import { GoogleCalendarProvider } from './context/GoogleCalendarContext';
 import useAdvisorController from './hooks/useAdvisorController';
 import useDashboardData from './hooks/useDashboardData';
 import useGoogleCalendar from './hooks/useGoogleCalendar';
@@ -22,7 +24,6 @@ import useQuickQueue from './hooks/useQuickQueue';
 import useTagActions from './hooks/useTagActions';
 import useTaskActions from './hooks/useTaskActions';
 import useTaskFormController from './hooks/useTaskFormController';
-import { advisorCalendarPreviewEvents, taskDueDateCalendarEvents } from './utils/advisorCalendarPreviews';
 import { loginPath, viewFromPath, viewPath } from './utils/routes';
 import { isOverdue, isToday } from './utils/taskDates';
 
@@ -101,16 +102,6 @@ export default function App() {
     setViewingTask
   });
 
-  const advisorCalendarPreviews = useMemo(
-    () => advisorCalendarPreviewEvents(
-      advisorController.proposalBatch,
-      advisorController.proposalStatuses,
-      googleCalendar.googleCalendars
-    ),
-    [advisorController.proposalBatch, advisorController.proposalStatuses, googleCalendar.googleCalendars]
-  );
-  const taskDueDateCalendarPreviews = useMemo(() => taskDueDateCalendarEvents(allTasks), [allTasks]);
-
   const progressLog = useProgressLogController({
     filters,
     fetchDashboardData,
@@ -143,10 +134,6 @@ export default function App() {
     setViewingTask(null);
     setFocusedSharedNoteId(note.id);
     navigate(viewPath('sharedNotes'));
-  }
-
-  function setView(nextView: typeof view) {
-    navigate(viewPath(nextView));
   }
 
   function refreshAfterCalendarEventCreated(event: TaskCalendarEvent) {
@@ -213,7 +200,9 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <GoogleCalendarProvider value={googleCalendar}>
+      <AdvisorProvider value={advisorController}>
+        <div className="app-shell">
       <AppHeader onCreateTask={taskForm.openCreateTaskForm} darkMode={darkMode} onToggleDarkMode={() => setDarkMode((current) => !current)} />
 
       <main>
@@ -237,37 +226,8 @@ export default function App() {
         )}
 
         {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'logs' && (
-          <AdvisorPanel
+          <AdvisorPanelContainer
             allTasks={allTasks}
-            advice={advisorController.advisor}
-            loading={advisorController.advisorLoading}
-            proposals={advisorController.proposalBatch}
-            currentAction={advisorController.lastAdvisorAction}
-            proposalStatuses={advisorController.proposalStatuses}
-            proposalFeedbackStatuses={advisorController.proposalFeedbackStatuses}
-            interactionFeedbackSaved={advisorController.interactionFeedbackSaved}
-            memoryRules={advisorController.advisorMemoryRules}
-            memoryLoading={advisorController.advisorMemoryLoading}
-            applyingProposalId={advisorController.applyingProposalId}
-            applyingAllProposals={advisorController.applyingAllProposals}
-            googleStatus={googleCalendar.googleStatus}
-            googleCalendars={googleCalendar.googleCalendars}
-            advisorDefaultCalendarId={googleCalendar.advisorDefaultCalendarId}
-            onRefresh={advisorController.refreshTaskAdvisorAdvice}
-            onRequestActions={(action) => advisorController.requestAdvisorActions(action, { defaultCalendarId: googleCalendar.advisorDefaultCalendarId })}
-            onConnectGoogle={googleCalendar.connectGoogle}
-            onApplyProposal={advisorController.applyAdvisorProposal}
-            onIgnoreProposal={advisorController.ignoreAdvisorProposal}
-            onApplyAllProposals={advisorController.applyAllAdvisorProposals}
-            onIgnoreAllProposals={advisorController.ignoreAllAdvisorProposals}
-            onClearProposals={advisorController.clearAdvisorProposals}
-            onAdvisorDefaultCalendarChange={googleCalendar.setAdvisorDefaultCalendarId}
-            onChangeProposalCalendar={advisorController.updateAdvisorProposalCalendar}
-            onSaveProposalFeedback={advisorController.saveAdvisorProposalFeedback}
-            onSaveInteractionFeedback={advisorController.saveAdvisorInteractionFeedback}
-            onRefreshMemory={advisorController.refreshAdvisorMemoryRules}
-            onForgetMemory={advisorController.forgetAdvisorMemoryRule}
-            onOpenTask={advisorController.openAdvisorRecommendedTask}
           />
         )}
 
@@ -321,49 +281,6 @@ export default function App() {
           onError={setError}
           onTasksChanged={() => fetchDashboardData(filters)}
           focusedSharedNoteId={focusedSharedNoteId}
-          googleStatus={googleCalendar.googleStatus}
-          googleLoading={googleCalendar.googleLoading}
-          calendarWeekStart={googleCalendar.calendarWeekStart}
-          calendarWeekEnd={googleCalendar.calendarWeekEnd}
-          weeklyCalendarEvents={googleCalendar.weeklyCalendarEvents}
-          advisorCalendarPreviewEvents={advisorCalendarPreviews}
-          taskDueDateCalendarEvents={taskDueDateCalendarPreviews}
-          googleCalendars={googleCalendar.googleCalendars}
-          selectedCalendarIds={googleCalendar.selectedCalendarIds}
-          advisorDefaultCalendarId={googleCalendar.advisorDefaultCalendarId}
-          calendarAccountEmail={googleCalendar.calendarAccountEmail}
-          weeklyCalendarBusyCount={googleCalendar.weeklyCalendarBusyCount}
-          onCalendarWeekChange={googleCalendar.setCalendarWeekStart}
-          onCalendarFilterChange={googleCalendar.setSelectedCalendarIds}
-          onAdvisorDefaultCalendarChange={googleCalendar.setAdvisorDefaultCalendarId}
-          onConnectGoogle={googleCalendar.connectGoogle}
-          onDisconnectGoogle={googleCalendar.disconnectGoogleAccount}
-          onLoadCalendarWeekEvents={googleCalendar.loadCalendarWeekEvents}
-          onLoadCalendarRangeEvents={googleCalendar.loadCalendarRangeEvents}
-          onSendDailyTaskEmail={googleCalendar.sendDailyTaskEmail}
-          onDeleteDefaultCalendarEvents={googleCalendar.deleteDefaultCalendarEvents}
-          advisorLoading={advisorController.advisorLoading}
-          advisorProposals={advisorController.proposalBatch}
-          advisorCurrentAction={advisorController.lastAdvisorAction}
-          proposalStatuses={advisorController.proposalStatuses}
-          proposalFeedbackStatuses={advisorController.proposalFeedbackStatuses}
-          interactionFeedbackSaved={advisorController.interactionFeedbackSaved}
-          applyingProposalId={advisorController.applyingProposalId}
-          applyingAllProposals={advisorController.applyingAllProposals}
-          onRequestAdvisorCalendarEvents={() => advisorController.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId })}
-          onApplyAdvisorProposal={advisorController.applyAdvisorProposal}
-          onIgnoreAdvisorProposal={advisorController.ignoreAdvisorProposal}
-          onApplyAllAdvisorProposals={advisorController.applyAllAdvisorProposals}
-          onIgnoreAllAdvisorProposals={advisorController.ignoreAllAdvisorProposals}
-          onClearAdvisorProposals={advisorController.clearAdvisorProposals}
-          onChangeAdvisorProposalCalendar={advisorController.updateAdvisorProposalCalendar}
-          onSaveAdvisorProposalFeedback={advisorController.saveAdvisorProposalFeedback}
-          onSaveAdvisorInteractionFeedback={advisorController.saveAdvisorInteractionFeedback}
-          onOpenAdvisorTask={advisorController.openAdvisorRecommendedTask}
-          advisorMemoryRules={advisorController.advisorMemoryRules}
-          advisorMemoryLoading={advisorController.advisorMemoryLoading}
-          onRefreshAdvisorMemory={advisorController.refreshAdvisorMemoryRules}
-          onForgetAdvisorMemory={advisorController.forgetAdvisorMemoryRule}
         />
       </main>
 
@@ -398,8 +315,6 @@ export default function App() {
         onDetachSharedNote={taskActions.detachTaskSharedNote}
         onOpenSharedNote={openSharedNoteInNotesView}
         calendarEventTask={calendarEventTask}
-        googleCalendars={googleCalendar.googleCalendars}
-        advisorDefaultCalendarId={googleCalendar.advisorDefaultCalendarId}
         onOpenCalendarEvent={setCalendarEventTask}
         onCloseCalendarEvent={() => setCalendarEventTask(null)}
         onCalendarEventCreated={refreshAfterCalendarEventCreated}
@@ -409,6 +324,8 @@ export default function App() {
         onSavePostpone={taskActions.postponeTaskDueDate}
         postponing={taskActions.postponing}
       />
-    </div>
+        </div>
+      </AdvisorProvider>
+    </GoogleCalendarProvider>
   );
 }

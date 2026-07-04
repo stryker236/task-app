@@ -1,24 +1,4 @@
-import type {
-  AiCommand,
-  AiCommandPreview,
-  ChecklistItem,
-  CreateGoogleCalendarEventInput,
-  CreateGoogleCalendarEventResponse,
-  DeleteDefaultGoogleCalendarEventsResponse,
-  GoogleCalendarEventsResponse,
-  GoogleCalendarsResponse,
-  GoogleOAuthUrlRequest,
-  GoogleOAuthUrlResponse,
-  GoogleStatus,
-  QuickQueueItem,
-  SendGoogleDailyTaskEmailResponse,
-  SharedNote,
-  SharedNoteInput,
-  Tag,
-  Task,
-  TaskInput,
-  TaskStatus
-} from '../../shared/types';
+import type { AiCommand, AiCommandPreview, ChecklistItem, GoogleCalendar, GoogleCalendarEvent, GoogleOAuthUrlRequest, GoogleOAuthUrlResponse, GoogleStatus, QuickQueueItem, SharedNote, SharedNoteInput, Tag, Task, TaskCalendarEvent, TaskInput, TaskStatus } from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
