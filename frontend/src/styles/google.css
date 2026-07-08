@@ -740,3 +740,111 @@
   white-space: nowrap;
   font-size: 10px;
 }
+
+.calendar-fullcalendar-shell {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.calendar-fullcalendar-shell .fc {
+  color: var(--text-strong);
+  font-family: inherit;
+}
+
+.calendar-fullcalendar-shell .fc-theme-standard td,
+.calendar-fullcalendar-shell .fc-theme-standard th,
+.calendar-fullcalendar-shell .fc-scrollgrid {
+  border-color: var(--line);
+}
+
+.calendar-fullcalendar-shell .fc-col-header-cell,
+.calendar-fullcalendar-shell .fc-timegrid-axis,
+.calendar-fullcalendar-shell .fc-daygrid-day {
+  background: var(--surface);
+}
+
+.calendar-fullcalendar-shell .fc-day-today {
+  background: color-mix(in srgb, var(--blue) 8%, var(--surface)) !important;
+}
+
+.calendar-fullcalendar-shell .fc-event {
+  border-radius: 6px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.calendar-fullcalendar-shell .fc-timegrid-event {
+  box-shadow: 0 4px 12px rgba(25, 35, 55, .08);
+}
+
+.calendar-fullcalendar-shell .fc-event.is-advisor-preview {
+  border-style: dashed;
+}
+
+.calendar-fullcalendar-shell .fc-event.is-task-due-date {
+  opacity: .94;
+}
+
+.calendar-fc-event-content {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding: 2px 4px;
+}
+
+.calendar-fc-event-content strong,
+.calendar-fc-event-content span,
+.calendar-fc-event-content em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-fc-event-content strong {
+  font-size: 12px;
+  line-height: 1.15;
+}
+
+.calendar-fc-event-content span {
+  font-size: 10px;
+  opacity: .88;
+}
+
+.calendar-fc-event-content em {
+  width: fit-content;
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: rgba(255, 255, 255, .24);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.calendar-preview-dialog dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.calendar-preview-dialog dl > div {
+  display: grid;
+  gap: 3px;
+}
+
+.calendar-preview-dialog dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.calendar-preview-dialog dd {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
