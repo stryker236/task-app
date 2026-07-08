@@ -11,6 +11,7 @@ import {
   submitAdvisorInteractionFeedback,
   type AdvisorFeedbackInput,
   type AdvisorMemoryRule,
+  type SchedulerConstraintInput,
   type TaskFilters
 } from '../api';
 import { clientLog } from '../logger';
@@ -71,7 +72,7 @@ export default function useAdvisorController({
     }
   }
 
-  async function requestAdvisorActions(action: string, options: { defaultCalendarId?: string } = {}) {
+  async function requestAdvisorActions(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[] } = {}) {
     if (!action) return;
 
     try {
@@ -229,6 +230,10 @@ export default function useAdvisorController({
     });
   }
 
+  async function rescheduleAdvisorCalendarEvents(defaultCalendarId: string, schedulerConstraints: SchedulerConstraintInput[]) {
+    await requestAdvisorActions('schedule_calendar_events', { defaultCalendarId, schedulerConstraints });
+  }
+
   async function saveAdvisorInteractionFeedback(feedback: AdvisorFeedbackInput['feedback']) {
     if (!proposalBatch || !lastAdvisorAction) return;
     try {
@@ -285,6 +290,7 @@ export default function useAdvisorController({
     applyingAllProposals,
     refreshTaskAdvisorAdvice,
     requestAdvisorActions,
+    rescheduleAdvisorCalendarEvents,
     refreshAdvisorMemoryRules,
     forgetAdvisorMemoryRule,
     applyAdvisorProposal,

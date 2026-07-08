@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { Task } from '../../../shared/types';
 import { useAdvisorContext } from '../context/AdvisorContext';
 import { useGoogleCalendarContext } from '../context/GoogleCalendarContext';
@@ -15,6 +15,7 @@ type CalendarViewProps = {
 export default function CalendarView({ allTasks }: CalendarViewProps) {
   const googleCalendar = useGoogleCalendarContext();
   const advisor = useAdvisorContext();
+  const [schedulerConstraints, setSchedulerConstraints] = useState<Array<{ taskId: string; start: string; end?: string }>>([]);
   const advisorPreviewEvents = useMemo(
     () => advisorCalendarPreviewEvents(
       advisor.proposalBatch,
@@ -27,6 +28,20 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
   const calendarWriteReady = googleCalendar.googleStatus.connected && googleCalendar.googleStatus.scopes.includes(CALENDAR_WRITE_SCOPE);
   const showAdvisorBuffer = advisor.lastAdvisorAction === 'schedule_calendar_events'
     || (advisor.proposalBatch?.commands || []).some((command) => command.type === 'create_calendar_event');
+
+  async function moveAdvisorPreviewEvent(taskId: string, start: string, end: string) {
+    const nextConstraints = [
+      ...schedulerConstraints.filter((constraint) => constraint.taskId !== taskId),
+      { taskId, start, end }
+    ];
+    setSchedulerConstraints(nextConstraints);
+    await advisor.rescheduleAdvisorCalendarEvents(googleCalendar.advisorDefaultCalendarId, nextConstraints);
+  }
+
+  async function clearAdvisorScheduleConstraints() {
+    setSchedulerConstraints([]);
+    await advisor.rescheduleAdvisorCalendarEvents(googleCalendar.advisorDefaultCalendarId, []);
+  }
 
   return (
     <>
@@ -53,7 +68,10 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
         onSendDailyTaskEmail={googleCalendar.sendDailyTaskEmail}
         onDeleteDefaultCalendarEvents={googleCalendar.deleteDefaultCalendarEvents}
         advisorLoading={advisor.advisorLoading}
-        onRequestAdvisorCalendarEvents={() => advisor.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId })}
+        advisorConstraintCount={schedulerConstraints.length}
+        onRequestAdvisorCalendarEvents={() => advisor.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId, schedulerConstraints })}
+        onMoveAdvisorPreviewEvent={moveAdvisorPreviewEvent}
+        onClearAdvisorScheduleConstraints={clearAdvisorScheduleConstraints}
       />
       {showAdvisorBuffer && (
         <AdvisorProposalBuffer

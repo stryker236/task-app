@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type DragEvent } from 'react';
 import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
 import type { AdvisorCalendarPreviewEvent, TaskDueDateCalendarEvent } from '../utils/advisorCalendarPreviews';
 
@@ -40,7 +40,10 @@ type CalendarWeekViewProps = {
   onSendDailyTaskEmail: (date?: string) => Promise<{ to: string; date?: string; calendarSummary?: string; eventCount?: number; totalMinutes?: number; todayCount: number; overdueCount: number } | null>;
   onDeleteDefaultCalendarEvents: () => Promise<{ calendarSummary: string; deletedCount: number; unlinkedCount: number } | null>;
   advisorLoading: boolean;
+  advisorConstraintCount: number;
   onRequestAdvisorCalendarEvents: () => void;
+  onMoveAdvisorPreviewEvent: (taskId: string, start: string, end: string) => void;
+  onClearAdvisorScheduleConstraints: () => void;
 };
 
 function dateFromInputValue(value: string) {
@@ -151,6 +154,10 @@ function isTaskDueDateEvent(event: CalendarDisplayEvent): event is TaskDueDateCa
   return 'taskDueDate' in event && event.taskDueDate;
 }
 
+function advisorPreviewTaskId(event: AdvisorCalendarPreviewEvent) {
+  return String((event as unknown as { taskId?: string }).taskId || event.advisorProposalId.replace(/^schedule_/, ''));
+}
+
 function eventTitle(event: CalendarDisplayEvent) {
   return event.summary || '(Sem titulo)';
 }
@@ -194,6 +201,21 @@ function getEventPlacement(event: CalendarDisplayEvent) {
     top: ((clampedStart - DAY_START_HOUR * 60) / 60) * HOUR_HEIGHT,
     height: Math.max(24, ((clampedEnd - clampedStart) / 60) * HOUR_HEIGHT)
   };
+}
+
+function eventDurationMinutes(event: CalendarDisplayEvent) {
+  const start = eventStartDate(event);
+  const end = eventEndDate(event);
+  if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end > start) {
+    return Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000));
+  }
+  return 30;
+}
+
+function isoForDayMinute(day: string, minuteOfDay: number) {
+  const date = dateFromInputValue(day);
+  date.setHours(Math.floor(minuteOfDay / 60), minuteOfDay % 60, 0, 0);
+  return date.toISOString();
 }
 
 function eventStartMinutes(event: CalendarDisplayEvent) {
@@ -303,7 +325,10 @@ export default function CalendarWeekView({
   onSendDailyTaskEmail,
   onDeleteDefaultCalendarEvents,
   advisorLoading,
-  onRequestAdvisorCalendarEvents
+  advisorConstraintCount,
+  onRequestAdvisorCalendarEvents,
+  onMoveAdvisorPreviewEvent,
+  onClearAdvisorScheduleConstraints
 }: CalendarWeekViewProps) {
   const [calendarMode, setCalendarMode] = useState<'week' | 'month'>('week');
   const [monthAnchor, setMonthAnchor] = useState(weekStart);
@@ -325,6 +350,7 @@ export default function CalendarWeekView({
   const canCreateCalendarEvents = status.connected && status.scopes.includes(CALENDAR_WRITE_SCOPE);
   const today = inputValueFromDate(new Date());
   const currentMonth = dateFromInputValue(monthAnchor).getMonth();
+  const [draggedAdvisorEventId, setDraggedAdvisorEventId] = useState('');
 
   function loadMonth(value = monthAnchor, calendarIds = selectedCalendarIds) {
     const range = monthGridRange(value);
@@ -335,6 +361,21 @@ export default function CalendarWeekView({
   function changeCalendarIds(calendarIds: string[]) {
     onCalendarFilterChange(calendarIds);
     if (calendarMode === 'month') loadMonth(monthAnchor, calendarIds);
+  }
+
+  function handleAdvisorDrop(day: string, event: DragEvent<HTMLDivElement>) {
+    if (!draggedAdvisorEventId) return;
+    event.preventDefault();
+    const advisorEvent = visibleAdvisorPreviewEvents.find((item) => item.id === draggedAdvisorEventId);
+    if (!advisorEvent) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const rawMinutes = DAY_START_HOUR * 60 + ((event.clientY - rect.top) / HOUR_HEIGHT) * 60;
+    const roundedMinutes = Math.max(DAY_START_HOUR * 60, Math.min(DAY_END_HOUR * 60 - 15, Math.round(rawMinutes / 15) * 15));
+    const duration = eventDurationMinutes(advisorEvent);
+    const start = isoForDayMinute(day, roundedMinutes);
+    const end = isoForDayMinute(day, Math.min(DAY_END_HOUR * 60, roundedMinutes + duration));
+    onMoveAdvisorPreviewEvent(advisorPreviewTaskId(advisorEvent), start, end);
+    setDraggedAdvisorEventId('');
   }
 
   return (
@@ -426,6 +467,11 @@ export default function CalendarWeekView({
             >
               Apagar eventos default
             </button>
+            {advisorConstraintCount > 0 && (
+              <button type="button" className="button ghost small" onClick={onClearAdvisorScheduleConstraints} disabled={advisorLoading || loading}>
+                Limpar ajustes ({advisorConstraintCount})
+              </button>
+            )}
           </div>
 
           <div className="calendar-week-controls">
@@ -538,6 +584,8 @@ export default function CalendarWeekView({
                           rel={event.htmlLink ? 'noreferrer' : undefined}
                           key={event.id}
                           title={eventTooltip(event)}
+                          draggable={isAdvisorPreviewEvent(event)}
+                          onDragStart={() => isAdvisorPreviewEvent(event) && setDraggedAdvisorEventId(event.id)}
                           style={{ '--event-color': event.calendarColor || '#315efb' } as CSSProperties}
                         >
                           <i aria-hidden="true" />
@@ -603,7 +651,12 @@ export default function CalendarWeekView({
                 {days.map((day) => {
                   const dayEvents = timedEventsByDay.get(day) || [];
                   return (
-                    <div className="calendar-day-column" key={day}>
+                    <div
+                      className="calendar-day-column"
+                      key={day}
+                      onDragOver={(event) => draggedAdvisorEventId && event.preventDefault()}
+                      onDrop={(event) => handleAdvisorDrop(day, event)}
+                    >
                       <div className="calendar-hour-lines" aria-hidden="true">
                         {HOURS.map((hour) => <span key={hour} />)}
                       </div>
@@ -618,6 +671,9 @@ export default function CalendarWeekView({
                             rel={event.htmlLink ? 'noreferrer' : undefined}
                             key={event.id}
                             title={eventTooltip(event)}
+                            draggable={isAdvisorPreviewEvent(event)}
+                            onDragStart={() => isAdvisorPreviewEvent(event) && setDraggedAdvisorEventId(event.id)}
+                            onDragEnd={() => setDraggedAdvisorEventId('')}
                             style={{
                               '--event-color': event.calendarColor || '#315efb',
                               top: `${placement.top}px`,
