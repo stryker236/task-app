@@ -23,6 +23,7 @@ type SchedulerConstraint = {
 type SchedulerRequest = {
   now: string;
   horizonEnd: string;
+  timeZone?: string | null;
   tasks: SchedulerTask[];
   busy: BusyInterval[];
   constraints?: SchedulerConstraint[];

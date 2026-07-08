@@ -303,7 +303,7 @@ function scheduleHorizon(tasks: any[], constraints: Map<string, any>, now = new 
 	return new Date(Math.max(fallback, latest) + 24 * 60 * 60 * 1000).toISOString();
 }
 
-async function fetchAdvisorBusyEvents({ pool, fetchGoogleConnection, saveGoogleConnection, calendarId, timeMin, timeMax }: any) {
+async function fetchAdvisorBusyEvents({ pool, fetchGoogleConnection, saveGoogleConnection, calendarId, calendarIds, timeMin, timeMax }: any) {
 	if (!pool || !fetchGoogleConnection || !saveGoogleConnection) return [];
 	const connection = await fetchGoogleConnection();
 	if (!connection) return [];
@@ -318,25 +318,36 @@ async function fetchAdvisorBusyEvents({ pool, fetchGoogleConnection, saveGoogleC
 		}).catch((error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
 	});
 	const calendar = createCalendarClient(authClient);
-	const result = await calendar.events.list({
-		calendarId,
-		timeMin,
-		timeMax,
-		singleEvents: true,
-		showDeleted: false,
-		maxResults: 2500,
-		orderBy: 'startTime'
-	});
-	return (result.data.items || []).map((event) => ({
-		start: event.start?.dateTime || event.start?.date || '',
-		end: event.end?.dateTime || event.end?.date || ''
-	})).filter((event) => event.start && event.end);
+	const ids = [...new Set((Array.isArray(calendarIds) && calendarIds.length ? calendarIds : [calendarId]).filter(Boolean))];
+	const results = await Promise.all(ids.map(async (id) => {
+		try {
+			const result = await calendar.events.list({
+				calendarId: id,
+				timeMin,
+				timeMax,
+				singleEvents: true,
+				showDeleted: false,
+				maxResults: 2500,
+				orderBy: 'startTime'
+			});
+			return (result.data.items || []).map((event) => ({
+				calendarId: id,
+				start: event.start?.dateTime || event.start?.date || '',
+				end: event.end?.dateTime || event.end?.date || ''
+			})).filter((event) => event.start && event.end);
+		} catch (error: any) {
+			logger.warn('advisor.calendar.busy_fetch_failed', { metadata: { calendarId: id, message: error.message } });
+			return [];
+		}
+	}));
+	return results.flat();
 }
 
 async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requestedDefaultCalendarId, constraints, dependencies }: any) {
 	const defaultCalendar = defaultAdvisorCalendar(calendars, requestedDefaultCalendarId);
 	const calendarId = defaultCalendar?.id || defaultAdvisorCalendarId(calendars, requestedDefaultCalendarId);
 	const calendarSummary = defaultCalendar?.summary || calendarId;
+	const calendarTimeZone = defaultCalendar?.timeZone || 'Europe/Lisbon';
 	const fixedConstraints = schedulerConstraintMap(constraints);
 	const linkedResults = await Promise.all(tasks.map(async (task) => ({
 		task,
@@ -352,12 +363,14 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 	const busy = await fetchAdvisorBusyEvents({
 		...dependencies,
 		calendarId,
+		calendarIds: calendars.map((calendar) => calendar.id),
 		timeMin: now,
 		timeMax: horizonEnd
 	});
 	const scheduled = await requestSchedule({
 		now,
 		horizonEnd,
+		timeZone: calendarTimeZone,
 		busy,
 		constraints: [...fixedConstraints.entries()].map(([taskId, constraint]) => ({
 			taskId,
@@ -387,7 +400,7 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 				location: '',
 				start: item.start,
 				end: item.end,
-				timeZone: 'UTC',
+				timeZone: calendarTimeZone,
 				calendarId,
 				calendarSelectionReason: `default calendar: ${calendarSummary}`
 			}

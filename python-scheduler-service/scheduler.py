@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ortools.sat.python import cp_model
 
@@ -22,7 +23,15 @@ class Candidate:
     order: int
 
 
-def parse_datetime(value: str | None) -> datetime | None:
+def schedule_timezone(payload: dict[str, Any]) -> timezone | ZoneInfo:
+    name = str(payload.get("timeZone") or payload.get("timezone") or "Europe/Lisbon")
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        return timezone.utc
+
+
+def parse_datetime(value: str | None, target_timezone: timezone | ZoneInfo) -> datetime | None:
     if not value:
         return None
     try:
@@ -31,8 +40,8 @@ def parse_datetime(value: str | None) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=target_timezone)
+    return parsed.astimezone(target_timezone)
 
 
 def iso(value: datetime) -> str:
@@ -94,13 +103,14 @@ def build_candidates(
     horizon_end: datetime,
     busy: list[tuple[datetime, datetime]],
     constraints: dict[str, dict[str, Any]],
+    target_timezone: timezone | ZoneInfo,
 ) -> tuple[list[Candidate], str | None]:
     task_id = str(task.get("id") or "")
     minutes = duration_minutes(task)
     constraint = constraints.get(task_id, {})
-    fixed_start = parse_datetime(constraint.get("fixedStart") or task.get("fixedStart"))
-    fixed_end = parse_datetime(constraint.get("fixedEnd") or task.get("fixedEnd")) or (fixed_start + timedelta(minutes=minutes) if fixed_start else None)
-    due = parse_datetime(task.get("dueDateTime"))
+    fixed_start = parse_datetime(constraint.get("fixedStart") or task.get("fixedStart"), target_timezone)
+    fixed_end = parse_datetime(constraint.get("fixedEnd") or task.get("fixedEnd"), target_timezone) or (fixed_start + timedelta(minutes=minutes) if fixed_start else None)
+    due = parse_datetime(task.get("dueDateTime"), target_timezone)
 
     if fixed_start:
         fixed_end = fixed_end or fixed_start + timedelta(minutes=minutes)
@@ -137,8 +147,9 @@ def build_candidates(
 
 
 def solve_schedule(payload: dict[str, Any]) -> dict[str, Any]:
-    now = parse_datetime(payload.get("now")) or datetime.now(timezone.utc)
-    horizon_end = parse_datetime(payload.get("horizonEnd")) or (now + timedelta(days=14))
+    target_timezone = schedule_timezone(payload)
+    now = parse_datetime(payload.get("now"), target_timezone) or datetime.now(target_timezone)
+    horizon_end = parse_datetime(payload.get("horizonEnd"), target_timezone) or (now + timedelta(days=14))
     tasks = [task for task in payload.get("tasks", []) if isinstance(task, dict) and task.get("id")]
     constraints = constraint_map(payload)
     busy = []
@@ -146,57 +157,62 @@ def solve_schedule(payload: dict[str, Any]) -> dict[str, Any]:
     for item in busy_items:
         if not isinstance(item, dict):
             continue
-        start = parse_datetime(item.get("start"))
-        end = parse_datetime(item.get("end"))
+        start = parse_datetime(item.get("start"), target_timezone)
+        end = parse_datetime(item.get("end"), target_timezone)
         if start and end and end > start:
             busy.append((start, end))
 
-    model = cp_model.CpModel()
-    candidate_vars: list[tuple[Candidate, cp_model.IntVar]] = []
-    task_vars: dict[str, list[cp_model.IntVar]] = {}
+    scheduled = []
     unscheduled: list[dict[str, str]] = []
+    task_order = {str(task["id"]): index for index, task in enumerate(tasks)}
+    ordered_tasks = sorted(
+        tasks,
+        key=lambda task: (
+            0 if str(task["id"]) in constraints else 1,
+            parse_datetime(task.get("dueDateTime"), target_timezone) or horizon_end,
+            task_order[str(task["id"])],
+        ),
+    )
 
-    for order, task in enumerate(tasks):
+    for task in ordered_tasks:
         task_id = str(task["id"])
-        candidates, reason = build_candidates(task, order, now, horizon_end, busy, constraints)
+        order = task_order[task_id]
+        candidates, reason = build_candidates(task, order, now, horizon_end, busy, constraints, target_timezone)
         if not candidates:
             unscheduled.append({"taskId": task_id, "reason": reason or "no valid candidates"})
             continue
-        task_vars[task_id] = []
+
+        model = cp_model.CpModel()
+        candidate_vars: list[tuple[Candidate, cp_model.IntVar]] = []
         for index, candidate in enumerate(candidates):
             var = model.NewBoolVar(f"{task_id}_{index}")
             candidate_vars.append((candidate, var))
-            task_vars[task_id].append(var)
-        model.AddAtMostOne(task_vars[task_id])
+        model.AddExactlyOne(var for _, var in candidate_vars)
+        model.Minimize(sum((candidate.slot * max(1, len(tasks)) + candidate.order) * var for candidate, var in candidate_vars))
 
-    for index, (left, left_var) in enumerate(candidate_vars):
-        for right, right_var in candidate_vars[index + 1 :]:
-            if left.task_id != right.task_id and overlaps(left.start, left.end, right.start, right.end):
-                model.Add(left_var + right_var <= 1)
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = 1
+        solver.parameters.num_search_workers = 8
+        status = solver.Solve(model)
+        selected = None
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            for candidate, var in candidate_vars:
+                if solver.BooleanValue(var):
+                    selected = candidate
+                    break
+        if not selected:
+            unscheduled.append({"taskId": task_id, "reason": "no valid slot selected"})
+            continue
 
-    if candidate_vars:
-        scheduled_count = sum(var for _, var in candidate_vars)
-        start_cost = sum((candidate.slot * max(1, len(tasks)) + candidate.order) * var for candidate, var in candidate_vars)
-        model.Maximize(scheduled_count * 1_000_000 - start_cost)
-
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 5
-    solver.parameters.num_search_workers = 8
-    status = solver.Solve(model)
-    scheduled = []
-    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        busy.append((selected.start, selected.end))
         for candidate, var in candidate_vars:
-            if solver.BooleanValue(var):
+            if candidate == selected:
                 scheduled.append({
-                    "taskId": candidate.task_id,
-                    "start": iso(candidate.start),
-                    "end": iso(candidate.end),
+                    "taskId": selected.task_id,
+                    "start": iso(selected.start),
+                    "end": iso(selected.end),
                 })
-
-    scheduled_ids = {item["taskId"] for item in scheduled}
-    for task_id in task_vars:
-        if task_id not in scheduled_ids:
-            unscheduled.append({"taskId": task_id, "reason": "no non-overlapping slot found"})
+                break
 
     scheduled.sort(key=lambda item: item["start"])
     return {"scheduled": scheduled, "unscheduled": unscheduled}

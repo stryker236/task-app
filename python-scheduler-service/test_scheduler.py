@@ -47,6 +47,34 @@ class SchedulerTests(unittest.TestCase):
 
         self.assertEqual(result["scheduled"][0]["start"], "2026-07-08T09:00:00Z")
 
+    def test_uses_calendar_timezone_for_working_hours(self):
+        result = solve_schedule({
+            "now": "2026-07-08T20:30:00Z",
+            "horizonEnd": "2026-07-09T22:00:00Z",
+            "timeZone": "Europe/Lisbon",
+            "busy": [],
+            "tasks": [{"id": "task", "title": "Task", "durationMinutes": 60}],
+        })
+
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-09T07:00:00Z")
+        self.assertEqual(result["scheduled"][0]["end"], "2026-07-09T08:00:00Z")
+
+    def test_schedules_many_tasks_without_timing_out(self):
+        result = solve_schedule({
+            "now": "2026-07-08T21:30:00Z",
+            "horizonEnd": "2026-07-23T21:30:00Z",
+            "timeZone": "Europe/Lisbon",
+            "busy": [],
+            "tasks": [
+                {"id": f"task-{index}", "title": f"Task {index}", "durationMinutes": 30}
+                for index in range(17)
+            ],
+        })
+
+        self.assertEqual(len(result["scheduled"]), 17)
+        self.assertEqual(result["unscheduled"], [])
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-09T07:00:00Z")
+
     def test_reports_due_date_conflict(self):
         result = solve_schedule({
             "now": "2026-07-08T08:00:00Z",
