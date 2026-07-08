@@ -1,4 +1,4 @@
-const DEFAULT_SCHEDULER_URL = 'http://127.0.0.1:8091';
+const DEFAULT_SCHEDULER_URL = 'http://127.0.0.1:8000';
 
 type SchedulerTask = {
   id: string;
@@ -14,11 +14,18 @@ type BusyInterval = {
   end: string;
 };
 
+type SchedulerConstraint = {
+  taskId: string;
+  fixedStart: string;
+  fixedEnd?: string | null;
+};
+
 type SchedulerRequest = {
   now: string;
   horizonEnd: string;
   tasks: SchedulerTask[];
   busy: BusyInterval[];
+  constraints?: SchedulerConstraint[];
 };
 
 type ScheduledTask = {

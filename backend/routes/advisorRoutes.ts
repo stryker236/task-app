@@ -359,6 +359,11 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 		now,
 		horizonEnd,
 		busy,
+		constraints: [...fixedConstraints.entries()].map(([taskId, constraint]) => ({
+			taskId,
+			fixedStart: constraint.fixedStart,
+			fixedEnd: constraint.fixedEnd || null
+		})),
 		tasks: eligibleTasks.map((task) => ({
 			id: task.id,
 			title: task.title || '',

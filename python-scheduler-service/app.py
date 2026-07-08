@@ -23,14 +23,20 @@ class SchedulerHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
+        print(f"Received POST request for path: {self.path}")
         if self.path != "/schedule":
+            print("Path not found, returning 404")
             self._send_json(404, {"error": "not found"})
             return
         try:
             length = int(self.headers.get("Content-Length") or "0")
             payload = json.loads(self.rfile.read(length) or b"{}")
-            self._send_json(200, solve_schedule(payload))
+            print(f"Request payload: {payload}")
+            result = solve_schedule(payload)
+            print(f"Schedule result: {result}")
+            self._send_json(200, result)
         except Exception as exc:
+            print(f"Error while handling POST: {exc}")
             self._send_json(400, {"error": str(exc)})
 
     def log_message(self, format: str, *args) -> None:
@@ -39,7 +45,7 @@ class SchedulerHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     host = os.environ.get("SCHEDULER_HOST", "127.0.0.1")
-    port = int(os.environ.get("SCHEDULER_PORT", "8091"))
+    port = int(os.environ.get("SCHEDULER_PORT", "8000"))
     ThreadingHTTPServer((host, port), SchedulerHandler).serve_forever()
 
 

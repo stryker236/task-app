@@ -24,8 +24,11 @@ class SchedulerTests(unittest.TestCase):
             "now": "2026-07-08T08:00:00Z",
             "horizonEnd": "2026-07-09T22:00:00Z",
             "busy": [],
+            "constraints": [
+                {"taskId": "fixed", "fixedStart": "2026-07-08T10:00:00Z"}
+            ],
             "tasks": [
-                {"id": "fixed", "title": "Fixed", "durationMinutes": 30, "fixedStart": "2026-07-08T10:00:00Z"},
+                {"id": "fixed", "title": "Fixed", "durationMinutes": 30},
                 {"id": "free", "title": "Free", "durationMinutes": 30},
             ],
         })
@@ -33,6 +36,16 @@ class SchedulerTests(unittest.TestCase):
         by_id = {item["taskId"]: item for item in result["scheduled"]}
         self.assertEqual(by_id["fixed"]["start"], "2026-07-08T10:00:00Z")
         self.assertEqual(by_id["free"]["start"], "2026-07-08T08:00:00Z")
+
+    def test_accepts_calendar_availability_alias(self):
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-08T22:00:00Z",
+            "calendarAvailability": [{"start": "2026-07-08T08:00:00Z", "end": "2026-07-08T09:00:00Z"}],
+            "tasks": [{"id": "task", "title": "Task", "durationMinutes": 30}],
+        })
+
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-08T09:00:00Z")
 
     def test_reports_due_date_conflict(self):
         result = solve_schedule({

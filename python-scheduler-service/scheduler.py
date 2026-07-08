@@ -55,6 +55,24 @@ def duration_minutes(task: dict[str, Any]) -> int:
     return max(SLOT_MINUTES, min(MAX_DURATION_MINUTES, minutes))
 
 
+def constraint_map(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    constraints = payload.get("constraints", [])
+    if not isinstance(constraints, list):
+        return {}
+    mapped: dict[str, dict[str, Any]] = {}
+    for item in constraints:
+        if not isinstance(item, dict):
+            continue
+        task_id = str(item.get("taskId") or item.get("id") or "")
+        fixed_start = item.get("fixedStart") or item.get("start")
+        if task_id and fixed_start:
+            mapped[task_id] = {
+                "fixedStart": fixed_start,
+                "fixedEnd": item.get("fixedEnd") or item.get("end"),
+            }
+    return mapped
+
+
 def overlaps(left_start: datetime, left_end: datetime, right_start: datetime, right_end: datetime) -> bool:
     return left_start < right_end and right_start < left_end
 
@@ -75,11 +93,13 @@ def build_candidates(
     now: datetime,
     horizon_end: datetime,
     busy: list[tuple[datetime, datetime]],
+    constraints: dict[str, dict[str, Any]],
 ) -> tuple[list[Candidate], str | None]:
     task_id = str(task.get("id") or "")
     minutes = duration_minutes(task)
-    fixed_start = parse_datetime(task.get("fixedStart"))
-    fixed_end = parse_datetime(task.get("fixedEnd")) or (fixed_start + timedelta(minutes=minutes) if fixed_start else None)
+    constraint = constraints.get(task_id, {})
+    fixed_start = parse_datetime(constraint.get("fixedStart") or task.get("fixedStart"))
+    fixed_end = parse_datetime(constraint.get("fixedEnd") or task.get("fixedEnd")) or (fixed_start + timedelta(minutes=minutes) if fixed_start else None)
     due = parse_datetime(task.get("dueDateTime"))
 
     if fixed_start:
@@ -120,8 +140,10 @@ def solve_schedule(payload: dict[str, Any]) -> dict[str, Any]:
     now = parse_datetime(payload.get("now")) or datetime.now(timezone.utc)
     horizon_end = parse_datetime(payload.get("horizonEnd")) or (now + timedelta(days=14))
     tasks = [task for task in payload.get("tasks", []) if isinstance(task, dict) and task.get("id")]
+    constraints = constraint_map(payload)
     busy = []
-    for item in payload.get("busy", []):
+    busy_items = payload.get("busy", payload.get("calendarAvailability", []))
+    for item in busy_items:
         if not isinstance(item, dict):
             continue
         start = parse_datetime(item.get("start"))
@@ -136,7 +158,7 @@ def solve_schedule(payload: dict[str, Any]) -> dict[str, Any]:
 
     for order, task in enumerate(tasks):
         task_id = str(task["id"])
-        candidates, reason = build_candidates(task, order, now, horizon_end, busy)
+        candidates, reason = build_candidates(task, order, now, horizon_end, busy, constraints)
         if not candidates:
             unscheduled.append({"taskId": task_id, "reason": reason or "no valid candidates"})
             continue
