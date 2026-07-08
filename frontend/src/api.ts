@@ -183,10 +183,20 @@ export function getTaskAdvisorAdvice(limit = 5) {
   return requestJson<AdvisorAdvice>(`/advisor?limit=${encodeURIComponent(limit)}`);
 }
 
-export function requestTaskAdvisorCommands(action: string, options: { defaultCalendarId?: string } = {}) {
+export type SchedulerConstraintInput = {
+  taskId: string;
+  start: string;
+  end?: string;
+};
+
+export function requestTaskAdvisorCommands(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[] } = {}) {
   return requestJson<AdvisorPreview>('/ai/advisor/request', {
     method: 'POST',
-    body: JSON.stringify({ action, defaultCalendarId: options.defaultCalendarId || '' })
+    body: JSON.stringify({
+      action,
+      defaultCalendarId: options.defaultCalendarId || '',
+      schedulerConstraints: options.schedulerConstraints || []
+    })
   });
 }
 

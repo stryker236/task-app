@@ -1,9 +1,9 @@
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
-import interactionPlugin from '@fullcalendar/interaction';
+import interactionPlugin, { type EventResizeDoneArg } from '@fullcalendar/interaction';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import { useMemo, useRef, useState } from 'react';
-import type { DatesSetArg, EventClickArg, EventContentArg, EventInput } from '@fullcalendar/core';
+import type { DatesSetArg, EventClickArg, EventContentArg, EventDropArg, EventInput } from '@fullcalendar/core';
 import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
 import type { AdvisorCalendarPreviewEvent, TaskDueDateCalendarEvent } from '../utils/advisorCalendarPreviews';
 
@@ -37,7 +37,10 @@ type CalendarWeekViewProps = {
   onSendDailyTaskEmail: (date?: string) => Promise<{ to: string; date?: string; calendarSummary?: string; eventCount?: number; totalMinutes?: number; todayCount: number; overdueCount: number } | null>;
   onDeleteDefaultCalendarEvents: () => Promise<{ calendarSummary: string; deletedCount: number; unlinkedCount: number } | null>;
   advisorLoading: boolean;
+  advisorConstraintCount: number;
   onRequestAdvisorCalendarEvents: () => void;
+  onMoveAdvisorPreviewEvent: (taskId: string, start: string, end: string) => void;
+  onClearAdvisorScheduleConstraints: () => void;
 };
 
 function dateFromInputValue(value: string) {
@@ -94,8 +97,20 @@ function isTaskDueDateEvent(event: CalendarDisplayEvent): event is TaskDueDateCa
   return 'taskDueDate' in event && event.taskDueDate;
 }
 
+function advisorPreviewTaskId(event: AdvisorCalendarPreviewEvent) {
+  return String((event as unknown as { taskId?: string }).taskId || event.advisorProposalId.replace(/^schedule_/, ''));
+}
+
 function isAllDayEvent(event: CalendarDisplayEvent) {
   return Boolean(event.start && /^\d{4}-\d{2}-\d{2}$/.test(event.start));
+}
+
+function eventDurationMinutes(event: CalendarDisplayEvent) {
+  if (!event.start || !event.end) return 30;
+  const start = new Date(event.start);
+  const end = new Date(event.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return 30;
+  return Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000));
 }
 
 function toggleCalendarId(calendarIds: string[], calendarId: string) {
@@ -112,13 +127,17 @@ function eventClassNames(event: CalendarDisplayEvent) {
 }
 
 function toFullCalendarEvent(event: CalendarDisplayEvent): EventInput {
-  const color = event.calendarColor || (isAdvisorPreviewEvent(event) ? '#6f48eb' : isTaskDueDateEvent(event) ? '#0f8b8d' : '#315efb');
+  const isPreview = isAdvisorPreviewEvent(event);
+  const color = event.calendarColor || (isPreview ? '#6f48eb' : isTaskDueDateEvent(event) ? '#0f8b8d' : '#315efb');
   return {
     id: event.id,
     title: eventTitle(event),
     start: event.start || undefined,
     end: event.end || undefined,
     allDay: isAllDayEvent(event),
+    editable: isPreview,
+    startEditable: isPreview,
+    durationEditable: isPreview,
     backgroundColor: color,
     borderColor: color,
     classNames: eventClassNames(event),
@@ -165,7 +184,10 @@ export default function CalendarWeekView({
   onSendDailyTaskEmail,
   onDeleteDefaultCalendarEvents,
   advisorLoading,
-  onRequestAdvisorCalendarEvents
+  advisorConstraintCount,
+  onRequestAdvisorCalendarEvents,
+  onMoveAdvisorPreviewEvent,
+  onClearAdvisorScheduleConstraints
 }: CalendarWeekViewProps) {
   const calendarRef = useRef<FullCalendar | null>(null);
   const [calendarMode, setCalendarMode] = useState<CalendarViewMode>('timeGridWeek');
@@ -246,6 +268,23 @@ export default function CalendarWeekView({
       arg.jsEvent.preventDefault();
       window.open(event.htmlLink, '_blank', 'noopener,noreferrer');
     }
+  }
+
+  function handlePreviewMove(event: CalendarDisplayEvent | undefined, start: Date | null, end: Date | null, revert: () => void) {
+    if (!event || !isAdvisorPreviewEvent(event) || !start) {
+      revert();
+      return;
+    }
+    const resolvedEnd = end || new Date(start.getTime() + eventDurationMinutes(event) * 60000);
+    onMoveAdvisorPreviewEvent(advisorPreviewTaskId(event), start.toISOString(), resolvedEnd.toISOString());
+  }
+
+  function handleEventDrop(arg: EventDropArg) {
+    handlePreviewMove(arg.event.extendedProps.calendarEvent as CalendarDisplayEvent | undefined, arg.event.start, arg.event.end, arg.revert);
+  }
+
+  function handleEventResize(arg: EventResizeDoneArg) {
+    handlePreviewMove(arg.event.extendedProps.calendarEvent as CalendarDisplayEvent | undefined, arg.event.start, arg.event.end, arg.revert);
   }
 
   return (
@@ -337,6 +376,11 @@ export default function CalendarWeekView({
             >
               Apagar eventos default
             </button>
+            {advisorConstraintCount > 0 && (
+              <button type="button" className="button ghost small" onClick={onClearAdvisorScheduleConstraints} disabled={advisorLoading || loading}>
+                Limpar ajustes ({advisorConstraintCount})
+              </button>
+            )}
           </div>
 
           <div className="calendar-week-controls">
@@ -416,12 +460,15 @@ export default function CalendarWeekView({
               nowIndicator
               allDaySlot
               dayMaxEvents
+              editable
               slotMinTime="00:00:00"
               slotMaxTime="24:00:00"
               events={fullCalendarEvents}
               datesSet={handleDatesSet}
               eventClick={handleEventClick}
               eventContent={renderEventContent}
+              eventDrop={handleEventDrop}
+              eventResize={handleEventResize}
             />
           </div>
 
