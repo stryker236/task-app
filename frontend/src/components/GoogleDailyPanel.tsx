@@ -60,35 +60,6 @@ export default function GoogleDailyPanel({
           )}
         </div>
       </header>
-
-      {status.connected && (
-        <>
-          <div className="google-daily-controls">
-            <label>
-              Dia
-              <input type="date" value={date} onChange={(event) => onDateChange(event.target.value)} />
-            </label>
-            <button type="button" className="button secondary small" onClick={() => onLoadEvents(date)} disabled={loading}>
-              {loading ? 'A carregar...' : 'Ver eventos'}
-            </button>
-            <span>{busyCount} eventos no calendario</span>
-          </div>
-
-          {events.length ? (
-            <ol className="google-event-list">
-              {events.map((event) => (
-                <li key={event.id}>
-                  <time>{formatEventTime(event.start)} - {formatEventTime(event.end)}</time>
-                  <strong>{event.summary}</strong>
-                  {event.location && <span>{event.location}</span>}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="google-empty">Sem eventos carregados para este dia.</p>
-          )}
-        </>
-      )}
     </section>
   );
 }

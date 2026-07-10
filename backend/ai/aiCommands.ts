@@ -144,6 +144,15 @@ function calendarEventDurationMinutes(event, fallbackMinutes = 30) {
   return fallbackMinutes;
 }
 
+function calendarEventTaskPatch(event) {
+  const startTime = Date.parse(event?.start || '');
+  if (Number.isNaN(startTime)) return null;
+  return {
+    dueDateTime: new Date(startTime).toISOString(),
+    estimatedMinutes: calendarEventDurationMinutes(event)
+  };
+}
+
 function alignCalendarEventToTaskDueDate(event, task) {
   const eventWithTaskTitle = task?.title
     ? { ...event, summary: task.title }
@@ -419,10 +428,27 @@ async function applyPreparedAiCommand(client, prepared, allTasks, now, dependenc
 
   if (prepared.type === 'create_calendar_event') {
     const event = await insertGoogleCalendarEvent(prepared, dependencies);
+    let task = null;
+    if (prepared.taskId) {
+      const previous = allTasks.find((item) => item.id === prepared.taskId);
+      const patch = calendarEventTaskPatch(prepared.calendarEvent);
+      if (previous && patch) {
+        const updated = applyTaskStatusTimestamps({ ...previous, ...patch, updatedAt: now }, previous.status, now);
+        await updateTaskRecord(client, updated);
+        await insertActivity(client, updated.id, {
+          id: randomUUID(),
+          type: 'note',
+          message: `AI Advisor: scheduled calendar event for ${patch.dueDateTime} (${patch.estimatedMinutes} min)`,
+          createdAt: now
+        });
+        task = await findTaskById(client, updated.id);
+      }
+    }
     return {
       commandId: prepared.id,
       type: prepared.type,
       alreadyExists: Boolean(event.alreadyExists),
+      task,
       event: {
         id: event.id,
         calendarId: prepared.calendarEvent.calendarId || 'primary',

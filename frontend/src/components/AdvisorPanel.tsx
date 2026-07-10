@@ -1,15 +1,8 @@
 import { useState } from 'react';
 import type { GoogleCalendar, GoogleStatus, Task } from '../../../shared/types';
 import type { AdvisorAdvice, AdvisorFeedbackInput, AdvisorMemoryRule, AdvisorPreview } from '../api';
-
-const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar';
-
-const QUICK_ACTIONS = [
-  { key: 'suggest_tags', label: 'Sugerir tags' },
-  { key: 'suggest_due_dates', label: 'Sugerir due dates' },
-  { key: 'priority_management', label: 'Gestao de prioridades' },
-  { key: 'schedule_calendar_events', label: 'Criar eventos' }
-] as const;
+import AdvisorAdviceGrid, { type AdvisorActionItem } from './advisor/AdvisorAdviceGrid';
+import AdvisorPanelHeader, { advisorCalendarWriteReady } from './advisor/AdvisorPanelHeader';
 
 const COMMAND_LABELS = {
   update_task: 'Atualizar task',
@@ -35,14 +28,6 @@ type ProposalStatus = 'accepted' | 'ignored';
 type ProposalStatuses = Record<string, ProposalStatus>;
 type ProposalFeedbackStatuses = Record<string, 'saved'>;
 type ObjectRecord = Record<string, unknown>;
-
-type AdvisorActionItem = {
-  taskId: string;
-  title: string;
-  urgency: string;
-  reason: string;
-  nextStep: string;
-};
 
 type AdvisorPanelProps = {
   allTasks?: Task[];
@@ -636,7 +621,8 @@ export function AdvisorProposalBuffer({
 }) {
   const commands = proposals?.commands || [];
   if (!proposals) return null;
-  const pendingCount = commands.filter((command) => !proposalStatuses[command.id]).length;
+  const visibleCommands = commands.filter((command) => !proposalStatuses[command.id]);
+  const pendingCount = visibleCommands.length;
   const hasCalendarProposal = commands.some((command) => command.type === 'create_calendar_event');
   const calendarPermissionBlocked = hasCalendarProposal && !calendarWriteReady;
 
@@ -673,18 +659,17 @@ export function AdvisorProposalBuffer({
 
       <AdvisorInteractionFeedback saved={interactionFeedbackSaved} action={action} onSave={onSaveInteractionFeedback} />
 
-      {commands.length ? (
+      {visibleCommands.length ? (
         <div className="advisor-proposal-list">
-          {commands.map((proposal) => {
-            const status = proposalStatuses[proposal.id];
+          {visibleCommands.map((proposal) => {
             const needsCalendarPermission = proposal.type === 'create_calendar_event' && !calendarWriteReady;
-            const disabled = status === 'accepted' || status === 'ignored' || applyingProposalId === proposal.id || applyingAllProposals || needsCalendarPermission;
+            const disabled = applyingProposalId === proposal.id || applyingAllProposals || needsCalendarPermission;
             const affectedTitle = affectedCardTitle(proposal);
             const calendarEvent = (proposal.changes as ObjectRecord | undefined)?.calendarEvent as ObjectRecord | undefined;
             const proposalCalendarId = String(calendarEvent?.calendarId || '');
 
             return (
-              <article className={`advisor-proposal ${status ? `is-${status}` : ''}`} key={proposal.id}>
+              <article className="advisor-proposal" key={proposal.id}>
                 <div className="advisor-proposal-main">
                   <span className="advisor-command-type">{COMMAND_LABELS[proposal.type] || proposal.type}</span>
                   <div className="advisor-affected-card">
@@ -704,7 +689,6 @@ export function AdvisorProposalBuffer({
                           const calendar = googleCalendars.find((item) => item.id === event.target.value);
                           onChangeProposalCalendar(proposal.id, event.target.value, calendar?.summary || event.target.value);
                         }}
-                        disabled={Boolean(status)}
                       >
                         {googleCalendars.map((calendar) => (
                           <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>
@@ -727,10 +711,10 @@ export function AdvisorProposalBuffer({
                     </button>
                   )}
                   <button type="button" className="button primary small" onClick={() => onApplyProposal(proposal.id)} disabled={disabled}>
-                    {needsCalendarPermission ? 'Requer Google' : applyingProposalId === proposal.id ? 'A aplicar...' : status === 'accepted' ? 'Aceite' : 'Aceitar'}
+                    {needsCalendarPermission ? 'Requer Google' : applyingProposalId === proposal.id ? 'A aplicar...' : 'Aceitar'}
                   </button>
                   <button type="button" className="button secondary small" onClick={() => onIgnoreProposal(proposal.id)} disabled={disabled}>
-                    {status === 'ignored' ? 'Ignorada' : 'Ignorar'}
+                    Ignorar
                   </button>
                 </div>
               </article>
@@ -845,62 +829,27 @@ export default function AdvisorPanel({
 }: AdvisorPanelProps) {
   const actions = (advice?.actions || []) as AdvisorActionItem[];
   const blockers = (advice?.blockers || []) as AdvisorActionItem[];
-  const calendarWriteReady = googleStatus.connected && googleStatus.scopes.includes(CALENDAR_WRITE_SCOPE);
+  const calendarWriteReady = advisorCalendarWriteReady(googleStatus);
 
   return (
     <section className="advisor-panel" aria-label="Assistente de trabalho">
-      <header>
-        <div>
-          <span>Assistente</span>
-          <h2>Conselhos e acoes assistidas</h2>
-        </div>
-        <button type="button" className="button secondary small" onClick={onRefresh} disabled={loading}>
-          {loading ? 'A pensar...' : 'Gerar conselho'}
-        </button>
-      </header>
+      <AdvisorPanelHeader
+        loading={loading}
+        googleStatus={googleStatus}
+        googleCalendars={googleCalendars}
+        advisorDefaultCalendarId={advisorDefaultCalendarId}
+        onRefresh={onRefresh}
+        onRequestActions={onRequestActions}
+        onConnectGoogle={onConnectGoogle}
+        onAdvisorDefaultCalendarChange={onAdvisorDefaultCalendarChange}
+      />
 
-      <div className="advisor-request-box">
-        <label>Acoes do assistente</label>
-        {googleCalendars.length > 0 && (
-          <label className="advisor-calendar-select">
-            <span>Calendario default para eventos</span>
-            <select value={advisorDefaultCalendarId} onChange={(event) => onAdvisorDefaultCalendarChange(event.target.value)}>
-              {googleCalendars.map((calendar) => (
-                <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>
-              ))}
-            </select>
-          </label>
-        )}
-        <div className="advisor-request-actions">
-          {QUICK_ACTIONS.map((action) => (
-            <button
-              key={action.key}
-              type="button"
-              className="button secondary small"
-              onClick={() => onRequestActions(action.key)}
-              disabled={loading || (action.key === 'schedule_calendar_events' && !calendarWriteReady)}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-        {!calendarWriteReady && (
-          <div className="advisor-permission-warning">
-            <span>Para criar eventos, liga ou reconecta o Google Calendar com permissao de escrita.</span>
-            <button type="button" className="button secondary small" onClick={onConnectGoogle} disabled={loading}>
-              {googleStatus.connected ? 'Reconectar Google' : 'Ligar Google'}
-            </button>
-          </div>
-        )}
-        <small>Limite backend: 3 pedidos AI por 10 segundos, por cliente/IP.</small>
-      </div>
-
-      <AdvisorMemoryPanel
+      {/* <AdvisorMemoryPanel
         rules={memoryRules}
         loading={memoryLoading}
         onRefresh={onRefreshMemory}
         onForget={onForgetMemory}
-      />
+      /> */}
 
       <AdvisorProposalBuffer
         allTasks={allTasks}
@@ -932,29 +881,7 @@ export default function AdvisorPanel({
       )}
       {advice?.note && <p className="advisor-note">{advice.note}</p>}
 
-      <div className="advisor-grid">
-        <div>
-          <h3>Proximas acoes</h3>
-          {actions.length ? actions.map((item, index) => (
-            <button type="button" className="advisor-action" key={`${item.taskId}-${index}`} onClick={() => onOpenTask(item.taskId)}>
-              <strong>{index + 1}. {item.title}</strong>
-              <span>{item.nextStep}</span>
-              <small>{item.urgency} | {item.reason}</small>
-            </button>
-          )) : <p className="advisor-empty">Sem sugestoes para ja.</p>}
-        </div>
-
-        <div>
-          <h3>Bloqueios</h3>
-          {blockers.length ? blockers.map((item) => (
-            <button type="button" className="advisor-blocker" key={item.taskId} onClick={() => onOpenTask(item.taskId)}>
-              <strong>{item.title}</strong>
-              <span>{item.nextStep}</span>
-              <small>{item.reason}</small>
-            </button>
-          )) : <p className="advisor-empty">Nada bloqueado que precise de atencao.</p>}
-        </div>
-      </div>
+      <AdvisorAdviceGrid actions={actions} blockers={blockers} onOpenTask={onOpenTask} />
     </section>
   );
 }
