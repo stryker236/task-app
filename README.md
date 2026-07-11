@@ -33,7 +33,8 @@ The app organizes work through several views:
 - Probable follow-ups, for overdue, urgent, waiting, and no-deadline cards.
 - Quick Queue, for short-term reminders synchronized through the database.
 - Notes, for shared notes that can be reused across tasks.
-- Calendar, for weekly Google Calendar visibility across multiple calendars.
+- Calendar, for Google Calendar visibility and Advisor-generated schedule previews.
+- Agenda AI, for natural-language scheduler rules that affect calendar planning.
 - Rules, for reviewing and deleting learned advisor rules.
 - Archived, for closed work.
 
@@ -96,15 +97,16 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
+- Scheduler: Python microservice using Google OR-Tools
 - Database: PostgreSQL on Supabase
 - Migrations: Supabase CLI
-- AI Advisor: optional OpenAI API
+- AI Advisor and scheduler rule interpretation: optional OpenAI API
 - Google OAuth for Calendar/Gmail integration
 - No app login/authentication in this version
 
 ## Main features
 
-- Kanban, Queue, Quick Queue, Probable Follow-ups, Notes, Calendar, Rules, and Archived views
+- Kanban, Queue, Quick Queue, Probable Follow-ups, Notes, Calendar, Rules, Agenda AI, and Archived views
 - Independent filters per view
 - Reusable tags, multi-tag filtering, and deactivation/reactivation of unused tags
 - Priorities, due dates, favorites, checklist, and optional estimate
@@ -115,6 +117,9 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 - Archive/restore tasks and bulk archive `done`/`cancelled` tasks
 - Database-backed Quick Queue for short-term reminders shared between clients
 - Google Calendar weekly view with multiple calendars and calendar filters
+- OR-Tools calendar scheduling with draggable preview events
+- Natural-language scheduler rules with persisted derived constraints
+- Break preview blocks and exact-date scheduling constraints
 - Gmail daily task email for today's and overdue active tasks
 - AI Advisor with proposal buffer: accept/ignore individually or in bulk
 - Learned advisor rules from structured feedback, with a dedicated management view
@@ -150,6 +155,15 @@ task-app/
     config.toml
     seed.sql
 
+  python-scheduler-service/
+    app.py
+    scheduler.py
+    scheduler_constraints.py
+    scheduler_breaks.py
+    scheduler_time.py
+    scheduler_types.py
+    requirements.txt
+
   package.json
   docker-compose.yml
 ```
@@ -158,6 +172,7 @@ task-app/
 
 - Node.js 20+
 - npm 10+
+- Python 3.11+
 - Docker Desktop, only if using Docker Compose or local Supabase tooling
 - Supabase project with PostgreSQL connection string
 
@@ -189,6 +204,7 @@ CORS_ORIGIN=http://localhost:5173
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
 FRONTEND_URL=http://localhost:5173
+SCHEDULER_SERVICE_URL=http://127.0.0.1:8000
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:4000/google/oauth/callback
@@ -198,6 +214,8 @@ GOOGLE_TOKEN_ENCRYPTION_KEY=
 `OPENAI_API_KEY` is optional. Without it, `/advisor` still works with local rule-based advice, but AI-generated proposals are unavailable.
 
 `GOOGLE_*` variables are optional. Without them, the app works normally, but Google Calendar/Gmail connection is unavailable.
+
+`SCHEDULER_SERVICE_URL` points the Node backend to the Python OR-Tools scheduler. If unset, the backend uses `http://127.0.0.1:8000`.
 
 Generate `GOOGLE_TOKEN_ENCRYPTION_KEY` with:
 
@@ -246,6 +264,20 @@ npm run db:check
 Terminal 1:
 
 ```bash
+cd python-scheduler-service
+python -m pip install -r requirements.txt
+python app.py
+```
+
+Scheduler:
+
+```text
+http://127.0.0.1:8000
+```
+
+Terminal 2:
+
+```bash
 cd backend
 npm run dev
 ```
@@ -256,7 +288,7 @@ Backend:
 http://localhost:4000
 ```
 
-Terminal 2:
+Terminal 3:
 
 ```bash
 cd frontend
