@@ -9,6 +9,7 @@ import LogsView from './LogsView';
 import QueueView from './QueueView';
 import type { QueueSort } from './QueueView';
 import QuickQueue from './QuickQueue';
+import SchedulerRulesView from './SchedulerRulesView';
 import SharedNotesView from './SharedNotesView';
 import TaskCard from './TaskCard';
 import type { TaskCardActions } from './TaskCard';
@@ -96,6 +97,10 @@ export default function MainView({
         onForget={advisor.forgetAdvisorMemoryRule}
       />
     );
+  }
+
+  if (view === 'schedulerRules') {
+    return <SchedulerRulesView />;
   }
 
   if (view === 'logs') {

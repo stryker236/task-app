@@ -38,6 +38,14 @@ const {
   saveAdvisorFeedback,
   upsertAdvisorMemoryRule,
   deleteAdvisorMemoryRule,
+  fetchSchedulerRules,
+  fetchActiveSchedulerRules,
+  findSchedulerRuleById,
+  createSchedulerRule,
+  updateSchedulerRule,
+  deleteSchedulerRule,
+  fetchCommittedSchedulerReservedBlocks,
+  createSchedulerScheduleBatch,
   createGoogleOAuthState,
   consumeGoogleOAuthState,
   checkConnection
@@ -47,6 +55,7 @@ const { createTagRouter } = require('./routes/tagRoutes');
 const { createSharedNoteRouter } = require('./routes/sharedNoteRoutes');
 const { createTaskRouter } = require('./routes/taskRoutes');
 const { createAdvisorRouter } = require('./routes/advisorRoutes');
+const { createSchedulerRuleRouter } = require('./routes/schedulerRuleRoutes');
 const { createQuickQueueRouter } = require('./routes/quickQueueRoutes');
 const { createGoogleRouter } = require('./routes/googleRoutes');
 const { createLogRouter } = require('./routes/logRoutes');
@@ -120,6 +129,14 @@ const routeDependencies = {
   saveAdvisorFeedback,
   upsertAdvisorMemoryRule,
   deleteAdvisorMemoryRule,
+  fetchSchedulerRules,
+  fetchActiveSchedulerRules,
+  findSchedulerRuleById,
+  createSchedulerRule,
+  updateSchedulerRule,
+  deleteSchedulerRule,
+  fetchCommittedSchedulerReservedBlocks,
+  createSchedulerScheduleBatch,
   createGoogleOAuthState,
   consumeGoogleOAuthState,
   checkConnection,
@@ -131,6 +148,8 @@ app.use(createTagRouter(routeDependencies));
 app.use(createSharedNoteRouter(routeDependencies));
 app.use(createTaskRouter(routeDependencies));
 app.use(createAdvisorRouter(routeDependencies));
+app.use(createSchedulerRuleRouter(routeDependencies));
+app.use('/api', createSchedulerRuleRouter(routeDependencies));
 app.use(createQuickQueueRouter(routeDependencies));
 app.use(createGoogleRouter(routeDependencies));
 app.use(createLogRouter());

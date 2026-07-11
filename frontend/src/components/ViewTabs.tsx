@@ -10,6 +10,7 @@ const TABS = [
   ['sharedNotes', 'Notas'],
   ['calendar', 'Calendario'],
   ['learnedRules', 'Regras'],
+  ['schedulerRules', 'Agenda AI'],
   ['logs', 'Logs'],
   ['archived', 'Arquivadas']
 ] as const satisfies ReadonlyArray<readonly [ViewKey, string]>;

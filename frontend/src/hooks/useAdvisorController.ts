@@ -26,6 +26,7 @@ type AdvisorBatch = {
   commandCount: number;
   commands: AiCommandPreview[];
   rawCommands?: AiCommand[];
+  reservedBlocks?: import('../api').AdvisorReservedBlock[];
   debug?: import('../api').AdvisorPreviewDebug;
 };
 type ProposalStatus = 'accepted' | 'ignored';
@@ -157,7 +158,12 @@ export default function useAdvisorController({
     try {
       setApplyingAllProposals(true);
       clientLog('info', 'advisor.proposals.accepted_all', '', { count: pending.length });
-      await applyAiCommands(pending.map(({ rawCommand }) => rawCommand));
+      const committingFullScheduleBatch = lastAdvisorAction === 'schedule_calendar_events'
+        && pending.length === commands.length
+        && commands.every((command) => command.type === 'create_calendar_event');
+      await applyAiCommands(pending.map(({ rawCommand }) => rawCommand), {
+        reservedBlocks: committingFullScheduleBatch ? proposalBatch?.reservedBlocks || [] : []
+      });
       setProposalStatuses((current) => ({
         ...current,
         ...Object.fromEntries(pending.map(({ command }) => [command.id, 'accepted' as const]))

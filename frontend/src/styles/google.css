@@ -783,6 +783,11 @@
   border-style: dashed;
 }
 
+.calendar-fullcalendar-shell .fc-event.is-advisor-break-preview {
+  border-style: dashed;
+  opacity: .82;
+}
+
 .calendar-fullcalendar-shell .fc-event.is-task-due-date {
   opacity: .94;
 }

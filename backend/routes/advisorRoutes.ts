@@ -284,6 +284,41 @@ function taskDurationMinutes(task: any) {
 	return Number.isFinite(value) && value > 0 ? Math.max(15, Math.min(240, Math.round(value))) : 30;
 }
 
+function taskMatchesConstraintScope(task: any, scope: any = {}) {
+	const keys = scope && typeof scope === 'object' && !Array.isArray(scope) ? Object.keys(scope) : [];
+	if (!keys.length) return true;
+	if (scope.allTasks === true) return true;
+	const taskId = String(task.id || '');
+	if (Array.isArray(scope.taskIds) && scope.taskIds.map(String).includes(taskId)) return true;
+	const tags = Array.isArray(task.tags) ? task.tags.map((tag) => String(tag).toLocaleLowerCase()) : [];
+	if (Array.isArray(scope.tags) && scope.tags.some((tag) => tags.includes(String(tag).toLocaleLowerCase()))) return true;
+	const title = String(task.title || '').toLocaleLowerCase();
+	if (Array.isArray(scope.titleIncludes) && scope.titleIncludes.some((term) => title.includes(String(term).toLocaleLowerCase()))) return true;
+	if (Array.isArray(scope.statuses) && scope.statuses.map(String).includes(String(task.status || ''))) return true;
+	if (Array.isArray(scope.priorities) && scope.priorities.map(Number).includes(Number(task.priority))) return true;
+	return false;
+}
+
+function resolveSchedulerRulesForTasks(rules: any[] = [], tasks: any[] = []) {
+	const taskConstraints: Record<string, any[]> = {};
+	for (const rule of rules) {
+		for (const constraint of rule.constraints || []) {
+			for (const task of tasks) {
+				if (!taskMatchesConstraintScope(task, constraint.scope)) continue;
+				const taskId = String(task.id);
+				taskConstraints[taskId] = [...(taskConstraints[taskId] || []), {
+					id: constraint.id,
+					ruleId: rule.id,
+					type: constraint.type,
+					payload: constraint.payload || {},
+					hard: constraint.hard !== false
+				}];
+			}
+		}
+	}
+	return taskConstraints;
+}
+
 function schedulerConstraintMap(constraints: any[] = []) {
 	return new Map((Array.isArray(constraints) ? constraints : [])
 		.filter((item) => item?.taskId && item.start)
@@ -291,6 +326,23 @@ function schedulerConstraintMap(constraints: any[] = []) {
 			fixedStart: normalizeString(item.start),
 			fixedEnd: normalizeString(item.end)
 		}]));
+}
+
+function sanitizeReservedBlocks(blocks: any[] = []) {
+	return (Array.isArray(blocks) ? blocks : [])
+		.map((block) => ({
+			type: normalizeString(block?.type) || 'break',
+			start: normalizeString(block?.start),
+			end: normalizeString(block?.end),
+			reason: normalizeString(block?.reason),
+			sourceRuleId: normalizeString(block?.sourceRuleId) || null,
+			sourceConstraintId: normalizeString(block?.sourceConstraintId) || null
+		}))
+		.filter((block) => {
+			const start = Date.parse(block.start);
+			const end = Date.parse(block.end);
+			return block.type === 'break' && !Number.isNaN(start) && !Number.isNaN(end) && end > start;
+		});
 }
 
 function scheduleHorizon(tasks: any[], constraints: Map<string, any>, now = new Date()) {
@@ -358,6 +410,10 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 	const eligibleTasks = linkedResults
 		.filter(({ task, linkedEvents }) => isEligibleCalendarTask(task) && !linkedEvents.length)
 		.map(({ task }) => task);
+	const activeSchedulerRules = dependencies.fetchActiveSchedulerRules
+		? await dependencies.fetchActiveSchedulerRules(dependencies.pool)
+		: [];
+	const taskConstraints = resolveSchedulerRulesForTasks(activeSchedulerRules, eligibleTasks);
 	const now = new Date().toISOString();
 	const horizonEnd = scheduleHorizon(eligibleTasks, fixedConstraints, new Date(now));
 	const busy = await fetchAdvisorBusyEvents({
@@ -367,11 +423,19 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 		timeMin: now,
 		timeMax: horizonEnd
 	});
+	const reservedBusy = dependencies.fetchCommittedSchedulerReservedBlocks
+		? (await dependencies.fetchCommittedSchedulerReservedBlocks(dependencies.pool)).map((block) => ({
+			calendarId: 'scheduler-reserved',
+			start: block.start,
+			end: block.end
+		}))
+		: [];
 	const scheduled = await requestSchedule({
 		now,
 		horizonEnd,
 		timeZone: calendarTimeZone,
-		busy,
+		busy: [...busy, ...reservedBusy],
+		taskConstraints,
 		constraints: [...fixedConstraints.entries()].map(([taskId, constraint]) => ({
 			taskId,
 			fixedStart: constraint.fixedStart,
@@ -408,6 +472,7 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 	});
 	return {
 		commands,
+		reservedBlocks: scheduled.reserved || [],
 		debug: {
 			generatedCount: eligibleTasks.length,
 			afterActionFilter: commands.length,
@@ -420,6 +485,11 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			candidateTasksWithDueDate: eligibleTasks.filter((task) => task.dueDateTime).length,
 			candidateTasksWithoutDueDate: eligibleTasks.filter((task) => !task.dueDateTime).length,
 			rejectedCount: scheduled.unscheduled.length,
+			activeSchedulerRuleCount: activeSchedulerRules.length,
+			schedulerHorizonEnd: horizonEnd,
+			schedulerBusyEventCount: busy.length,
+			schedulerReservedBusyCount: reservedBusy.length,
+			reservedBlockCount: (scheduled.reserved || []).length,
 			rejectionReasons: countRejectionReasons(scheduled.unscheduled.map((item) => ({ reason: item.reason }))),
 			rejections: scheduled.unscheduled.map((item) => {
 				const task = tasksById.get(String(item.taskId));
@@ -447,7 +517,10 @@ function createAdvisorRouter({
 	upsertAdvisorMemoryRule,
 	deleteAdvisorMemoryRule,
 	fetchTaskCalendarEvents,
-	insertTaskCalendarEvent
+	insertTaskCalendarEvent,
+	fetchCommittedSchedulerReservedBlocks,
+	createSchedulerScheduleBatch,
+	fetchActiveSchedulerRules
 }) {
 	const router = express.Router();
 
@@ -494,7 +567,14 @@ function createAdvisorRouter({
 			const memory = buildAdvisorMemoryContext(memoryRules);
 
 			if (action === 'schedule_calendar_events')
-				return await ProcessCreateEventsRequest(tasks, calendars, requestedDefaultCalendarId, req.body.schedulerConstraints, pool, fetchGoogleConnection, saveGoogleConnection, fetchTaskCalendarEvents, res);
+				return await ProcessCreateEventsRequest(tasks, calendars, requestedDefaultCalendarId, req.body.schedulerConstraints, {
+					pool,
+					fetchGoogleConnection,
+					saveGoogleConnection,
+					fetchTaskCalendarEvents,
+					fetchCommittedSchedulerReservedBlocks,
+					fetchActiveSchedulerRules
+				}, res);
 
 			const advisor = await generateTaskAdvisorCommands({
 				action,
@@ -661,6 +741,13 @@ function createAdvisorRouter({
 					applied.push(commandResult);
 					tasks = await fetchTasks(client);
 				}
+				const reservedBlocks = sanitizeReservedBlocks(req.body?.reservedBlocks);
+				if (reservedBlocks.length && createSchedulerScheduleBatch) {
+					await createSchedulerScheduleBatch(client, {
+						source: 'advisor',
+						reservedBlocks
+					});
+				}
 				return applied;
 			});
 			res.json({
@@ -681,13 +768,13 @@ function createAdvisorRouter({
 module.exports = { createAdvisorRouter };
 
 export { };
-async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedDefaultCalendarId: any, schedulerConstraints: any, pool: any, fetchGoogleConnection: any, saveGoogleConnection: any, fetchTaskCalendarEvents: any, res: any) {
+async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedDefaultCalendarId: any, schedulerConstraints: any, dependencies: any, res: any) {
 	const scheduled = await scheduleCalendarCommandsWithMicroservice({
 		tasks,
 		calendars,
 		requestedDefaultCalendarId,
 		constraints: schedulerConstraints,
-		dependencies: { pool, fetchGoogleConnection, saveGoogleConnection, fetchTaskCalendarEvents }
+		dependencies
 	});
 	const previews = buildAiCommandsPreview(scheduled.commands, tasks);
 
@@ -702,6 +789,7 @@ async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedD
 		commandCount: labeledPreviews.length,
 		commands: labeledPreviews,
 		rawCommands: scheduled.commands,
+		reservedBlocks: scheduled.reservedBlocks || [],
 		debug: scheduled.debug
 	});
 }

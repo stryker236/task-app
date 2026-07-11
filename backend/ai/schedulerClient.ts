@@ -10,6 +10,7 @@ type SchedulerTask = {
 };
 
 type BusyInterval = {
+  calendarId?: string;
   start: string;
   end: string;
 };
@@ -20,12 +21,21 @@ type SchedulerConstraint = {
   fixedEnd?: string | null;
 };
 
+type TaskConstraint = {
+  id: string;
+  ruleId?: string;
+  type: string;
+  payload: Record<string, unknown>;
+  hard?: boolean;
+};
+
 type SchedulerRequest = {
   now: string;
   horizonEnd: string;
   timeZone?: string | null;
   tasks: SchedulerTask[];
   busy: BusyInterval[];
+  taskConstraints?: Record<string, TaskConstraint[]>;
   constraints?: SchedulerConstraint[];
 };
 
@@ -33,6 +43,16 @@ type ScheduledTask = {
   taskId: string;
   start: string;
   end: string;
+  appliedConstraintIds?: string[];
+};
+
+type ReservedBlock = {
+  type: string;
+  start: string;
+  end: string;
+  reason?: string;
+  sourceRuleId?: string | null;
+  sourceConstraintId?: string | null;
 };
 
 type UnscheduledTask = {
@@ -42,6 +62,7 @@ type UnscheduledTask = {
 
 type SchedulerResponse = {
   scheduled: ScheduledTask[];
+  reserved: ReservedBlock[];
   unscheduled: UnscheduledTask[];
 };
 
@@ -63,6 +84,7 @@ async function requestSchedule(payload: SchedulerRequest): Promise<SchedulerResp
   }
   return {
     scheduled: Array.isArray(data.scheduled) ? data.scheduled : [],
+    reserved: Array.isArray(data.reserved) ? data.reserved : [],
     unscheduled: Array.isArray(data.unscheduled) ? data.unscheduled : []
   };
 }

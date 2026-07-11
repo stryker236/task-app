@@ -8,6 +8,13 @@ export type AdvisorCalendarPreviewEvent = GoogleCalendarEvent & {
   advisorProposalId: string;
 };
 
+export type AdvisorReservedPreviewEvent = GoogleCalendarEvent & {
+  advisorReservedPreview: true;
+  reason?: string;
+  sourceRuleId?: string | null;
+  sourceConstraintId?: string | null;
+};
+
 export type TaskDueDateCalendarEvent = GoogleCalendarEvent & {
   taskDueDate: true;
   taskId: string;
@@ -52,6 +59,28 @@ export function advisorCalendarPreviewEvents(
       };
     })
     .filter((event) => event.start);
+}
+
+export function advisorReservedPreviewEvents(proposals: AdvisorPreview | null): AdvisorReservedPreviewEvent[] {
+  return (proposals?.reservedBlocks || [])
+    .map((block, index) => ({
+      id: `advisor-break-preview-${index}-${block.start}`,
+      advisorReservedPreview: true as const,
+      calendarId: 'scheduler-breaks',
+      calendarSummary: 'Scheduler breaks',
+      calendarColor: '#b7791f',
+      summary: 'Break',
+      description: block.reason || 'Reserved break calculated by scheduler',
+      location: '',
+      status: 'advisor_break_preview',
+      start: block.start || null,
+      end: block.end || null,
+      htmlLink: null,
+      reason: block.reason,
+      sourceRuleId: block.sourceRuleId || null,
+      sourceConstraintId: block.sourceConstraintId || null
+    }))
+    .filter((event) => event.start && event.end);
 }
 
 export function taskDueDateCalendarEvents(tasks: Task[]): TaskDueDateCalendarEvent[] {

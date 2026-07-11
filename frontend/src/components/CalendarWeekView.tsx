@@ -5,12 +5,12 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import { useMemo, useRef, useState } from 'react';
 import type { DatesSetArg, EventClickArg, EventContentArg, EventDropArg, EventInput } from '@fullcalendar/core';
 import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
-import type { AdvisorCalendarPreviewEvent, TaskDueDateCalendarEvent } from '../utils/advisorCalendarPreviews';
+import type { AdvisorCalendarPreviewEvent, AdvisorReservedPreviewEvent, TaskDueDateCalendarEvent } from '../utils/advisorCalendarPreviews';
 
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
 const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar';
 
-type CalendarDisplayEvent = GoogleCalendarEvent | AdvisorCalendarPreviewEvent | TaskDueDateCalendarEvent;
+type CalendarDisplayEvent = GoogleCalendarEvent | AdvisorCalendarPreviewEvent | AdvisorReservedPreviewEvent | TaskDueDateCalendarEvent;
 
 type CalendarViewMode = 'timeGridDay' | 'timeGridWeek' | 'dayGridMonth';
 
@@ -21,6 +21,7 @@ type CalendarWeekViewProps = {
   weekEnd: string;
   events: GoogleCalendarEvent[];
   advisorPreviewEvents: AdvisorCalendarPreviewEvent[];
+  advisorReservedPreviewEvents: AdvisorReservedPreviewEvent[];
   taskDueDateEvents: TaskDueDateCalendarEvent[];
   calendars: GoogleCalendar[];
   selectedCalendarIds: string[];
@@ -97,6 +98,10 @@ function isTaskDueDateEvent(event: CalendarDisplayEvent): event is TaskDueDateCa
   return 'taskDueDate' in event && event.taskDueDate;
 }
 
+function isAdvisorReservedPreviewEvent(event: CalendarDisplayEvent): event is AdvisorReservedPreviewEvent {
+  return 'advisorReservedPreview' in event && event.advisorReservedPreview;
+}
+
 function advisorPreviewTaskId(event: AdvisorCalendarPreviewEvent) {
   return String((event as unknown as { taskId?: string }).taskId || event.advisorProposalId.replace(/^schedule_/, ''));
 }
@@ -122,13 +127,15 @@ function toggleCalendarId(calendarIds: string[], calendarId: string) {
 function eventClassNames(event: CalendarDisplayEvent) {
   return [
     isAdvisorPreviewEvent(event) ? 'is-advisor-preview' : '',
+    isAdvisorReservedPreviewEvent(event) ? 'is-advisor-break-preview' : '',
     isTaskDueDateEvent(event) ? 'is-task-due-date' : ''
   ].filter(Boolean);
 }
 
 function toFullCalendarEvent(event: CalendarDisplayEvent): EventInput {
   const isPreview = isAdvisorPreviewEvent(event);
-  const color = event.calendarColor || (isPreview ? '#6f48eb' : isTaskDueDateEvent(event) ? '#0f8b8d' : '#315efb');
+  const isBreak = isAdvisorReservedPreviewEvent(event);
+  const color = event.calendarColor || (isPreview ? '#6f48eb' : isBreak ? '#b7791f' : isTaskDueDateEvent(event) ? '#0f8b8d' : '#315efb');
   return {
     id: event.id,
     title: eventTitle(event),
@@ -156,6 +163,7 @@ function renderEventContent(arg: EventContentArg) {
       <strong>{eventTitle(event)}</strong>
       <span>{eventTimeRange(event)}</span>
       {isAdvisorPreviewEvent(event) && <em>Preview</em>}
+      {isAdvisorReservedPreviewEvent(event) && <em>Break</em>}
       {isTaskDueDateEvent(event) && <em>Due date</em>}
     </div>
   );
@@ -168,6 +176,7 @@ export default function CalendarWeekView({
   weekEnd,
   events,
   advisorPreviewEvents,
+  advisorReservedPreviewEvents,
   taskDueDateEvents,
   calendars,
   selectedCalendarIds,
@@ -196,6 +205,7 @@ export default function CalendarWeekView({
   const [selectedDate, setSelectedDate] = useState(weekStart);
   const [emailDate, setEmailDate] = useState(() => inputValueFromDate(new Date()));
   const [selectedPreviewEvent, setSelectedPreviewEvent] = useState<AdvisorCalendarPreviewEvent | null>(null);
+  const [selectedBreakEvent, setSelectedBreakEvent] = useState<AdvisorReservedPreviewEvent | null>(null);
 
   const visibleAdvisorPreviewEvents = advisorPreviewEvents.filter((event) => {
     const knownCalendar = calendars.some((calendar) => calendar.id === event.calendarId);
@@ -203,13 +213,13 @@ export default function CalendarWeekView({
   });
 
   const fullCalendarEvents = useMemo(
-    () => [...events, ...visibleAdvisorPreviewEvents, ...taskDueDateEvents].map(toFullCalendarEvent),
-    [events, taskDueDateEvents, visibleAdvisorPreviewEvents]
+    () => [...events, ...visibleAdvisorPreviewEvents, ...advisorReservedPreviewEvents, ...taskDueDateEvents].map(toFullCalendarEvent),
+    [advisorReservedPreviewEvents, events, taskDueDateEvents, visibleAdvisorPreviewEvents]
   );
 
   const canSendEmail = status.scopes.includes(GMAIL_SEND_SCOPE);
   const canCreateCalendarEvents = status.connected && status.scopes.includes(CALENDAR_WRITE_SCOPE);
-  const visibleEventCount = events.length + visibleAdvisorPreviewEvents.length + taskDueDateEvents.length;
+  const visibleEventCount = events.length + visibleAdvisorPreviewEvents.length + advisorReservedPreviewEvents.length + taskDueDateEvents.length;
 
   function calendarApi() {
     return calendarRef.current?.getApi();
@@ -262,6 +272,11 @@ export default function CalendarWeekView({
     if (isAdvisorPreviewEvent(event)) {
       arg.jsEvent.preventDefault();
       setSelectedPreviewEvent(event);
+      return;
+    }
+    if (isAdvisorReservedPreviewEvent(event)) {
+      arg.jsEvent.preventDefault();
+      setSelectedBreakEvent(event);
       return;
     }
     if (event.htmlLink) {
@@ -342,7 +357,7 @@ export default function CalendarWeekView({
           <div className="calendar-advisor-bar">
             <div>
               <strong>AIAdvisor</strong>
-              <span>{visibleAdvisorPreviewEvents.length || taskDueDateEvents.length ? `${taskDueDateEvents.length} due dates · ${visibleAdvisorPreviewEvents.length} previews` : 'Criar eventos a partir das tasks'}</span>
+              <span>{visibleAdvisorPreviewEvents.length || advisorReservedPreviewEvents.length || taskDueDateEvents.length ? `${taskDueDateEvents.length} due dates - ${visibleAdvisorPreviewEvents.length} previews - ${advisorReservedPreviewEvents.length} breaks` : 'Criar eventos a partir das tasks'}</span>
             </div>
             {calendars.length > 0 && (
               <label>
@@ -504,6 +519,26 @@ export default function CalendarWeekView({
                       <dd>{selectedPreviewEvent.description}</dd>
                     </div>
                   )}
+                </dl>
+              </section>
+            </div>
+          )}
+          {selectedBreakEvent && (
+            <div className="dialog-backdrop" role="presentation" onMouseDown={() => setSelectedBreakEvent(null)}>
+              <section className="dialog calendar-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="calendar-break-preview-title" onMouseDown={(event) => event.stopPropagation()}>
+                <header>
+                  <h2 id="calendar-break-preview-title">Break calculado</h2>
+                  <button type="button" className="icon-button" onClick={() => setSelectedBreakEvent(null)} aria-label="Fechar">x</button>
+                </header>
+                <dl>
+                  <div>
+                    <dt>Horario</dt>
+                    <dd>{eventTimeRange(selectedBreakEvent)}</dd>
+                  </div>
+                  <div>
+                    <dt>Motivo</dt>
+                    <dd>{selectedBreakEvent.reason || selectedBreakEvent.description || 'Break calculado pelo scheduler.'}</dd>
+                  </div>
                 </dl>
               </section>
             </div>

@@ -58,7 +58,17 @@ export type AdvisorPreview = {
   commandCount: number;
   commands: AiCommandPreview[];
   rawCommands?: AiCommand[];
+  reservedBlocks?: AdvisorReservedBlock[];
   debug?: AdvisorPreviewDebug;
+};
+
+export type AdvisorReservedBlock = {
+  type: string;
+  start: string;
+  end: string;
+  reason?: string;
+  sourceRuleId?: string | null;
+  sourceConstraintId?: string | null;
 };
 
 export type AdvisorPreviewDebug = {
@@ -70,6 +80,10 @@ export type AdvisorPreviewDebug = {
   afterExistingGoogleFilter: number;
   afterMemoryFilter: number;
   rejectedCount?: number;
+  schedulerHorizonEnd?: string;
+  schedulerBusyEventCount?: number;
+  schedulerReservedBusyCount?: number;
+  reservedBlockCount?: number;
   attempts?: number;
   candidateTaskCount?: number;
   candidateTasksWithDueDate?: number;
@@ -189,6 +203,31 @@ export type SchedulerConstraintInput = {
   end?: string;
 };
 
+export type SchedulerRuleConstraint = {
+  id: string;
+  ruleId: string;
+  type: string;
+  scope: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  hard: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SchedulerRule = {
+  id: string;
+  text: string;
+  interpretation: string;
+  status: 'draft' | 'needs_review' | 'active' | 'disabled' | 'invalid';
+  enabled: boolean;
+  confidence: number | null;
+  model: string | null;
+  constraints: SchedulerRuleConstraint[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export function requestTaskAdvisorCommands(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[] } = {}) {
   return requestJson<AdvisorPreview>('/ai/advisor/request', {
     method: 'POST',
@@ -200,10 +239,17 @@ export function requestTaskAdvisorCommands(action: string, options: { defaultCal
   });
 }
 
-export function applyAiCommands(commands: AiCommand[]) {
+export const getSchedulerRules = () => requestJson<SchedulerRule[]>('/scheduler/rules');
+export const createSchedulerRule = (text: string) => requestJson<SchedulerRule>('/scheduler/rules', { method: 'POST', body: JSON.stringify({ text }) });
+export const createSchedulerRulesFromText = (text: string) => requestJson<{ rules: SchedulerRule[] }>('/scheduler/rules/from-text', { method: 'POST', body: JSON.stringify({ text }) });
+export const updateSchedulerRule = (id: string, patch: Partial<Pick<SchedulerRule, 'enabled' | 'status' | 'text'>>) => requestJson<SchedulerRule>(`/scheduler/rules/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+export const reinterpretSchedulerRule = (id: string) => requestJson<SchedulerRule>(`/scheduler/rules/${id}/reinterpret`, { method: 'POST' });
+export const deleteSchedulerRule = (id: string) => requestJson<void>(`/scheduler/rules/${id}`, { method: 'DELETE' });
+
+export function applyAiCommands(commands: AiCommand[], options: { reservedBlocks?: AdvisorReservedBlock[] } = {}) {
   return requestJson<{ mode: string; appliedCount: number; results: unknown[] }>('/ai/commands/apply', {
     method: 'POST',
-    body: JSON.stringify({ commands })
+    body: JSON.stringify({ commands, reservedBlocks: options.reservedBlocks || [] })
   });
 }
 
