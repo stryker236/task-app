@@ -5,108 +5,166 @@ from typing import Any
 
 from scheduler_constraints import candidate_matches_temporal_payload, daily_limit_key
 from scheduler_time import iso, overlaps, workday_bounds
-from scheduler_types import Candidate, DEFAULT_DURATION_MINUTES, MAX_DURATION_MINUTES, SLOT_MINUTES
+from scheduler_types import (
+    Candidate,
+    DEFAULT_DURATION_MINUTES,
+    MAX_DURATION_MINUTES,
+    SLOT_MINUTES,
+)
 
 
-def break_minutes(payload: dict[str, Any]) -> int:
+def break_minutes(constraint_payload: dict[str, Any]) -> int:
     try:
-        minutes = int(payload.get("breakMinutes") or DEFAULT_DURATION_MINUTES)
+        minutes = int(constraint_payload.get("breakMinutes") or DEFAULT_DURATION_MINUTES)
     except (TypeError, ValueError):
         minutes = DEFAULT_DURATION_MINUTES
     return max(SLOT_MINUTES, min(MAX_DURATION_MINUTES, minutes))
 
 
-def min_break_task_duration(payload: dict[str, Any]) -> int:
+
+def min_break_task_duration(constraint_payload: dict[str, Any]) -> int:
     try:
-        minutes = int(payload.get("minDurationMinutes") or 0)
+        minutes = int(constraint_payload.get("minDurationMinutes") or 0)
     except (TypeError, ValueError):
         minutes = 0
+        
     return max(0, minutes)
 
-def can_place_reserved_break(start: datetime, end: datetime, occupied: list[tuple[datetime, datetime]]) -> bool:
-    day_start, day_end = workday_bounds(start)
-    if start < day_start or end > day_end:
+
+def can_place_reserved_break(
+    break_start: datetime,
+    break_end: datetime,
+    occupied_intervals: list[tuple[datetime, datetime]],
+) -> bool:
+    day_start, day_end = workday_bounds(break_start)
+    if break_start < day_start or break_end > day_end:
         return False
-    return not any(overlaps(start, end, occupied_start, occupied_end) for occupied_start, occupied_end in occupied)
+
+    return not any(
+        overlaps(break_start, break_end, occupied_start, occupied_end)
+        for occupied_start, occupied_end in occupied_intervals
+    )
 
 
 def append_reserved_break(
-    reserved: list[dict[str, Any]],
-    occupied: list[tuple[datetime, datetime]],
-    start: datetime,
-    minutes: int,
-    reason: str,
-    constraint: dict[str, Any],
+    reserved_breaks: list[dict[str, Any]],
+    occupied_intervals: list[tuple[datetime, datetime]],
+    break_start: datetime,
+    duration_minutes: int,
+    break_reason: str,
+    source_constraint: dict[str, Any],
 ) -> bool:
-    end = start + timedelta(minutes=minutes)
-    if not can_place_reserved_break(start, end, occupied):
+    break_end = break_start + timedelta(minutes=duration_minutes)
+    if not can_place_reserved_break(break_start, break_end, occupied_intervals):
         return False
-    occupied.append((start, end))
-    reserved.append({
-        "type": "break",
-        "start": iso(start),
-        "end": iso(end),
-        "reason": reason,
-        "sourceRuleId": str(constraint.get("ruleId") or "") or None,
-        "sourceConstraintId": str(constraint.get("id") or "") or None,
-    })
+    occupied_intervals.append((break_start, break_end))
+    reserved_breaks.append(
+        {
+            "type": "break",
+            "start": iso(break_start),
+            "end": iso(break_end),
+            "reason": break_reason,
+            "sourceRuleId": str(source_constraint.get("ruleId") or "") or None,
+            "sourceConstraintId": str(source_constraint.get("id") or "") or None,
+        }
+    )
     return True
 
 
-def matching_break_constraints(constraints: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+def matching_break_constraints(
+    task_constraints: list[dict[str, Any]], constraint_type: str
+) -> list[dict[str, Any]]:
     return [
         constraint
-        for constraint in constraints
-        if str(constraint.get("type") or "") == kind
+        for constraint in task_constraints
+        if str(constraint.get("type") or "") == constraint_type
     ]
 
 
 def reserve_breaks_after_selected_task(
-    selected: Candidate,
-    rule_constraints: list[dict[str, Any]],
-    busy: list[tuple[datetime, datetime]],
-    reserved: list[dict[str, Any]],
-    work_state: dict[str, Any],
+    selected_candidate: Candidate,
+    task_rule_constraints: list[dict[str, Any]],
+    occupied_intervals: list[tuple[datetime, datetime]],
+    reserved_breaks: list[dict[str, Any]],
+    work_block_state: dict[str, Any],
 ) -> None:
-    duration = int((selected.end - selected.start).total_seconds() // 60)
-    for constraint in matching_break_constraints(rule_constraints, "break_after_task"):
-        payload = constraint.get("payload") if isinstance(constraint.get("payload"), dict) else {}
-        if duration < min_break_task_duration(payload):
+    task_duration_minutes = int(
+        (selected_candidate.end - selected_candidate.start).total_seconds() // 60
+    )
+
+    for break_constraint in matching_break_constraints(
+        task_rule_constraints, "break_after_task"
+    ):
+        constraint_payload = (
+            break_constraint.get("payload")
+            if isinstance(break_constraint.get("payload"), dict)
+            else {}
+        )
+        if task_duration_minutes < min_break_task_duration(constraint_payload):
             continue
         append_reserved_break(
-            reserved,
-            busy,
-            selected.end,
-            break_minutes(payload),
+            reserved_breaks,
+            occupied_intervals,
+            selected_candidate.end,
+            break_minutes(constraint_payload),
             "break_after_task",
-            constraint,
+            break_constraint,
         )
 
-    block_constraints = matching_break_constraints(rule_constraints, "break_after_work_block")
-    if not block_constraints:
-        work_state["minutes"] = 0
-        work_state["last_end"] = None
+    work_block_constraints = matching_break_constraints(
+        task_rule_constraints, "break_after_work_block"
+    )
+    if not work_block_constraints:
+        work_block_state["minutes"] = 0
+        work_block_state["last_end"] = None
         return
 
-    constraint = block_constraints[0]
-    payload = constraint.get("payload") if isinstance(constraint.get("payload"), dict) else {}
-    threshold = int(payload.get("workMinutes") or 0)
-    last_end = work_state.get("last_end")
-    if not last_end or selected.start > last_end:
-        work_state["minutes"] = 0
-    work_state["minutes"] = int(work_state.get("minutes") or 0) + duration
-    work_state["last_end"] = selected.end
-    if threshold > 0 and work_state["minutes"] >= threshold:
-        if append_reserved_break(reserved, busy, selected.end, break_minutes(payload), "break_after_work_block", constraint):
-            work_state["minutes"] = 0
-            work_state["last_end"] = None
+    work_block_constraint = work_block_constraints[0]
+    constraint_payload = (
+        work_block_constraint.get("payload")
+        if isinstance(work_block_constraint.get("payload"), dict)
+        else {}
+    )
+    work_minutes_threshold = int(constraint_payload.get("workMinutes") or 0)
+    previous_task_end = work_block_state.get("last_end")
+    if not previous_task_end or selected_candidate.start > previous_task_end:
+        work_block_state["minutes"] = 0
+    work_block_state["minutes"] = (
+        int(work_block_state.get("minutes") or 0) + task_duration_minutes
+    )
+    work_block_state["last_end"] = selected_candidate.end
+    if (
+        work_minutes_threshold > 0
+        and work_block_state["minutes"] >= work_minutes_threshold
+    ):
+        if append_reserved_break(
+            reserved_breaks,
+            occupied_intervals,
+            selected_candidate.end,
+            break_minutes(constraint_payload),
+            "break_after_work_block",
+            work_block_constraint,
+        ):
+            work_block_state["minutes"] = 0
+            work_block_state["last_end"] = None
 
 
-def update_daily_limits(selected: Candidate, rule_constraints: list[dict[str, Any]], daily_counts: dict[tuple[str, str], int]) -> None:
-    for constraint in rule_constraints:
-        if str(constraint.get("type") or "") != "daily_limit":
+def update_daily_limits(
+    selected_candidate: Candidate,
+    task_rule_constraints: list[dict[str, Any]],
+    daily_counts: dict[tuple[str, str], int],
+) -> None:
+    for daily_limit_constraint in task_rule_constraints:
+        if str(daily_limit_constraint.get("type") or "") != "daily_limit":
             continue
-        payload = constraint.get("payload") if isinstance(constraint.get("payload"), dict) else {}
-        if candidate_matches_temporal_payload(selected, payload):
-            key = (daily_limit_key(constraint), selected.start.date().isoformat())
+        constraint_payload = (
+            daily_limit_constraint.get("payload")
+            if isinstance(daily_limit_constraint.get("payload"), dict)
+            else {}
+        )
+        if candidate_matches_temporal_payload(selected_candidate, constraint_payload):
+            key = (
+                daily_limit_key(daily_limit_constraint),
+                selected_candidate.start.date().isoformat(),
+            )
             daily_counts[key] = daily_counts.get(key, 0) + 1

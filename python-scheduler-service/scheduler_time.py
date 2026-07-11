@@ -40,8 +40,13 @@ def ceil_to_slot(value: datetime) -> datetime:
     return rounded
 
 
-def overlaps(left_start: datetime, left_end: datetime, right_start: datetime, right_end: datetime) -> bool:
-    return left_start < right_end and right_start < left_end
+def overlaps(
+    candidate_start: datetime,
+    candidate_end: datetime,
+    restricted_start: datetime,
+    restricted_end: datetime,
+) -> bool:
+    return candidate_start < restricted_end and restricted_start < candidate_end
 
 
 def workday_bounds(day: datetime) -> tuple[datetime, datetime]:
