@@ -33,7 +33,8 @@ The app organizes work through several views:
 - Probable follow-ups, for overdue, urgent, waiting, and no-deadline cards.
 - Quick Queue, for short-term reminders synchronized through the database.
 - Notes, for shared notes that can be reused across tasks.
-- Calendar, for weekly Google Calendar visibility across multiple calendars.
+- Calendar, for Google Calendar visibility and Advisor-generated schedule previews.
+- Agenda AI, for natural-language scheduler rules that affect calendar planning.
 - Rules, for reviewing and deleting learned advisor rules.
 - Archived, for closed work.
 
@@ -96,15 +97,16 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
+- Scheduler: Python microservice using Google OR-Tools
 - Database: PostgreSQL on Supabase
 - Migrations: Supabase CLI
-- AI Advisor: optional OpenAI API
+- AI Advisor and scheduler rule interpretation: optional OpenAI API
 - Google OAuth for Calendar/Gmail integration
 - No app login/authentication in this version
 
 ## Main features
 
-- Kanban, Queue, Quick Queue, Probable Follow-ups, Notes, Calendar, Rules, and Archived views
+- Kanban, Queue, Quick Queue, Probable Follow-ups, Notes, Calendar, Rules, Agenda AI, and Archived views
 - Independent filters per view
 - Reusable tags, multi-tag filtering, and deactivation/reactivation of unused tags
 - Priorities, due dates, favorites, checklist, and optional estimate
@@ -115,6 +117,9 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 - Archive/restore tasks and bulk archive `done`/`cancelled` tasks
 - Database-backed Quick Queue for short-term reminders shared between clients
 - Google Calendar weekly view with multiple calendars and calendar filters
+- OR-Tools calendar scheduling with draggable preview events
+- Natural-language scheduler rules with persisted derived constraints
+- Break preview blocks and exact-date scheduling constraints
 - Gmail daily task email for today's and overdue active tasks
 - AI Advisor with proposal buffer: accept/ignore individually or in bulk
 - Learned advisor rules from structured feedback, with a dedicated management view
@@ -150,6 +155,15 @@ task-app/
     config.toml
     seed.sql
 
+  python-scheduler-service/
+    app.py
+    scheduler.py
+    scheduler_constraints.py
+    scheduler_breaks.py
+    scheduler_time.py
+    scheduler_types.py
+    requirements.txt
+
   package.json
   docker-compose.yml
 ```
@@ -158,6 +172,7 @@ task-app/
 
 - Node.js 20+
 - npm 10+
+- Python 3.11+
 - Docker Desktop, only if using Docker Compose or local Supabase tooling
 - Supabase project with PostgreSQL connection string
 
@@ -189,6 +204,7 @@ CORS_ORIGIN=http://localhost:5173
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
 FRONTEND_URL=http://localhost:5173
+SCHEDULER_SERVICE_URL=http://127.0.0.1:8000
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:4000/google/oauth/callback
@@ -198,6 +214,8 @@ GOOGLE_TOKEN_ENCRYPTION_KEY=
 `OPENAI_API_KEY` is optional. Without it, `/advisor` still works with local rule-based advice, but AI-generated proposals are unavailable.
 
 `GOOGLE_*` variables are optional. Without them, the app works normally, but Google Calendar/Gmail connection is unavailable.
+
+`SCHEDULER_SERVICE_URL` points the Node backend to the Python OR-Tools scheduler. If unset, the backend uses `http://127.0.0.1:8000`.
 
 Generate `GOOGLE_TOKEN_ENCRYPTION_KEY` with:
 
@@ -246,6 +264,20 @@ npm run db:check
 Terminal 1:
 
 ```bash
+cd python-scheduler-service
+python -m pip install -r requirements.txt
+python app.py
+```
+
+Scheduler:
+
+```text
+http://127.0.0.1:8000
+```
+
+Terminal 2:
+
+```bash
 cd backend
 npm run dev
 ```
@@ -256,7 +288,7 @@ Backend:
 http://localhost:4000
 ```
 
-Terminal 2:
+Terminal 3:
 
 ```bash
 cd frontend
@@ -273,7 +305,7 @@ In development, the frontend uses `/api` and Vite proxies requests to `http://12
 
 ## Docker Compose
 
-The database remains in Supabase. Compose runs frontend, backend, and the local logging stack.
+The database remains in Supabase. Compose runs frontend, backend, scheduler service, and the local logging stack when configured in `docker-compose.yml`.
 
 ```bash
 docker compose up --build
@@ -284,6 +316,7 @@ Services:
 ```text
 Frontend: http://localhost:5173
 Backend:  http://localhost:4000
+Scheduler: http://localhost:8000
 Health:   http://localhost:4000/health
 Grafana:  http://localhost:3001
 Loki:     http://localhost:3100
@@ -417,6 +450,8 @@ The remote migration history has already been aligned with the existing migratio
 20260701120000_expire_google_connections.sql
 20260702100000_extend_google_connections_to_one_day.sql
 20260702110000_add_advisor_memory.sql
+20260710100000_add_scheduler_rules.sql
+20260711100000_add_scheduler_reserved_blocks.sql
 ```
 
 Login/link project:
@@ -533,6 +568,12 @@ Tags are soft-deactivated, not physically deleted. A tag can be deactivated when
 | `DELETE` | `/ai/advisor/memory/:id` | Delete a learned advisor rule |
 | `POST` | `/ai/commands/preview` | Validate/preview AI commands |
 | `POST` | `/ai/commands/apply` | Apply accepted AI commands |
+| `GET` | `/scheduler/rules` | List natural-language scheduler rules and derived constraints |
+| `POST` | `/scheduler/rules/from-text` | Split and interpret one text message into persisted scheduler rules |
+| `POST` | `/scheduler/rules` | Create one scheduler rule from text |
+| `PATCH` | `/scheduler/rules/:id` | Enable, disable, or update a scheduler rule |
+| `POST` | `/scheduler/rules/:id/reinterpret` | Re-run OpenAI interpretation for a scheduler rule |
+| `DELETE` | `/scheduler/rules/:id` | Delete a scheduler rule |
 
 The backend rate-limits AI generation requests to `3` requests per `10` seconds per client/IP.
 
@@ -542,6 +583,7 @@ The Advisor does not accept free-text chat prompts from the UI. The frontend sen
 suggest_tags
 suggest_due_dates
 priority_management
+schedule_calendar_events
 ```
 
 The Advisor does not apply changes by itself. It generates proposals shown in the frontend buffer, where the user accepts or ignores each action.
@@ -551,6 +593,67 @@ For `suggest_tags`, the backend sends about 70% of active tasks to the model, pr
 For `priority_management`, the backend asks only for priority changes. It prioritizes context by overdue duration, then task age, then current priority, and filters out proposals that try to change anything other than `priority`.
 
 For `suggest_due_dates`, the backend asks only for due date changes. It prioritizes tasks without due dates, overdue tasks, higher priorities, and nearest due dates, and filters out proposals that try to change anything other than `dueDateTime`.
+
+For `schedule_calendar_events`, the backend sends eligible tasks to the Python scheduler service. Eligible tasks are active tasks with status `new` or `in_progress` that do not already have linked calendar events. Existing Google Calendar events, committed scheduler reserved blocks, due dates, user-moved preview constraints, and active scheduler rules are respected.
+
+Calendar event proposals are previews. Users can drag preview task events before accepting them; dragged tasks become fixed constraints for the next scheduling run. The calendar exposes `Limpar ajustes` when moved-task constraints exist.
+
+Accepting one calendar proposal creates only that Google Calendar event and updates the linked task due date and estimated time. Accepting the full schedule batch can also persist calculated break blocks in `scheduler_reserved_blocks`.
+
+Scheduler rule constraints currently include:
+
+```text
+blocked_window
+allowed_window
+allowed_date
+preferred_window
+avoid_day
+priority_boost
+daily_limit
+break_after_task
+break_after_work_block
+min_duration
+max_duration
+```
+
+Example exact-date rule constraint:
+
+```json
+{
+  "type": "allowed_date",
+  "scope": { "titleIncludes": ["Prepare invoice"] },
+  "payload": {
+    "date": "2026-07-18",
+    "startTime": "10:00",
+    "endTime": "12:00"
+  },
+  "hard": true
+}
+```
+
+Example break rule constraints:
+
+```json
+{
+  "type": "break_after_task",
+  "scope": { "allTasks": true },
+  "payload": {
+    "breakMinutes": 15,
+    "minDurationMinutes": 60
+  }
+}
+```
+
+```json
+{
+  "type": "break_after_work_block",
+  "scope": { "allTasks": true },
+  "payload": {
+    "workMinutes": 90,
+    "breakMinutes": 15
+  }
+}
+```
 
 ### Shared notes
 
