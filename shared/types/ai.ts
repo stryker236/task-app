@@ -19,6 +19,7 @@ export interface AiCommand {
   label?: string;
   reason?: string;
   taskId?: string | null;
+  periodicTaskId?: string | null;
   relatedTaskId?: string | null;
   relationType?: TaskRelationType | null;
   patch?: Partial<Task> | null;
@@ -32,6 +33,7 @@ export interface AiCommandPreview {
   summary: string;
   reason?: string;
   taskId: string | null;
+  periodicTaskId?: string | null;
   taskTitle: string | null;
   relatedTaskId: string | null;
   relatedTaskTitle: string | null;

@@ -10,6 +10,7 @@ const {
   buildAdvisorAdviceRequest
 } = require('./aiAdvisorPrompts');
 const { logger } = require('../logger');
+const { fetchWithTimeout, numberFromEnv } = require('../utils/fetchWithTimeout');
 
 async function generateTaskAdvisorCommands({ action, tasks, tags = [], memory = [], calendars = [], excludeTaskIds = [], maxCalendarEventCommands = 20 }) {
   if (!process.env.OPENAI_API_KEY) {
@@ -30,14 +31,14 @@ async function generateTaskAdvisorCommands({ action, tasks, tags = [], memory = 
     }
   });
 
-  const response = await fetch(OPENAI_RESPONSES_URL, {
+  const response = await fetchWithTimeout(OPENAI_RESPONSES_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(body)
-  });
+  }, numberFromEnv(process.env.OPENAI_REQUEST_TIMEOUT_MS, 60000));
   const responseBody: any = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(responseBody.error?.message || `OpenAI request failed with ${response.status}`);
 
@@ -95,14 +96,14 @@ async function generateTaskAdvisorAdvice(tasks, limit = 5) {
   const body = buildAdvisorAdviceRequest({ tasks, limit });
 
   try {
-    const response = await fetch(OPENAI_RESPONSES_URL, {
+    const response = await fetchWithTimeout(OPENAI_RESPONSES_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(body)
-    });
+    }, numberFromEnv(process.env.OPENAI_REQUEST_TIMEOUT_MS, 60000));
     const responseBody: any = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(responseBody.error?.message || `OpenAI request failed with ${response.status}`);
     const outputText = extractOpenAiResponseText(responseBody);

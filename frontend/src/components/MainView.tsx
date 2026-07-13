@@ -6,6 +6,7 @@ import CalendarView from './CalendarView';
 import KanbanView from './KanbanView';
 import LearnedRulesView from './LearnedRulesView';
 import LogsView from './LogsView';
+import PeriodicTasksView from './PeriodicTasksView';
 import QueueView from './QueueView';
 import type { QueueSort } from './QueueView';
 import QuickQueue from './QuickQueue';
@@ -28,10 +29,11 @@ type MainViewProps = {
   collectionSections: CollectionSection[];
   quickQueueItems: QuickQueueItem[];
   quickQueueLoading: boolean;
-  onQuickQueueAdd: (text: string) => void;
+  onQuickQueueAdd: (text: string, placement: 'top' | 'bottom') => void;
   onQuickQueueToggle: (id: string, done: boolean) => void;
   onQuickQueueDelete: (id: string) => void;
   onQuickQueueMove: (id: string, direction: 1 | -1) => void;
+  onQuickQueueReorder: (ids: string[]) => void;
   onQuickQueueClearDone: () => void;
   onQuickQueueCreateTask: (item: QuickQueueItem) => void;
   onOpenTask: (task: Task) => void;
@@ -56,6 +58,7 @@ export default function MainView({
   onQuickQueueToggle,
   onQuickQueueDelete,
   onQuickQueueMove,
+  onQuickQueueReorder,
   onQuickQueueClearDone,
   onQuickQueueCreateTask,
   onOpenTask,
@@ -74,6 +77,7 @@ export default function MainView({
         onToggle={onQuickQueueToggle}
         onDelete={onQuickQueueDelete}
         onMove={onQuickQueueMove}
+        onReorder={onQuickQueueReorder}
         onClearDone={onQuickQueueClearDone}
         onCreateTask={onQuickQueueCreateTask}
       />
@@ -86,6 +90,10 @@ export default function MainView({
 
   if (view === 'calendar') {
     return <CalendarView allTasks={allTasks} />;
+  }
+
+  if (view === 'periodicTasks') {
+    return <PeriodicTasksView onError={onError} />;
   }
 
   if (view === 'learnedRules') {

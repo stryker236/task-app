@@ -53,6 +53,7 @@ function normalizeAiCommand(command, index) {
 
   if (type === 'create_calendar_event') {
     normalized.taskId = normalizeString(command.taskId);
+    normalized.periodicTaskId = normalizeString(command.periodicTaskId);
     normalized.event = command.event && typeof command.event === 'object' && !Array.isArray(command.event) ? command.event : null;
     if (!normalized.event) {
       errors.push(`commands[${index}].event must be an object`);
@@ -428,6 +429,18 @@ async function applyPreparedAiCommand(client, prepared, allTasks, now, dependenc
 
   if (prepared.type === 'create_calendar_event') {
     const event = await insertGoogleCalendarEvent(prepared, dependencies);
+    let occurrence = null;
+    if (prepared.periodicTaskId && dependencies.createPeriodicTaskOccurrence) {
+      occurrence = await dependencies.createPeriodicTaskOccurrence(client, {
+        periodicTaskId: prepared.periodicTaskId,
+        scheduledStart: event.start?.dateTime || event.start?.date || prepared.calendarEvent.start,
+        scheduledEnd: event.end?.dateTime || event.end?.date || prepared.calendarEvent.end,
+        calendarId: prepared.calendarEvent.calendarId || 'primary',
+        googleEventId: event.id || null,
+        htmlLink: event.htmlLink || null,
+        status: 'scheduled'
+      });
+    }
     let task = null;
     if (prepared.taskId) {
       const previous = allTasks.find((item) => item.id === prepared.taskId);
@@ -449,6 +462,7 @@ async function applyPreparedAiCommand(client, prepared, allTasks, now, dependenc
       type: prepared.type,
       alreadyExists: Boolean(event.alreadyExists),
       task,
+      occurrence,
       event: {
         id: event.id,
         calendarId: prepared.calendarEvent.calendarId || 'primary',
@@ -477,6 +491,7 @@ function buildAiCommandsPreview(commands, initialTasks) {
       summary: item.summary,
       reason: item.reason,
       taskId: item.taskId || item.createdTask?.id || null,
+      periodicTaskId: item.periodicTaskId || null,
       taskTitle: item.before?.title || item.createdTask?.title || item.sourceTaskTitle || item.calendarEvent?.summary || null,
       relatedTaskId: item.relatedTaskId || null,
       relatedTaskTitle: item.relatedTaskTitle || relatedTask?.title || null,

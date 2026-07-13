@@ -1,19 +1,42 @@
 const { OPENAI_RESPONSES_URL, DEFAULT_MODEL } = require('../constants/aiConstants');
 const { extractOpenAiResponseText } = require('./aiResponseHelpers');
+const { fetchWithTimeout, numberFromEnv } = require('../utils/fetchWithTimeout');
 
-const CONSTRAINT_TYPES = new Set([
-  'blocked_window',
-  'allowed_window',
-  'preferred_window',
-  'avoid_day',
-  'min_duration',
-  'max_duration',
-  'priority_boost',
-  'daily_limit',
-  'break_after_task',
-  'break_after_work_block',
-  'allowed_date'
-]);
+type SchedulerConstraintType = {
+  type: string;
+  label?: string;
+  description?: string;
+  category?: string;
+  scopeSchema?: Record<string, any>;
+  payloadSchema?: Record<string, any>;
+  examples?: unknown[];
+  supportsHard?: boolean;
+  defaultHard?: boolean;
+  enabled?: boolean;
+};
+
+const FALLBACK_CONSTRAINT_TYPES: SchedulerConstraintType[] = [
+  { type: 'blocked_window', description: 'Prevents matching tasks from being scheduled inside a time window.', payloadSchema: { required: ['startTime', 'endTime'] }, defaultHard: true },
+  { type: 'allowed_window', description: 'Restricts matching tasks to a time window.', payloadSchema: { required: ['startTime', 'endTime'] }, defaultHard: true },
+  { type: 'preferred_window', description: 'Prioritizes matching tasks inside a time window when possible.', payloadSchema: { required: ['startTime', 'endTime'] }, defaultHard: false },
+  { type: 'avoid_day', description: 'Avoids scheduling matching tasks on specific weekdays.', payloadSchema: { required: ['days'] }, defaultHard: true },
+  { type: 'min_duration', description: 'Applies only to matching tasks at or above a minimum duration.', payloadSchema: { required: ['minutes'] }, defaultHard: true },
+  { type: 'max_duration', description: 'Applies only to matching tasks at or below a maximum duration.', payloadSchema: { required: ['minutes'] }, defaultHard: true },
+  { type: 'priority_boost', description: 'Moves matching tasks earlier when possible.', payloadSchema: { required: [] }, defaultHard: false },
+  { type: 'daily_limit', description: 'Limits how many matching tasks can be scheduled in a matching day/window.', payloadSchema: { required: ['max'] }, defaultHard: true },
+  { type: 'break_after_task', description: 'Reserves a calculated break after each matching scheduled task.', payloadSchema: { required: ['breakMinutes'] }, defaultHard: false },
+  { type: 'break_after_work_block', description: 'Reserves a calculated break after a continuous block of scheduled work.', payloadSchema: { required: ['workMinutes', 'breakMinutes'] }, defaultHard: true },
+  { type: 'allowed_date', description: 'Restricts matching tasks to one exact calendar date, optionally inside a time range.', payloadSchema: { required: ['date'] }, defaultHard: true }
+];
+
+function constraintCatalog(constraintTypes: SchedulerConstraintType[] = []) {
+  const enabled = constraintTypes.filter((item) => item && item.type && item.enabled !== false);
+  return enabled.length ? enabled : FALLBACK_CONSTRAINT_TYPES;
+}
+
+function constraintTypeMap(constraintTypes: SchedulerConstraintType[] = []) {
+  return new Map(constraintCatalog(constraintTypes).map((item) => [item.type, item]));
+}
 
 function compactTaskForRule(task: Record<string, any>) {
   return {
@@ -27,17 +50,18 @@ function compactTaskForRule(task: Record<string, any>) {
   };
 }
 
-function normalizeConstraint(item: Record<string, any>) {
+function normalizeConstraint(item: Record<string, any>, constraintTypes: SchedulerConstraintType[] = []) {
   const type = String(item.type || '');
-  if (!CONSTRAINT_TYPES.has(type)) return null;
+  const typeDefinition = constraintTypeMap(constraintTypes).get(type);
+  if (!typeDefinition) return null;
   const scope = normalizeScope(item.scope);
   const payload = normalizePayload(type, item.payload);
-  if (!isSupportedConstraintPayload(type, payload)) return null;
+  if (!isSupportedConstraintPayload(type, payload, typeDefinition)) return null;
   return {
     type,
     scope,
     payload,
-    hard: item.hard !== false,
+    hard: typeDefinition.supportsHard === false ? Boolean(typeDefinition.defaultHard) : (typeof item.hard === 'boolean' ? item.hard : typeDefinition.defaultHard !== false),
     enabled: item.enabled !== false
   };
 }
@@ -83,7 +107,13 @@ function hasPositiveMax(payload: Record<string, any>) {
   return Number.isFinite(max) && max > 0;
 }
 
-function isSupportedConstraintPayload(type: string, payload: Record<string, any>) {
+function hasRequiredPayloadFields(payload: Record<string, any>, typeDefinition?: SchedulerConstraintType) {
+  const required = typeDefinition?.payloadSchema?.required;
+  return !Array.isArray(required) || required.every((field) => payload[field] != null && payload[field] !== '');
+}
+
+function isSupportedConstraintPayload(type: string, payload: Record<string, any>, typeDefinition?: SchedulerConstraintType) {
+  if (!hasRequiredPayloadFields(payload, typeDefinition)) return false;
   if (['blocked_window', 'allowed_window', 'preferred_window'].includes(type)) return hasTimeWindow(payload);
   if (['min_duration', 'max_duration'].includes(type)) return hasPositiveMinutes(payload);
   if (type === 'daily_limit') return hasPositiveMax(payload);
@@ -95,9 +125,9 @@ function isSupportedConstraintPayload(type: string, payload: Record<string, any>
   return false;
 }
 
-function normalizeInterpretation(parsed: Record<string, any>) {
+function normalizeInterpretation(parsed: Record<string, any>, constraintTypes: SchedulerConstraintType[] = []) {
   const constraints = Array.isArray(parsed.constraints)
-    ? parsed.constraints.map(normalizeConstraint).filter(Boolean)
+    ? parsed.constraints.map((item) => normalizeConstraint(item, constraintTypes)).filter(Boolean)
     : [];
   const ambiguous = parsed.ambiguous === true || constraints.length === 0;
   const confidence = Number(parsed.confidence);
@@ -111,7 +141,21 @@ function normalizeInterpretation(parsed: Record<string, any>) {
   };
 }
 
-function buildSchedulerRulePrompt({ text, tasks = [] }: { text: string; tasks?: Record<string, any>[] }) {
+function promptConstraintTypes(constraintTypes: SchedulerConstraintType[] = []) {
+  return constraintCatalog(constraintTypes).map((item) => ({
+    type: item.type,
+    label: item.label || item.type,
+    description: item.description || '',
+    category: item.category || '',
+    scopeSchema: item.scopeSchema || {},
+    payloadSchema: item.payloadSchema || {},
+    examples: Array.isArray(item.examples) ? item.examples : [],
+    supportsHard: item.supportsHard !== false,
+    defaultHard: item.defaultHard !== false
+  }));
+}
+
+function buildSchedulerRulePrompt({ text, tasks = [], constraintTypes = [] }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[] }) {
   return {
     model: DEFAULT_MODEL,
     input: [
@@ -120,7 +164,7 @@ function buildSchedulerRulePrompt({ text, tasks = [] }: { text: string; tasks?: 
         content: [
           'Translate scheduling preference text into strict JSON for a deterministic calendar scheduler.',
           'Return only JSON with: interpretation, ambiguous, confidence, constraints.',
-          'Constraint types: blocked_window, allowed_window, preferred_window, avoid_day, min_duration, max_duration, priority_boost, daily_limit, break_after_task, break_after_work_block, allowed_date.',
+          'Use only the constraint types from schedulerConstraintTypes.',
           'Each constraint must include type, scope, payload, hard, enabled.',
           'Scope may include allTasks, taskIds, tags, titleIncludes, statuses, priorities.',
           'Priority mapping: important/high priority/urgent should use scope.priorities [3,4]; critical/very urgent should use [4]; low priority should use [1].',
@@ -140,6 +184,7 @@ function buildSchedulerRulePrompt({ text, tasks = [] }: { text: string; tasks?: 
         role: 'user',
         content: JSON.stringify({
           ruleText: text,
+          schedulerConstraintTypes: promptConstraintTypes(constraintTypes),
           availableTaskMetadata: tasks.slice(0, 120).map(compactTaskForRule)
         })
       }
@@ -148,7 +193,7 @@ function buildSchedulerRulePrompt({ text, tasks = [] }: { text: string; tasks?: 
   };
 }
 
-function buildSchedulerRuleBreakdownPrompt({ text, tasks = [] }: { text: string; tasks?: Record<string, any>[] }) {
+function buildSchedulerRuleBreakdownPrompt({ text, tasks = [], constraintTypes = [] }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[] }) {
   return {
     model: DEFAULT_MODEL,
     input: [
@@ -160,7 +205,7 @@ function buildSchedulerRuleBreakdownPrompt({ text, tasks = [] }: { text: string;
           'rules must be an array. Each item must include: text, interpretation, ambiguous, confidence, constraints.',
           'Split long input when it contains separate preferences, limits, days, tag groups, or time windows.',
           'Do not split a sentence when the parts are required to understand the same constraint.',
-          'Constraint types: blocked_window, allowed_window, preferred_window, avoid_day, min_duration, max_duration, priority_boost, daily_limit, break_after_task, break_after_work_block, allowed_date.',
+          'Use only the constraint types from schedulerConstraintTypes.',
           'Each constraint must include type, scope, payload, hard, enabled.',
           'Scope may include allTasks, taskIds, tags, titleIncludes, statuses, priorities.',
           'Priority mapping: important/high priority/urgent should use scope.priorities [3,4]; critical/very urgent should use [4]; low priority should use [1].',
@@ -180,6 +225,7 @@ function buildSchedulerRuleBreakdownPrompt({ text, tasks = [] }: { text: string;
         role: 'user',
         content: JSON.stringify({
           ruleText: text,
+          schedulerConstraintTypes: promptConstraintTypes(constraintTypes),
           availableTaskMetadata: tasks.slice(0, 120).map(compactTaskForRule)
         })
       }
@@ -195,30 +241,30 @@ async function requestOpenAiJson(body: Record<string, any>) {
     throw error;
   }
 
-  const response = await fetch(OPENAI_RESPONSES_URL, {
+  const response = await fetchWithTimeout(OPENAI_RESPONSES_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(body)
-  });
+  }, numberFromEnv(process.env.OPENAI_REQUEST_TIMEOUT_MS, 60000));
   const responseBody: any = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(responseBody.error?.message || `OpenAI request failed with ${response.status}`);
   const outputText = extractOpenAiResponseText(responseBody);
   return JSON.parse(outputText);
 }
 
-async function interpretSchedulerRule({ text, tasks = [] }: { text: string; tasks?: Record<string, any>[] }) {
-  const parsed = await requestOpenAiJson(buildSchedulerRulePrompt({ text, tasks }));
+async function interpretSchedulerRule({ text, tasks = [], constraintTypes = [] }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[] }) {
+  const parsed = await requestOpenAiJson(buildSchedulerRulePrompt({ text, tasks, constraintTypes }));
   return {
     model: DEFAULT_MODEL,
-    ...normalizeInterpretation(parsed)
+    ...normalizeInterpretation(parsed, constraintTypes)
   };
 }
 
-async function interpretSchedulerRules({ text, tasks = [] }: { text: string; tasks?: Record<string, any>[] }) {
-  const parsed = await requestOpenAiJson(buildSchedulerRuleBreakdownPrompt({ text, tasks }));
+async function interpretSchedulerRules({ text, tasks = [], constraintTypes = [] }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[] }) {
+  const parsed = await requestOpenAiJson(buildSchedulerRuleBreakdownPrompt({ text, tasks, constraintTypes }));
   const items = Array.isArray(parsed.rules) && parsed.rules.length ? parsed.rules : [{ ...parsed, text }];
   return items.map((item: Record<string, any>) => {
     const ruleText = normalizeStringForRule(item.text) || text;
@@ -228,7 +274,7 @@ async function interpretSchedulerRules({ text, tasks = [] }: { text: string; tas
       ...normalizeInterpretation({
         ...item,
         rawSourceText: text
-      })
+      }, constraintTypes)
     };
   });
 }

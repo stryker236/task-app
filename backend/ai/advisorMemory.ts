@@ -49,6 +49,11 @@ function sanitizeString(value: unknown) {
   return String(value ?? '').trim();
 }
 
+function sanitizeNumber(value: unknown, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
 function pickEnum(value: unknown, allowed: string[], fallback: string) {
   return allowed.includes(String(value || '')) ? String(value) : fallback;
 }
@@ -163,6 +168,134 @@ function sanitizeAdvisorFeedback(action: string, value: Record<string, any> = {}
   return sanitizeGeneralAdvisorFeedback(value);
 }
 
+function changedPreviewFields(commandPreview: Record<string, any>) {
+  const changes = commandPreview?.changes && typeof commandPreview.changes === 'object' ? commandPreview.changes : {};
+  const before = changes.before && typeof changes.before === 'object' ? changes.before : {};
+  const after = changes.after && typeof changes.after === 'object' ? changes.after : {};
+  return Object.keys(after).filter((field) => JSON.stringify(before[field] ?? null) !== JSON.stringify(after[field] ?? null));
+}
+
+function sourceTaskFromPreview(commandPreview: Record<string, any>, sourceTask: Record<string, any> = {}) {
+  const changes = commandPreview?.changes && typeof commandPreview.changes === 'object' ? commandPreview.changes : {};
+  const before = changes.before && typeof changes.before === 'object' ? changes.before : {};
+  const after = changes.after && typeof changes.after === 'object' ? changes.after : {};
+  const createdTask = changes.createdTask && typeof changes.createdTask === 'object' ? changes.createdTask : {};
+  return {
+    ...sourceTask,
+    ...before,
+    ...after,
+    ...createdTask
+  };
+}
+
+function buildAdvisorRuleContext({ commandPreview, sourceTask = {} }: Record<string, any>) {
+  const title = advisorPreviewTitle(commandPreview);
+  const task = sourceTaskFromPreview(commandPreview, sourceTask);
+  const dueDate = task.dueDateTime || task.dueDate || task.due_at || '';
+  const dueTime = Date.parse(dueDate || '');
+  const now = Date.now();
+  return {
+    titleKeywords: titleFingerprint(title).split(' ').filter(Boolean),
+    commandTypes: commandPreview?.type ? [String(commandPreview.type)] : [],
+    changedFields: changedPreviewFields(commandPreview),
+    requiredTags: sanitizeStringList(task.tags),
+    statuses: task.status ? [String(task.status)] : [],
+    priorityMin: task.priority == null ? null : Number(task.priority),
+    priorityMax: task.priority == null ? null : Number(task.priority),
+    hasDueDate: Boolean(dueDate),
+    isOverdue: Boolean(dueDate && !Number.isNaN(dueTime) && dueTime < now),
+    isBlocked: Boolean(task.blockedReason || (Array.isArray(task.blockedByTaskIds) && task.blockedByTaskIds.length))
+  };
+}
+
+function cleanRuleContext(context: Record<string, any> = {}) {
+  const cleaned: Record<string, any> = {
+    titleKeywords: sanitizeStringList(context.titleKeywords),
+    commandTypes: sanitizeStringList(context.commandTypes),
+    changedFields: sanitizeStringList(context.changedFields),
+    requiredTags: sanitizeStringList(context.requiredTags),
+    statuses: sanitizeStringList(context.statuses),
+    priorityMin: context.priorityMin == null ? null : sanitizeNumber(context.priorityMin, 0),
+    priorityMax: context.priorityMax == null ? null : sanitizeNumber(context.priorityMax, 0),
+    hasDueDate: typeof context.hasDueDate === 'boolean' ? context.hasDueDate : null,
+    isOverdue: typeof context.isOverdue === 'boolean' ? context.isOverdue : null,
+    isBlocked: typeof context.isBlocked === 'boolean' ? context.isBlocked : null
+  };
+  Object.keys(cleaned).forEach((key) => {
+    if (Array.isArray(cleaned[key]) && !cleaned[key].length) delete cleaned[key];
+    if (cleaned[key] == null) delete cleaned[key];
+  });
+  return cleaned;
+}
+
+function cleanRuleBehavior(behavior: Record<string, any> = {}) {
+  const cleaned: Record<string, any> = {
+    avoidTags: sanitizeStringList(behavior.avoidTags),
+    preferTags: sanitizeStringList(behavior.preferTags),
+    tagVolume: pickEnum(behavior.tagVolume, ['more', 'less', 'ok'], 'ok'),
+    avoidSimilarSuggestions: behavior.avoidSimilarSuggestions === true,
+    reviewReasoning: behavior.reviewReasoning === true,
+    reviewPriority: behavior.reviewPriority === true,
+    reviewDeadline: behavior.reviewDeadline === true,
+    priorityDirection: pickEnum(behavior.priorityDirection, ['too_high', 'too_low', 'ok'], 'ok'),
+    taskAgeImportance: pickEnum(behavior.taskAgeImportance, ['too_much', 'too_little', 'ok'], 'ok'),
+    overdueImportance: pickEnum(behavior.overdueImportance, ['too_much', 'too_little', 'ok'], 'ok'),
+    dueDateDirection: pickEnum(behavior.dueDateDirection, ['too_early', 'too_late', 'ok'], 'ok'),
+    calendarChoice: pickEnum(behavior.calendarChoice, ['wrong', 'ok'], 'ok'),
+    calendarDurationDirection: pickEnum(behavior.calendarDurationDirection, ['too_short', 'too_long', 'ok'], 'ok'),
+    unnecessaryEvent: behavior.unnecessaryEvent === true,
+    wrongCalendar: behavior.wrongCalendar === true,
+    chosenCalendarId: sanitizeString(behavior.chosenCalendarId),
+    chosenCalendarSummary: sanitizeString(behavior.chosenCalendarSummary),
+    preferredCalendarId: sanitizeString(behavior.preferredCalendarId),
+    preferredCalendarSummary: sanitizeString(behavior.preferredCalendarSummary),
+    shouldBeUrgent: behavior.shouldBeUrgent === true,
+    shouldBeLowerPriority: behavior.shouldBeLowerPriority === true,
+    askForMoreContext: behavior.askForMoreContext === true
+  };
+  Object.keys(cleaned).forEach((key) => {
+    if (Array.isArray(cleaned[key]) && !cleaned[key].length) delete cleaned[key];
+    if (cleaned[key] === false || cleaned[key] === '' || cleaned[key] == null) delete cleaned[key];
+    if (cleaned[key] === 'ok') delete cleaned[key];
+  });
+  return cleaned;
+}
+
+function ruleBehavior(rule: Record<string, any> = {}) {
+  return { ...rule, ...(rule.behavior && typeof rule.behavior === 'object' ? rule.behavior : {}) };
+}
+
+function ruleContext(rule: Record<string, any> = {}) {
+  return { ...(rule.context && typeof rule.context === 'object' ? rule.context : {}), titleKeywords: rule.context?.titleKeywords || rule.titleKeywords || [] };
+}
+
+function mergeInterpretedRule({ fallbackRule, interpretedRule, commandPreview, sourceTask = {} }: Record<string, any>) {
+  const fallbackBehavior = cleanRuleBehavior(fallbackRule.rule || {});
+  const interpretedBehavior = cleanRuleBehavior(interpretedRule?.behavior || interpretedRule?.rule || {});
+  const interpretedContext = cleanRuleContext(interpretedRule?.context || {});
+  const fallbackContext = cleanRuleContext(buildAdvisorRuleContext({ commandPreview, sourceTask }));
+  const context = cleanRuleContext({ ...fallbackContext, ...interpretedContext });
+  const behavior = cleanRuleBehavior({ ...fallbackBehavior, ...interpretedBehavior });
+  const confidence = Math.max(0, Math.min(1, sanitizeNumber(interpretedRule?.confidence, 0)));
+  const source = interpretedRule?.source === 'openai_feedback_interpretation'
+    ? 'openai_feedback_interpretation'
+    : 'backend_feedback_fallback';
+  const summary = sanitizeString(interpretedRule?.summary) || memoryRuleSummary({ ...fallbackBehavior, ...behavior });
+  return {
+    ...fallbackRule,
+    rule: {
+      ...fallbackRule.rule,
+      ...behavior,
+      titleKeywords: context.titleKeywords || fallbackRule.rule.titleKeywords || [],
+      summary,
+      source,
+      confidence,
+      context,
+      behavior
+    }
+  };
+}
+
 // Turn feedback on one proposal into a reusable rule for future Advisor requests.
 function inferAdvisorMemoryRule({ action, commandPreview, feedback }: Record<string, any>) {
   const changes = commandPreview?.changes && typeof commandPreview.changes === 'object' ? commandPreview.changes : {};
@@ -258,36 +391,42 @@ function buildAdvisorMemoryContext(rules: any[] = []) {
   return rules
     .filter((item) => item?.rule && Object.keys(item.rule).length)
     .slice(0, 40) // TODO: dinamically limit based on token count instead of row count
+    .map((item) => ({ item, behavior: ruleBehavior(item.rule), context: ruleContext(item.rule) }))
     .map((item) => ({
-      ruleType: item.ruleType,
-      action: item.action,
-      appliesToCommandType: item.rule.appliesToCommandType || '',
-      titleKeywords: item.rule.titleKeywords || item.titleFingerprint?.split(' ') || [],
-      avoidTags: item.rule.avoidTags || [],
-      preferTags: item.rule.preferTags || [],
-      tagVolume: item.rule.tagVolume || 'ok',
-      avoidSimilarSuggestions: item.rule.avoidSimilarSuggestions === true,
-      reviewReasoning: item.rule.reviewReasoning === true,
-      reviewPriority: item.rule.reviewPriority === true,
-      reviewDeadline: item.rule.reviewDeadline === true,
-      priorityDirection: item.rule.priorityDirection || 'ok',
-      taskAgeImportance: item.rule.taskAgeImportance || 'ok',
-      overdueImportance: item.rule.overdueImportance || 'ok',
-      dueDateDirection: item.rule.dueDateDirection || 'ok',
-      calendarChoice: item.rule.calendarChoice || 'ok',
-      calendarDurationDirection: item.rule.calendarDurationDirection || 'ok',
-      unnecessaryEvent: item.rule.unnecessaryEvent === true,
-      wrongCalendar: item.rule.wrongCalendar === true,
-      chosenCalendarId: item.rule.chosenCalendarId || '',
-      chosenCalendarSummary: item.rule.chosenCalendarSummary || '',
-      preferredCalendarId: item.rule.preferredCalendarId || '',
-      preferredCalendarSummary: item.rule.preferredCalendarSummary || '',
-      shouldBeUrgent: item.rule.shouldBeUrgent === true,
-      shouldBeLowerPriority: item.rule.shouldBeLowerPriority === true,
-      askForMoreContext: item.rule.askForMoreContext === true,
-      interactionWasUseful: item.rule.interactionWasUseful === true,
-      interactionWasMixed: item.rule.interactionWasMixed === true,
-      supportCount: item.supportCount || 1
+      ruleType: item.item.ruleType,
+      action: item.item.action,
+      summary: item.item.rule.summary || '',
+      source: item.item.rule.source || 'backend_feedback_fallback',
+      confidence: item.item.rule.confidence ?? null,
+      context: item.context,
+      behavior: item.behavior,
+      appliesToCommandType: item.behavior.appliesToCommandType || item.context.commandTypes?.[0] || '',
+      titleKeywords: item.context.titleKeywords || item.item.titleFingerprint?.split(' ') || [],
+      avoidTags: item.behavior.avoidTags || [],
+      preferTags: item.behavior.preferTags || [],
+      tagVolume: item.behavior.tagVolume || 'ok',
+      avoidSimilarSuggestions: item.behavior.avoidSimilarSuggestions === true,
+      reviewReasoning: item.behavior.reviewReasoning === true,
+      reviewPriority: item.behavior.reviewPriority === true,
+      reviewDeadline: item.behavior.reviewDeadline === true,
+      priorityDirection: item.behavior.priorityDirection || 'ok',
+      taskAgeImportance: item.behavior.taskAgeImportance || 'ok',
+      overdueImportance: item.behavior.overdueImportance || 'ok',
+      dueDateDirection: item.behavior.dueDateDirection || 'ok',
+      calendarChoice: item.behavior.calendarChoice || 'ok',
+      calendarDurationDirection: item.behavior.calendarDurationDirection || 'ok',
+      unnecessaryEvent: item.behavior.unnecessaryEvent === true,
+      wrongCalendar: item.behavior.wrongCalendar === true,
+      chosenCalendarId: item.behavior.chosenCalendarId || '',
+      chosenCalendarSummary: item.behavior.chosenCalendarSummary || '',
+      preferredCalendarId: item.behavior.preferredCalendarId || '',
+      preferredCalendarSummary: item.behavior.preferredCalendarSummary || '',
+      shouldBeUrgent: item.behavior.shouldBeUrgent === true,
+      shouldBeLowerPriority: item.behavior.shouldBeLowerPriority === true,
+      askForMoreContext: item.behavior.askForMoreContext === true,
+      interactionWasUseful: item.behavior.interactionWasUseful === true,
+      interactionWasMixed: item.behavior.interactionWasMixed === true,
+      supportCount: item.item.supportCount || 1
     }));
 }
 
@@ -299,10 +438,54 @@ function normalizedSet(values: unknown[] = []) {
 // TODO: Think in a way to make this more robust.
 function titleMatchesRule(title: string, rule: Record<string, any>) {
   const titleWords = normalizedSet(titleFingerprint(title).split(' '));
-  const ruleWords = normalizedSet(rule.titleKeywords || []);
+  const context = ruleContext(rule);
+  const ruleWords = normalizedSet(context.titleKeywords || []);
   if (!ruleWords.size || !titleWords.size) return false;
   const overlap = [...ruleWords].filter((word) => titleWords.has(word)).length;
   return overlap >= Math.min(2, ruleWords.size);
+}
+
+function previewContext(commandPreview: Record<string, any>) {
+  return buildAdvisorRuleContext({ commandPreview });
+}
+
+function contextMatchesRule(preview: Record<string, any>, rule: Record<string, any>) {
+  const expected = ruleContext(rule);
+  const actual = previewContext(preview);
+  let score = 0;
+  let possible = 0;
+
+  if (expected.commandTypes?.length) {
+    possible += 3;
+    if (expected.commandTypes.includes(preview.type)) score += 3;
+  }
+  if (expected.changedFields?.length) {
+    possible += 3;
+    const actualFields = new Set(actual.changedFields || []);
+    if (expected.changedFields.some((field) => actualFields.has(field))) score += 3;
+  }
+  if (expected.requiredTags?.length) {
+    possible += 2;
+    const actualTags = normalizedSet(actual.requiredTags || []);
+    if (expected.requiredTags.some((tag) => actualTags.has(sanitizeWord(tag)))) score += 2;
+  }
+  if (expected.statuses?.length) {
+    possible += 1;
+    if (expected.statuses.includes(actual.statuses?.[0])) score += 1;
+  }
+  for (const key of ['hasDueDate', 'isOverdue', 'isBlocked']) {
+    if (typeof expected[key] === 'boolean') {
+      possible += 1;
+      if (expected[key] === actual[key]) score += 1;
+    }
+  }
+  if (titleMatchesRule(previewTitle(preview), rule)) {
+    possible += 2;
+    score += 2;
+  }
+
+  if (!possible) return titleMatchesRule(previewTitle(preview), rule);
+  return score >= Math.min(4, Math.ceil(possible * 0.55));
 }
 
 // TODO: Remove this redundant function once all code is migrated to advisorPreviewTitle.
@@ -334,15 +517,17 @@ function previewAddedTags(preview: Record<string, any>) {
 
 // Apply learned "do not show this again" style rules before proposals reach the UI.
 function memoryRuleSummary(rule: Record<string, any>) {
+  const behavior = ruleBehavior(rule);
   const parts = [];
-  if (rule.avoidSimilarSuggestions) parts.push('avoid similar');
-  if (rule.avoidTags?.length) parts.push(`avoid tags: ${rule.avoidTags.join(', ')}`);
-  if (rule.tagVolume && rule.tagVolume !== 'ok') parts.push(`tag volume: ${rule.tagVolume}`);
-  if (rule.unnecessaryEvent) parts.push('unnecessary event');
-  if (rule.wrongCalendar) parts.push('wrong calendar');
-  if (rule.dueDateDirection && rule.dueDateDirection !== 'ok') parts.push(`date/time: ${rule.dueDateDirection}`);
-  if (rule.calendarDurationDirection && rule.calendarDurationDirection !== 'ok') parts.push(`duration: ${rule.calendarDurationDirection}`);
-  if (rule.askForMoreContext) parts.push('ask for more context');
+  if (rule.summary) parts.push(rule.summary);
+  if (behavior.avoidSimilarSuggestions) parts.push('avoid similar');
+  if (behavior.avoidTags?.length) parts.push(`avoid tags: ${behavior.avoidTags.join(', ')}`);
+  if (behavior.tagVolume && behavior.tagVolume !== 'ok') parts.push(`tag volume: ${behavior.tagVolume}`);
+  if (behavior.unnecessaryEvent) parts.push('unnecessary event');
+  if (behavior.wrongCalendar) parts.push('wrong calendar');
+  if (behavior.dueDateDirection && behavior.dueDateDirection !== 'ok') parts.push(`date/time: ${behavior.dueDateDirection}`);
+  if (behavior.calendarDurationDirection && behavior.calendarDurationDirection !== 'ok') parts.push(`duration: ${behavior.calendarDurationDirection}`);
+  if (behavior.askForMoreContext) parts.push('ask for more context');
   return parts.join('; ') || 'matched memory rule';
 }
 
@@ -353,34 +538,38 @@ function matchingMemorySuppressions(preview: Record<string, any>, memory: any[] 
 
   return memory.flatMap((rule) => {
     if (rule.action && rule.action !== action) return [];
-    if (!titleMatchesRule(title, rule)) return [];
+    if (!contextMatchesRule(preview, rule)) return [];
+    const behavior = ruleBehavior(rule);
+    const context = ruleContext(rule);
     const matchedReasons = [];
-    if (rule.avoidSimilarSuggestions && rule.appliesToCommandType === preview.type) matchedReasons.push('avoidSimilarSuggestions');
+    const commandTypes = context.commandTypes || [];
+    if (behavior.avoidSimilarSuggestions && (behavior.appliesToCommandType === preview.type || !commandTypes.length || commandTypes.includes(preview.type))) matchedReasons.push('avoidSimilarSuggestions');
 
     if (rule.ruleType === 'tag_suggestion' && preview.type === 'update_task') {
-      const avoidTags = normalizedSet(rule.avoidTags || []);
+      const avoidTags = normalizedSet(behavior.avoidTags || []);
       if ([...avoidTags].some((tag) => addedTagKeys.has(tag))) matchedReasons.push('avoidTags');
-      if (rule.tagVolume === 'less' && addedTags.length > 1) matchedReasons.push('tagVolumeLess');
+      if (behavior.tagVolume === 'less' && addedTags.length > 1) matchedReasons.push('tagVolumeLess');
     }
 
     if (!matchedReasons.length) return [];
     return [{
       ruleType: rule.ruleType,
       action: rule.action,
-      appliesToCommandType: rule.appliesToCommandType || '',
-      titleKeywords: rule.titleKeywords || [],
+      appliesToCommandType: behavior.appliesToCommandType || context.commandTypes?.[0] || '',
+      titleKeywords: context.titleKeywords || [],
+      context,
       supportCount: rule.supportCount || 1,
       matchedReasons,
       summary: memoryRuleSummary(rule),
       rule: {
-        avoidSimilarSuggestions: rule.avoidSimilarSuggestions,
-        avoidTags: rule.avoidTags || [],
-        tagVolume: rule.tagVolume,
-        unnecessaryEvent: rule.unnecessaryEvent,
-        wrongCalendar: rule.wrongCalendar,
-        dueDateDirection: rule.dueDateDirection,
-        calendarDurationDirection: rule.calendarDurationDirection,
-        askForMoreContext: rule.askForMoreContext
+        avoidSimilarSuggestions: behavior.avoidSimilarSuggestions,
+        avoidTags: behavior.avoidTags || [],
+        tagVolume: behavior.tagVolume,
+        unnecessaryEvent: behavior.unnecessaryEvent,
+        wrongCalendar: behavior.wrongCalendar,
+        dueDateDirection: behavior.dueDateDirection,
+        calendarDurationDirection: behavior.calendarDurationDirection,
+        askForMoreContext: behavior.askForMoreContext
       }
     }];
   });
@@ -409,6 +598,10 @@ module.exports = {
   sanitizeAdvisorFeedback,
   inferAdvisorMemoryRule,
   inferAdvisorInteractionMemoryRule,
+  buildAdvisorRuleContext,
+  cleanRuleBehavior,
+  cleanRuleContext,
+  mergeInterpretedRule,
   buildAdvisorMemoryContext,
   matchingMemorySuppressions,
   filterAdvisorCommandPairsByMemory

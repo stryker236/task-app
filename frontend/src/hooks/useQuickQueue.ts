@@ -6,6 +6,7 @@ import {
   deleteQuickQueueItem as deleteQuickQueueItemRequest,
   getQuickQueueItems,
   moveQuickQueueItem as moveQuickQueueItemRequest,
+  reorderQuickQueueItems as reorderQuickQueueItemsRequest,
   updateQuickQueueItem
 } from '../api';
 
@@ -100,7 +101,7 @@ export default function useQuickQueue({ setError }: UseQuickQueueOptions = {}) {
       for (const storedItem of storedItems) {
         const text = String(storedItem.text || '').trim();
         if (!text) continue;
-        let item = await createQuickQueueItem(text);
+        let item = await createQuickQueueItem(text, 'bottom');
         if (storedItem.done) item = await updateQuickQueueItem(item.id, { done: true });
         imported.push(item);
       }
@@ -122,10 +123,10 @@ export default function useQuickQueue({ setError }: UseQuickQueueOptions = {}) {
     };
   }, []);
 
-  async function addQuickQueueItem(text: string) {
+  async function addQuickQueueItem(text: string, placement: 'top' | 'bottom' = 'bottom') {
     await runQuickQueueAction(async () => {
-      const item = await createQuickQueueItem(text);
-      setQuickQueueItems((current) => [...current, item]);
+      const item = await createQuickQueueItem(text, placement);
+      setQuickQueueItems((current) => placement === 'top' ? [item, ...current] : [...current, item]);
     });
   }
 
@@ -156,6 +157,24 @@ export default function useQuickQueue({ setError }: UseQuickQueueOptions = {}) {
     });
   }
 
+  async function reorderQuickQueueItems(ids: string[]) {
+    await runQuickQueueAction(async () => {
+      const previous = quickQueueItems;
+      const byId = new Map(previous.map((item) => [item.id, item]));
+      const optimistic = ids.map((id, position) => {
+        const item = byId.get(id);
+        return item ? { ...item, position } : null;
+      }).filter(Boolean) as QuickQueueItem[];
+      if (optimistic.length === previous.length) setQuickQueueItems(optimistic);
+      try {
+        setQuickQueueItems(await reorderQuickQueueItemsRequest(ids));
+      } catch (error) {
+        setQuickQueueItems(previous);
+        throw error;
+      }
+    });
+  }
+
   async function clearDoneQuickQueueItems() {
     await runQuickQueueAction(async () => {
       setQuickQueueItems(await clearDoneQuickQueueItemsRequest());
@@ -170,6 +189,7 @@ export default function useQuickQueue({ setError }: UseQuickQueueOptions = {}) {
     toggleQuickQueueItem,
     deleteQuickQueueItem,
     moveQuickQueueItem,
+    reorderQuickQueueItems,
     clearDoneQuickQueueItems
   };
 }

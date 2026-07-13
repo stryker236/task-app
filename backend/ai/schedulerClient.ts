@@ -1,4 +1,5 @@
 const DEFAULT_SCHEDULER_URL = 'http://127.0.0.1:8000';
+const { fetchWithTimeout, numberFromEnv } = require('../utils/fetchWithTimeout');
 
 type SchedulerTask = {
   id: string;
@@ -71,11 +72,11 @@ function schedulerServiceUrl() {
 }
 
 async function requestSchedule(payload: SchedulerRequest): Promise<SchedulerResponse> {
-  const response = await fetch(`${schedulerServiceUrl()}/schedule`, {
+  const response = await fetchWithTimeout(`${schedulerServiceUrl()}/schedule`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
-  });
+  }, numberFromEnv(process.env.SCHEDULER_REQUEST_TIMEOUT_MS, 30000));
   const data: any = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(data.error || `Scheduler service failed with ${response.status}`);

@@ -82,6 +82,7 @@ export default function App() {
     toggleQuickQueueItem,
     deleteQuickQueueItem,
     moveQuickQueueItem,
+    reorderQuickQueueItems,
     clearDoneQuickQueueItems
   } = useQuickQueue({ setError });
 
@@ -182,6 +183,10 @@ export default function App() {
     return <Navigate to={loginReturnTo} replace />;
   }
 
+  if (!isLoginRoute && googleCalendar.googleSessionExpired) {
+    return <Navigate to="/login" replace />;
+  }
+
   if (!isLoginRoute && !googleCalendar.googleLoading && !googleCalendar.googleStatus.connected) {
     return <Navigate to={loginPath(protectedReturnTo)} replace />;
   }
@@ -210,7 +215,7 @@ export default function App() {
 
         <ViewTabs view={view} />
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <GoogleDailyPanel
             status={googleCalendar.googleStatus}
             loading={googleCalendar.googleLoading}
@@ -225,21 +230,21 @@ export default function App() {
           />
         )}
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <AdvisorPanelContainer
             allTasks={allTasks}
           />
         )}
 
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <BulkArchiveActions
             onArchiveDone={() => taskActions.archiveTasksWithStatus('done')}
             onArchiveCancelled={() => taskActions.archiveTasksWithStatus('cancelled')}
           />
         )}
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <Filters
             filters={filters}
             tags={availableTags}
@@ -275,6 +280,7 @@ export default function App() {
           onQuickQueueToggle={toggleQuickQueueItem}
           onQuickQueueDelete={deleteQuickQueueItem}
           onQuickQueueMove={moveQuickQueueItem}
+          onQuickQueueReorder={reorderQuickQueueItems}
           onQuickQueueClearDone={clearDoneQuickQueueItems}
           onQuickQueueCreateTask={taskForm.createTaskFromQuickQueueItem}
           onOpenTask={openTaskDetails}

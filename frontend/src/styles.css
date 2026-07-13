@@ -8,6 +8,7 @@
 @import './styles/task-card.css';
 @import './styles/queue.css';
 @import './styles/quick-queue.css';
+@import './styles/periodic-tasks.css';
 @import './styles/dialogs.css';
 @import './styles/progress-log.css';
 @import './styles/task-details.css';

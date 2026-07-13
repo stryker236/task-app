@@ -65,6 +65,38 @@ type SchedulerReservedBlockInput = {
 	sourceConstraintId?: string | null;
 };
 
+type PeriodicTaskInput = {
+	title: string;
+	notes?: string;
+	tags?: string[];
+	priority?: number;
+	estimatedMinutes?: number;
+	period?: 'week' | 'month';
+	targetCount?: number;
+	hardConstraints?: Record<string, unknown>;
+	preferences?: Record<string, unknown>;
+	active?: boolean;
+};
+
+type PeriodicTaskConstraintInput = {
+	type: string;
+	scope?: Record<string, unknown>;
+	payload?: Record<string, unknown>;
+	hard?: boolean;
+	active?: boolean;
+	expiresAt?: string | null;
+};
+
+type PeriodicTaskOccurrenceInput = {
+	periodicTaskId: string;
+	scheduledStart: string;
+	scheduledEnd: string;
+	calendarId?: string;
+	googleEventId?: string | null;
+	htmlLink?: string | null;
+	status?: string;
+};
+
 if (!process.env.DATABASE_URL) {
 	throw new Error('DATABASE_URL is required. Copy .env.example to .env and add the Supabase PostgreSQL connection string.');
 }
@@ -192,6 +224,73 @@ function mapSchedulerRule(row: DbRow, constraints = []) {
 		createdAt: iso(row.created_at),
 		updatedAt: iso(row.updated_at),
 		constraints
+	};
+}
+
+function mapSchedulerConstraintType(row: DbRow) {
+	return {
+		type: row.type,
+		label: row.label,
+		description: row.description,
+		category: row.category,
+		scopeSchema: row.scope_schema || {},
+		payloadSchema: row.payload_schema || {},
+		examples: Array.isArray(row.examples) ? row.examples : [],
+		supportsHard: Boolean(row.supports_hard),
+		defaultHard: Boolean(row.default_hard),
+		enabled: Boolean(row.enabled),
+		createdAt: iso(row.created_at),
+		updatedAt: iso(row.updated_at)
+	};
+}
+
+function mapPeriodicTaskConstraint(row: DbRow) {
+	return {
+		id: String(row.id),
+		periodicTaskId: String(row.periodic_task_id),
+		type: row.type,
+		scope: row.scope || {},
+		payload: row.payload || {},
+		hard: Boolean(row.hard),
+		active: Boolean(row.active),
+		expiresAt: iso(row.expires_at),
+		createdAt: iso(row.created_at),
+		updatedAt: iso(row.updated_at)
+	};
+}
+
+function mapPeriodicTaskOccurrence(row: DbRow) {
+	return {
+		id: String(row.id),
+		periodicTaskId: String(row.periodic_task_id),
+		scheduledStart: iso(row.scheduled_start),
+		scheduledEnd: iso(row.scheduled_end),
+		calendarId: row.calendar_id,
+		googleEventId: row.google_event_id || null,
+		htmlLink: row.html_link || null,
+		status: row.status,
+		createdAt: iso(row.created_at),
+		updatedAt: iso(row.updated_at)
+	};
+}
+
+function mapPeriodicTask(row: DbRow, constraints = [], occurrences = []) {
+	return {
+		id: String(row.id),
+		title: row.title,
+		notes: row.notes || '',
+		tags: Array.isArray(row.tags) ? row.tags : [],
+		priority: row.priority,
+		estimatedMinutes: row.estimated_minutes,
+		period: row.period,
+		targetCount: row.target_count,
+		hardConstraints: row.hard_constraints || {},
+		preferences: row.preferences || {},
+		active: Boolean(row.active),
+		createdAt: iso(row.created_at),
+		updatedAt: iso(row.updated_at),
+		constraints,
+		occurrences
 	};
 }
 
@@ -763,10 +862,14 @@ async function fetchQuickQueueItems(db: Queryable = pool) {
 	return result.rows.map(mapQuickQueueItem);
 }
 
-async function createQuickQueueItem(db: Queryable, text: string) {
+async function createQuickQueueItem(db: Queryable, text: string, placement = 'bottom') {
+	const insertAtTop = placement === 'top';
+	if (insertAtTop) {
+		await db.query('UPDATE quick_queue_items SET position = position + 1');
+	}
 	const result = await db.query(
 		`INSERT INTO quick_queue_items (text, position)
-     VALUES ($1, COALESCE((SELECT max(position) + 1 FROM quick_queue_items), 0))
+     VALUES ($1, ${insertAtTop ? '0' : 'COALESCE((SELECT max(position) + 1 FROM quick_queue_items), 0)'})
      RETURNING *`,
 		[text]
 	);
@@ -805,6 +908,18 @@ async function moveQuickQueueItem(db: Queryable, id: string, direction: number) 
 	const target = items[targetIndex];
 	await db.query('UPDATE quick_queue_items SET position = $2 WHERE id = $1', [current.id, target.position]);
 	await db.query('UPDATE quick_queue_items SET position = $2 WHERE id = $1', [target.id, current.position]);
+	return fetchQuickQueueItems(db);
+}
+
+async function reorderQuickQueueItems(db: Queryable, ids: string[]) {
+	const uniqueIds = [...new Set(ids.map(String).filter(Boolean))];
+	const items = await fetchQuickQueueItems(db);
+	if (uniqueIds.length !== items.length) return null;
+	const existingIds = new Set(items.map((item) => item.id));
+	if (uniqueIds.some((id) => !existingIds.has(id))) return null;
+	for (const [position, id] of uniqueIds.entries()) {
+		await db.query('UPDATE quick_queue_items SET position = $2 WHERE id = $1', [id, position]);
+	}
 	return fetchQuickQueueItems(db);
 }
 
@@ -949,6 +1064,17 @@ async function fetchActiveSchedulerRules(db: Queryable = pool) {
 		.filter((rule) => rule.enabled && rule.status === 'active' && rule.constraints.length);
 }
 
+async function fetchSchedulerConstraintTypes(db: Queryable = pool, { enabledOnly = false }: { enabledOnly?: boolean } = {}) {
+	const result = await db.query(
+		`SELECT *
+		 FROM scheduler_constraint_types
+		 WHERE ($1::boolean = false OR enabled = true)
+		 ORDER BY category, type`,
+		[Boolean(enabledOnly)]
+	);
+	return result.rows.map(mapSchedulerConstraintType);
+}
+
 async function findSchedulerRuleById(db: Queryable = pool, id: string) {
 	const rules = await fetchSchedulerRules(db);
 	return rules.find((rule) => rule.id === id) || null;
@@ -1037,6 +1163,204 @@ async function fetchCommittedSchedulerReservedBlocks(db: Queryable = pool) {
 	return result.rows.map(mapSchedulerReservedBlock);
 }
 
+async function fetchPeriodicTasks(db: Queryable = pool, { activeOnly = false, includeOccurrences = true }: { activeOnly?: boolean; includeOccurrences?: boolean } = {}) {
+	const taskRows = (await db.query(
+		`SELECT *
+		 FROM periodic_tasks
+		 WHERE ($1::boolean = false OR active = true)
+		 ORDER BY active DESC, title`,
+		[Boolean(activeOnly)]
+	)).rows;
+	if (!taskRows.length) return [];
+	const taskIds = taskRows.map((row) => String(row.id));
+	const constraintRows = (await db.query(
+		`SELECT *
+		 FROM periodic_task_constraints
+		 WHERE periodic_task_id = ANY($1::uuid[])
+		 ORDER BY created_at DESC`,
+		[taskIds]
+	)).rows;
+	const occurrenceRows = includeOccurrences ? (await db.query(
+		`SELECT *
+		 FROM periodic_task_occurrences
+		 WHERE periodic_task_id = ANY($1::uuid[])
+		 ORDER BY scheduled_start DESC
+		 LIMIT 500`,
+		[taskIds]
+	)).rows : [];
+	const constraintsByTask = new Map();
+	const occurrencesByTask = new Map();
+	for (const row of constraintRows) {
+		const id = String(row.periodic_task_id);
+		constraintsByTask.set(id, [...(constraintsByTask.get(id) || []), mapPeriodicTaskConstraint(row)]);
+	}
+	for (const row of occurrenceRows) {
+		const id = String(row.periodic_task_id);
+		occurrencesByTask.set(id, [...(occurrencesByTask.get(id) || []), mapPeriodicTaskOccurrence(row)]);
+	}
+	return taskRows.map((row) => mapPeriodicTask(row, constraintsByTask.get(String(row.id)) || [], occurrencesByTask.get(String(row.id)) || []));
+}
+
+async function findPeriodicTaskById(db: Queryable = pool, id: string) {
+	const tasks = await fetchPeriodicTasks(db);
+	return tasks.find((task) => task.id === id) || null;
+}
+
+async function createPeriodicTask(db: Queryable, input: PeriodicTaskInput) {
+	const result = await db.query(
+		`INSERT INTO periodic_tasks
+		 (title, notes, tags, priority, estimated_minutes, period, target_count, hard_constraints, preferences, active)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10)
+		 RETURNING *`,
+		[
+			input.title,
+			input.notes || '',
+			input.tags || [],
+			input.priority || 2,
+			input.estimatedMinutes || 30,
+			input.period || 'week',
+			input.targetCount || 1,
+			JSON.stringify(input.hardConstraints || {}),
+			JSON.stringify(input.preferences || {}),
+			input.active !== false
+		]
+	);
+	return findPeriodicTaskById(db, String(result.rows[0].id));
+}
+
+async function updatePeriodicTask(db: Queryable, id: string, patch: Partial<PeriodicTaskInput>) {
+	const result = await db.query(
+		`UPDATE periodic_tasks
+		 SET title = COALESCE($2, title),
+		     notes = COALESCE($3, notes),
+		     tags = COALESCE($4, tags),
+		     priority = COALESCE($5, priority),
+		     estimated_minutes = COALESCE($6, estimated_minutes),
+		     period = COALESCE($7, period),
+		     target_count = COALESCE($8, target_count),
+		     hard_constraints = COALESCE($9::jsonb, hard_constraints),
+		     preferences = COALESCE($10::jsonb, preferences),
+		     active = COALESCE($11, active),
+		     updated_at = now()
+		 WHERE id = $1
+		 RETURNING id`,
+		[
+			id,
+			patch.title ?? null,
+			patch.notes ?? null,
+			Array.isArray(patch.tags) ? patch.tags : null,
+			patch.priority ?? null,
+			patch.estimatedMinutes ?? null,
+			patch.period ?? null,
+			patch.targetCount ?? null,
+			patch.hardConstraints ? JSON.stringify(patch.hardConstraints) : null,
+			patch.preferences ? JSON.stringify(patch.preferences) : null,
+			typeof patch.active === 'boolean' ? patch.active : null
+		]
+	);
+	return result.rowCount ? findPeriodicTaskById(db, id) : null;
+}
+
+async function deletePeriodicTask(db: Queryable = pool, id: string) {
+	const result = await db.query('DELETE FROM periodic_tasks WHERE id = $1', [id]);
+	return result.rowCount > 0;
+}
+
+async function createPeriodicTaskConstraint(db: Queryable, periodicTaskId: string, input: PeriodicTaskConstraintInput) {
+	const result = await db.query(
+		`INSERT INTO periodic_task_constraints (periodic_task_id, type, scope, payload, hard, active, expires_at)
+		 SELECT $1, $2, $3::jsonb, $4::jsonb, $5, $6, $7
+		 FROM periodic_tasks
+		 WHERE id = $1
+		 RETURNING *`,
+		[
+			periodicTaskId,
+			input.type,
+			JSON.stringify(input.scope || {}),
+			JSON.stringify(input.payload || {}),
+			input.hard !== false,
+			input.active !== false,
+			input.expiresAt || null
+		]
+	);
+	return result.rows[0] ? mapPeriodicTaskConstraint(result.rows[0]) : null;
+}
+
+async function updatePeriodicTaskConstraint(db: Queryable, id: string, patch: Partial<PeriodicTaskConstraintInput>) {
+	const result = await db.query(
+		`UPDATE periodic_task_constraints
+		 SET type = COALESCE($2, type),
+		     scope = COALESCE($3::jsonb, scope),
+		     payload = COALESCE($4::jsonb, payload),
+		     hard = COALESCE($5, hard),
+		     active = COALESCE($6, active),
+		     expires_at = COALESCE($7, expires_at),
+		     updated_at = now()
+		 WHERE id = $1
+		 RETURNING *`,
+		[
+			id,
+			patch.type ?? null,
+			patch.scope ? JSON.stringify(patch.scope) : null,
+			patch.payload ? JSON.stringify(patch.payload) : null,
+			typeof patch.hard === 'boolean' ? patch.hard : null,
+			typeof patch.active === 'boolean' ? patch.active : null,
+			patch.expiresAt ?? null
+		]
+	);
+	return result.rows[0] ? mapPeriodicTaskConstraint(result.rows[0]) : null;
+}
+
+async function deletePeriodicTaskConstraint(db: Queryable = pool, id: string) {
+	const result = await db.query('DELETE FROM periodic_task_constraints WHERE id = $1', [id]);
+	return result.rowCount > 0;
+}
+
+async function fetchPeriodicTaskOccurrences(db: Queryable = pool, periodicTaskId: string) {
+	const result = await db.query(
+		`SELECT *
+		 FROM periodic_task_occurrences
+		 WHERE periodic_task_id = $1
+		 ORDER BY scheduled_start DESC
+		 LIMIT 200`,
+		[periodicTaskId]
+	);
+	return result.rows.map(mapPeriodicTaskOccurrence);
+}
+
+async function createPeriodicTaskOccurrence(db: Queryable, input: PeriodicTaskOccurrenceInput) {
+	const result = await db.query(
+		`INSERT INTO periodic_task_occurrences
+		 (periodic_task_id, scheduled_start, scheduled_end, calendar_id, google_event_id, html_link, status)
+		 SELECT $1, $2, $3, $4, $5, $6, $7
+		 FROM periodic_tasks
+		 WHERE id = $1
+		 RETURNING *`,
+		[
+			input.periodicTaskId,
+			input.scheduledStart,
+			input.scheduledEnd,
+			input.calendarId || 'primary',
+			input.googleEventId || null,
+			input.htmlLink || null,
+			input.status || 'scheduled'
+		]
+	);
+	return result.rows[0] ? mapPeriodicTaskOccurrence(result.rows[0]) : null;
+}
+
+async function updatePeriodicTaskOccurrence(db: Queryable, id: string, patch: { status?: string }) {
+	const result = await db.query(
+		`UPDATE periodic_task_occurrences
+		 SET status = COALESCE($2, status),
+		     updated_at = now()
+		 WHERE id = $1
+		 RETURNING *`,
+		[id, patch.status ?? null]
+	);
+	return result.rows[0] ? mapPeriodicTaskOccurrence(result.rows[0]) : null;
+}
+
 async function createSchedulerScheduleBatch(db: Queryable, { source = 'advisor', reservedBlocks = [] }: { source?: string; reservedBlocks?: SchedulerReservedBlockInput[] }) {
 	const batch = await db.query(
 		`INSERT INTO scheduler_schedule_batches (status, source, committed_at)
@@ -1112,6 +1436,7 @@ module.exports = {
 	deleteQuickQueueItem,
 	clearDoneQuickQueueItems,
 	moveQuickQueueItem,
+	reorderQuickQueueItems,
 	fetchGoogleConnection,
 	saveGoogleConnection,
 	deleteGoogleConnection,
@@ -1124,12 +1449,24 @@ module.exports = {
 	deleteAdvisorMemoryRule,
 	fetchSchedulerRules,
 	fetchActiveSchedulerRules,
+	fetchSchedulerConstraintTypes,
 	findSchedulerRuleById,
 	createSchedulerRule,
 	updateSchedulerRule,
 	deleteSchedulerRule,
 	fetchCommittedSchedulerReservedBlocks,
 	createSchedulerScheduleBatch,
+	fetchPeriodicTasks,
+	findPeriodicTaskById,
+	createPeriodicTask,
+	updatePeriodicTask,
+	deletePeriodicTask,
+	createPeriodicTaskConstraint,
+	updatePeriodicTaskConstraint,
+	deletePeriodicTaskConstraint,
+	fetchPeriodicTaskOccurrences,
+	createPeriodicTaskOccurrence,
+	updatePeriodicTaskOccurrence,
 	createGoogleOAuthState,
 	consumeGoogleOAuthState,
 	checkConnection

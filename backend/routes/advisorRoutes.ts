@@ -21,9 +21,11 @@ const {
 	filterAdvisorCommandPairsByMemory,
 	inferAdvisorInteractionMemoryRule,
 	inferAdvisorMemoryRule,
+	mergeInterpretedRule,
 	sanitizeAdvisorFeedback,
 	titleFingerprint
 } = require('../ai/advisorMemory');
+const { interpretAdvisorFeedbackRule } = require('../ai/advisorFeedbackInterpreter');
 
 const aiRateLimit = createMemoryRateLimit({
 	windowMs: Number(process.env.AI_RATE_LIMIT_WINDOW_MS || 10000),
@@ -284,6 +286,164 @@ function taskDurationMinutes(task: any) {
 	return Number.isFinite(value) && value > 0 ? Math.max(15, Math.min(240, Math.round(value))) : 30;
 }
 
+function periodBounds(period = 'week', now = new Date()) {
+	const start = new Date(now);
+	start.setHours(0, 0, 0, 0);
+	if (period === 'month') {
+		start.setDate(1);
+		const end = new Date(start);
+		end.setMonth(end.getMonth() + 1);
+		return { start, end };
+	}
+	const day = start.getDay();
+	const mondayOffset = day === 0 ? -6 : 1 - day;
+	start.setDate(start.getDate() + mondayOffset);
+	const end = new Date(start);
+	end.setDate(end.getDate() + 7);
+	return { start, end };
+}
+
+function occurrenceInPeriod(occurrence: any, bounds: { start: Date; end: Date }) {
+	const start = Date.parse(occurrence.scheduledStart || '');
+	return !Number.isNaN(start) && start >= bounds.start.getTime() && start < bounds.end.getTime();
+}
+
+function periodicConstraintActive(constraint: any, now = new Date()) {
+	if (!constraint?.active) return false;
+	if (!constraint.expiresAt) return true;
+	const expires = Date.parse(constraint.expiresAt);
+	return Number.isNaN(expires) || expires >= now.getTime();
+}
+
+function normalizePeriodicWindow(window: any = {}) {
+	return {
+		startTime: normalizeString(window.startTime || window.start),
+		endTime: normalizeString(window.endTime || window.end),
+		...(Array.isArray(window.days) ? { days: window.days } : {})
+	};
+}
+
+function periodicTaskConstraintsForCandidate(task: any, candidateId: string, now = new Date()) {
+	const constraints = [];
+	const hard = task.hardConstraints && typeof task.hardConstraints === 'object' ? task.hardConstraints : {};
+	const allowedDays = Array.isArray(hard.allowedDays) ? hard.allowedDays : [];
+	const allowedWindows = Array.isArray(hard.allowedWindows) ? hard.allowedWindows : [];
+	for (const [index, window] of allowedWindows.entries()) {
+		const payload = normalizePeriodicWindow(window);
+		if (allowedDays.length && !payload.days) payload.days = allowedDays;
+		if (payload.startTime && payload.endTime) {
+			constraints.push({
+				id: `periodic:${task.id}:allowed_window:${index}`,
+				ruleId: `periodic:${task.id}`,
+				type: 'allowed_window',
+				payload,
+				hard: true
+			});
+		}
+	}
+	if (allowedDays.length && !allowedWindows.length) {
+		constraints.push({
+			id: `periodic:${task.id}:allowed_days`,
+			ruleId: `periodic:${task.id}`,
+			type: 'allowed_window',
+			payload: { days: allowedDays, startTime: '00:00', endTime: '23:59' },
+			hard: true
+		});
+	}
+	for (const constraint of task.constraints || []) {
+		if (!periodicConstraintActive(constraint, now)) continue;
+		const payload = constraint.payload || {};
+		const scope = constraint.scope || {};
+		if (constraint.type === 'fixed_occurrence' && payload.start && payload.end) {
+			constraints.push({
+				id: constraint.id,
+				ruleId: `periodic:${task.id}`,
+				type: 'allowed_date',
+				payload: {
+					date: new Date(payload.start).toISOString().slice(0, 10),
+					startTime: new Date(payload.start).toISOString().slice(11, 16),
+					endTime: new Date(payload.end).toISOString().slice(11, 16)
+				},
+				hard: true,
+				fixedStart: payload.start,
+				fixedEnd: payload.end,
+				candidateId
+			});
+		}
+		if (constraint.type === 'allowed_window') {
+			const date = normalizeString(scope.date || payload.date);
+			const normalized = normalizePeriodicWindow(payload);
+			constraints.push({
+				id: constraint.id,
+				ruleId: `periodic:${task.id}`,
+				type: date ? 'allowed_date' : 'allowed_window',
+				payload: { ...normalized, ...(date ? { date } : {}) },
+				hard: constraint.hard !== false
+			});
+		}
+	}
+	return constraints;
+}
+
+function periodicTaskTargetCount(task: any, bounds: { start: Date; end: Date }) {
+	const activeMinimums = (task.constraints || [])
+		.filter((constraint) => constraint.active && constraint.type === 'minimum_count')
+		.filter((constraint) => {
+			const scope = constraint.scope || {};
+			const weekStart = normalizeString(scope.weekStart);
+			const month = normalizeString(scope.month);
+			if (weekStart) return weekStart === bounds.start.toISOString().slice(0, 10);
+			if (month) return month === bounds.start.toISOString().slice(0, 7);
+			return true;
+		})
+		.map((constraint) => Number(constraint.payload?.count || 0))
+		.filter((count) => Number.isFinite(count) && count > 0);
+	return Math.max(Number(task.targetCount || 1), ...activeMinimums);
+}
+
+function buildPeriodicSchedulerCandidates(periodicTasks: any[] = [], now = new Date()) {
+	const candidates = [];
+	const taskConstraints: Record<string, any[]> = {};
+	const fixedConstraints = [];
+	const spacingBusy = [];
+	for (const task of periodicTasks.filter((item) => item.active)) {
+		const bounds = periodBounds(task.period, now);
+		const occurrences = (task.occurrences || []).filter((occurrence) => occurrenceInPeriod(occurrence, bounds));
+		const completedCount = occurrences.filter((occurrence) => ['scheduled', 'completed'].includes(occurrence.status)).length;
+		const remaining = Math.max(0, periodicTaskTargetCount(task, bounds) - completedCount);
+		const minSpacingHours = Number(task.hardConstraints?.minSpacingHours || 0);
+		if (minSpacingHours > 0) {
+			for (const occurrence of occurrences) {
+				const start = Date.parse(occurrence.scheduledStart || '');
+				const end = Date.parse(occurrence.scheduledEnd || '');
+				if (!Number.isNaN(start) && !Number.isNaN(end)) {
+					spacingBusy.push({
+						calendarId: `periodic-spacing:${task.id}`,
+						start: new Date(start - minSpacingHours * 60 * 60 * 1000).toISOString(),
+						end: new Date(end + minSpacingHours * 60 * 60 * 1000).toISOString()
+					});
+				}
+			}
+		}
+		for (let index = 0; index < remaining; index += 1) {
+			const id = `periodic:${task.id}:${index + 1}`;
+			const constraints = periodicTaskConstraintsForCandidate(task, id, now);
+			const fixed = constraints.find((constraint) => constraint.fixedStart);
+			candidates.push({
+				id,
+				periodicTaskId: task.id,
+				title: task.title,
+				notes: task.notes || '',
+				estimatedMinutes: task.estimatedMinutes || 30,
+				dueDateTime: fixed?.fixedStart || null
+			});
+			taskConstraints[id] = constraints.map(({ fixedStart, fixedEnd, candidateId, ...constraint }) => constraint);
+			if (fixed) fixedConstraints.push({ taskId: id, fixedStart: fixed.fixedStart, fixedEnd: fixed.fixedEnd || null });
+		}
+	}
+	return { candidates, taskConstraints, fixedConstraints, spacingBusy };
+}
+
 function taskMatchesConstraintScope(task: any, scope: any = {}) {
 	const keys = scope && typeof scope === 'object' && !Array.isArray(scope) ? Object.keys(scope) : [];
 	if (!keys.length) return true;
@@ -410,12 +570,22 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 	const eligibleTasks = linkedResults
 		.filter(({ task, linkedEvents }) => isEligibleCalendarTask(task) && !linkedEvents.length)
 		.map(({ task }) => task);
+	const periodicTasks = dependencies.fetchPeriodicTasks
+		? await dependencies.fetchPeriodicTasks(dependencies.pool, { activeOnly: true, includeOccurrences: true })
+		: [];
+	const periodicScheduler = buildPeriodicSchedulerCandidates(periodicTasks, new Date());
+	const schedulerCandidates = [...eligibleTasks, ...periodicScheduler.candidates];
 	const activeSchedulerRules = dependencies.fetchActiveSchedulerRules
 		? await dependencies.fetchActiveSchedulerRules(dependencies.pool)
 		: [];
 	const taskConstraints = resolveSchedulerRulesForTasks(activeSchedulerRules, eligibleTasks);
+	for (const [taskId, periodicConstraints] of Object.entries(periodicScheduler.taskConstraints)) {
+		taskConstraints[taskId] = [...(taskConstraints[taskId] || []), ...(periodicConstraints as any[])];
+	}
 	const now = new Date().toISOString();
-	const horizonEnd = scheduleHorizon(eligibleTasks, fixedConstraints, new Date(now));
+	const periodicFixedMap = new Map(periodicScheduler.fixedConstraints.map((item) => [String(item.taskId), item]));
+	const combinedFixedConstraints = new Map([...fixedConstraints.entries(), ...periodicFixedMap.entries()]);
+	const horizonEnd = scheduleHorizon(schedulerCandidates, combinedFixedConstraints, new Date(now));
 	const busy = await fetchAdvisorBusyEvents({
 		...dependencies,
 		calendarId,
@@ -434,30 +604,34 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 		now,
 		horizonEnd,
 		timeZone: calendarTimeZone,
-		busy: [...busy, ...reservedBusy],
+		busy: [...busy, ...reservedBusy, ...periodicScheduler.spacingBusy],
 		taskConstraints,
-		constraints: [...fixedConstraints.entries()].map(([taskId, constraint]) => ({
+		constraints: [...combinedFixedConstraints.entries()].map(([taskId, constraint]) => ({
 			taskId,
 			fixedStart: constraint.fixedStart,
 			fixedEnd: constraint.fixedEnd || null
 		})),
-		tasks: eligibleTasks.map((task) => ({
+		tasks: schedulerCandidates.map((task) => ({
 			id: task.id,
 			title: task.title || '',
 			durationMinutes: taskDurationMinutes(task),
 			dueDateTime: task.dueDateTime || null,
-			...(fixedConstraints.get(String(task.id)) || {})
+			...(combinedFixedConstraints.get(String(task.id)) || {})
 		}))
 	});
-	const tasksById = new Map(eligibleTasks.map((task) => [String(task.id), task]));
+	const tasksById = new Map(schedulerCandidates.map((task) => [String(task.id), task]));
 	const commands = scheduled.scheduled.map((item) => {
 		const task = tasksById.get(String(item.taskId));
-		const fixed = fixedConstraints.has(String(item.taskId));
+		const fixed = combinedFixedConstraints.has(String(item.taskId));
+		const periodicTaskId = task?.periodicTaskId || null;
 		return {
 			id: `schedule_${item.taskId}`,
 			type: 'create_calendar_event',
-			taskId: item.taskId,
-			reason: fixed ? 'Horario ajustado pelo utilizador e reagendado pelo OR-Tools.' : 'Horario escolhido pelo OR-Tools no proximo slot livre.',
+			taskId: periodicTaskId ? null : item.taskId,
+			periodicTaskId,
+			reason: periodicTaskId
+				? (fixed ? 'Rotina periodica com horario fixo.' : 'Rotina periodica encaixada pelo OR-Tools.')
+				: (fixed ? 'Horario ajustado pelo utilizador e reagendado pelo OR-Tools.' : 'Horario escolhido pelo OR-Tools no proximo slot livre.'),
 			event: {
 				summary: task?.title || 'Task',
 				description: task?.notes || '',
@@ -481,7 +655,8 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			afterDuplicateBatchFilter: commands.length,
 			afterExistingGoogleFilter: commands.length,
 			afterMemoryFilter: commands.length,
-			candidateTaskCount: eligibleTasks.length,
+			candidateTaskCount: schedulerCandidates.length,
+			periodicCandidateCount: periodicScheduler.candidates.length,
 			candidateTasksWithDueDate: eligibleTasks.filter((task) => task.dueDateTime).length,
 			candidateTasksWithoutDueDate: eligibleTasks.filter((task) => !task.dueDateTime).length,
 			rejectedCount: scheduled.unscheduled.length,
@@ -520,7 +695,9 @@ function createAdvisorRouter({
 	insertTaskCalendarEvent,
 	fetchCommittedSchedulerReservedBlocks,
 	createSchedulerScheduleBatch,
-	fetchActiveSchedulerRules
+	fetchActiveSchedulerRules,
+	fetchPeriodicTasks,
+	createPeriodicTaskOccurrence
 }) {
 	const router = express.Router();
 
@@ -573,7 +750,8 @@ function createAdvisorRouter({
 					saveGoogleConnection,
 					fetchTaskCalendarEvents,
 					fetchCommittedSchedulerReservedBlocks,
-					fetchActiveSchedulerRules
+					fetchActiveSchedulerRules,
+					fetchPeriodicTasks
 				}, res);
 
 			const advisor = await generateTaskAdvisorCommands({
@@ -648,7 +826,32 @@ function createAdvisorRouter({
 				throw createValidationError(['commandPreview with id and type is required']);
 			}
 			const feedback = sanitizeAdvisorFeedback(action, req.body.feedback || {});
-			const memoryRule = inferAdvisorMemoryRule({ action, commandPreview, feedback });
+			const fallbackMemoryRule = inferAdvisorMemoryRule({ action, commandPreview, feedback });
+			const [tasks, existingMemoryRules] = await Promise.all([
+				fetchTasks(),
+				fetchAdvisorMemoryRules()
+			]);
+			const sourceTask = tasks.find((task) => String(task.id) === String(commandPreview.taskId || '')) || {};
+			let memoryRule = fallbackMemoryRule;
+			try {
+				memoryRule = await interpretAdvisorFeedbackRule({
+					action,
+					commandPreview,
+					rawCommand: req.body.rawCommand || null,
+					feedback,
+					sourceTask,
+					existingRules: existingMemoryRules,
+					fallbackRule: fallbackMemoryRule
+				});
+			} catch (error: any) {
+				logger.warn('advisor.feedback_rule.openai.failed', { metadata: { action, message: error.message } });
+				memoryRule = mergeInterpretedRule({
+					fallbackRule: fallbackMemoryRule,
+					interpretedRule: { source: 'backend_feedback_fallback', confidence: 0 },
+					commandPreview,
+					sourceTask
+				});
+			}
 			const taskTitle = advisorPreviewTitle(commandPreview) || null;
 			const result = await withTransaction(async (client) => {
 				await saveAdvisorFeedback(client, {
@@ -736,7 +939,8 @@ function createAdvisorRouter({
 						fetchGoogleConnection,
 						saveGoogleConnection,
 						fetchTaskCalendarEvents,
-						insertTaskCalendarEvent
+						insertTaskCalendarEvent,
+						createPeriodicTaskOccurrence
 					});
 					applied.push(commandResult);
 					tasks = await fetchTasks(client);

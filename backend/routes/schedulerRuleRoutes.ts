@@ -5,6 +5,7 @@ const { createValidationError, normalizeString } = require('../tasks/taskValidat
 function createSchedulerRuleRouter({
   fetchTasks,
   fetchSchedulerRules,
+  fetchSchedulerConstraintTypes,
   createSchedulerRule,
   updateSchedulerRule,
   deleteSchedulerRule,
@@ -18,13 +19,20 @@ function createSchedulerRuleRouter({
     } catch (error) { next(error); }
   });
 
+  router.get('/scheduler/constraint-types', async (req, res, next) => {
+    try {
+      res.json(await fetchSchedulerConstraintTypes(undefined, { enabledOnly: false }));
+    } catch (error) { next(error); }
+  });
+
   router.post('/scheduler/rules', async (req, res, next) => {
     try {
       const text = normalizeString(req.body?.text);
       if (!text) throw createValidationError(['text is required']);
       if (text.length > 1000) throw createValidationError(['text must have at most 1000 characters']);
       const tasks = await fetchTasks();
-      const interpreted = await interpretSchedulerRule({ text, tasks });
+      const constraintTypes = await fetchSchedulerConstraintTypes(undefined, { enabledOnly: true });
+      const interpreted = await interpretSchedulerRule({ text, tasks, constraintTypes });
       const rule = await withTransaction((client) => createSchedulerRule(client, {
         text,
         interpretation: interpreted.interpretation,
@@ -45,7 +53,8 @@ function createSchedulerRuleRouter({
       if (!text) throw createValidationError(['text is required']);
       if (text.length > 2000) throw createValidationError(['text must have at most 2000 characters']);
       const tasks = await fetchTasks();
-      const interpretedRules = await interpretSchedulerRules({ text, tasks });
+      const constraintTypes = await fetchSchedulerConstraintTypes(undefined, { enabledOnly: true });
+      const interpretedRules = await interpretSchedulerRules({ text, tasks, constraintTypes });
       const rules = await withTransaction(async (client) => {
         const created = [];
         for (const interpreted of interpretedRules) {
@@ -91,7 +100,8 @@ function createSchedulerRuleRouter({
       const current = rules.find((rule) => rule.id === req.params.id);
       if (!current) return res.status(404).json({ error: 'Scheduler rule not found' });
       const tasks = await fetchTasks();
-      const interpreted = await interpretSchedulerRule({ text: current.text, tasks });
+      const constraintTypes = await fetchSchedulerConstraintTypes(undefined, { enabledOnly: true });
+      const interpreted = await interpretSchedulerRule({ text: current.text, tasks, constraintTypes });
       const rule = await withTransaction((client) => updateSchedulerRule(client, current.id, {
         interpretation: interpreted.interpretation,
         status: interpreted.status,

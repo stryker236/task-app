@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { DragEvent, FormEvent } from 'react';
 import type { QuickQueueItem } from '../../../shared/types';
 
 type QuickQueueProps = {
   items: QuickQueueItem[];
   loading: boolean;
-  onAdd: (text: string) => void;
+  onAdd: (text: string, placement: 'top' | 'bottom') => void;
   onToggle: (id: string, done: boolean) => void;
   onDelete: (id: string) => void;
   onMove: (id: string, direction: 1 | -1) => void;
+  onReorder: (ids: string[]) => void;
   onClearDone: () => void;
   onCreateTask: (item: QuickQueueItem) => void;
 };
@@ -24,8 +25,13 @@ function formatCreatedAt(value: string) {
   }).format(new Date(value));
 }
 
-export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, onMove, onClearDone, onCreateTask }: QuickQueueProps) {
+type DropPosition = 'before' | 'after';
+
+export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, onMove, onReorder, onClearDone, onCreateTask }: QuickQueueProps) {
   const [text, setText] = useState('');
+  const [placement, setPlacement] = useState<'top' | 'bottom'>('bottom');
+  const [draggedId, setDraggedId] = useState('');
+  const [dropTarget, setDropTarget] = useState<{ id: string; position: DropPosition } | null>(null);
 
   const counts = useMemo(() => ({
     total: items.length,
@@ -37,8 +43,42 @@ export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, 
     event.preventDefault();
     const value = text.trim();
     if (!value) return;
-    onAdd(value);
+    onAdd(value, placement);
     setText('');
+  }
+
+  function handleDragStart(event: DragEvent<HTMLLIElement>, id: string) {
+    setDraggedId(id);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', id);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLLIElement>, id: string) {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = event.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
+    setDropTarget({ id, position });
+    event.dataTransfer.dropEffect = 'move';
+  }
+
+  function handleDrop(event: DragEvent<HTMLLIElement>, targetId: string) {
+    event.preventDefault();
+    const sourceId = draggedId || event.dataTransfer.getData('text/plain');
+    const position = dropTarget?.id === targetId ? dropTarget.position : 'before';
+    setDraggedId('');
+    setDropTarget(null);
+    if (!sourceId || sourceId === targetId) return;
+
+    const nextIds = items.map((item) => item.id).filter((id) => id !== sourceId);
+    const targetIndex = nextIds.indexOf(targetId);
+    if (targetIndex < 0) return;
+    nextIds.splice(position === 'after' ? targetIndex + 1 : targetIndex, 0, sourceId);
+    onReorder(nextIds);
+  }
+
+  function handleDragEnd() {
+    setDraggedId('');
+    setDropTarget(null);
   }
 
   return (
@@ -64,6 +104,14 @@ export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, 
           placeholder="Ex: ligar ao Carlos as 15h, confirmar email, rever ficheiro..."
           aria-label="Novo lembrete rapido"
         />
+        <div className="quick-queue-placement" aria-label="Posicao do novo item">
+          <button type="button" className={placement === 'top' ? 'active' : ''} onClick={() => setPlacement('top')}>
+            Topo
+          </button>
+          <button type="button" className={placement === 'bottom' ? 'active' : ''} onClick={() => setPlacement('bottom')}>
+            Fundo
+          </button>
+        </div>
         <button className="button primary" type="submit">Adicionar</button>
       </form>
 
@@ -79,7 +127,20 @@ export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, 
       ) : items.length ? (
         <ol className="quick-queue-list">
           {items.map((item, index) => (
-            <li className={item.done ? 'done' : ''} key={item.id}>
+            <li
+              className={[
+                item.done ? 'done' : '',
+                draggedId === item.id ? 'dragging' : '',
+                dropTarget?.id === item.id ? `drop-${dropTarget.position}` : ''
+              ].filter(Boolean).join(' ')}
+              key={item.id}
+              draggable
+              onDragStart={(event) => handleDragStart(event, item.id)}
+              onDragOver={(event) => handleDragOver(event, item.id)}
+              onDrop={(event) => handleDrop(event, item.id)}
+              onDragEnd={handleDragEnd}
+            >
+              <span className="quick-queue-drag-handle" aria-hidden="true">Mover</span>
               <label>
                 <input
                   type="checkbox"

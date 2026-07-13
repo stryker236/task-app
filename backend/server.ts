@@ -28,6 +28,7 @@ const {
   deleteQuickQueueItem,
   clearDoneQuickQueueItems,
   moveQuickQueueItem,
+  reorderQuickQueueItems,
   fetchGoogleConnection,
   saveGoogleConnection,
   deleteGoogleConnection,
@@ -40,12 +41,24 @@ const {
   deleteAdvisorMemoryRule,
   fetchSchedulerRules,
   fetchActiveSchedulerRules,
+  fetchSchedulerConstraintTypes,
   findSchedulerRuleById,
   createSchedulerRule,
   updateSchedulerRule,
   deleteSchedulerRule,
   fetchCommittedSchedulerReservedBlocks,
   createSchedulerScheduleBatch,
+  fetchPeriodicTasks,
+  findPeriodicTaskById,
+  createPeriodicTask,
+  updatePeriodicTask,
+  deletePeriodicTask,
+  createPeriodicTaskConstraint,
+  updatePeriodicTaskConstraint,
+  deletePeriodicTaskConstraint,
+  fetchPeriodicTaskOccurrences,
+  createPeriodicTaskOccurrence,
+  updatePeriodicTaskOccurrence,
   createGoogleOAuthState,
   consumeGoogleOAuthState,
   checkConnection
@@ -57,6 +70,7 @@ const { createTaskRouter } = require('./routes/taskRoutes');
 const { createAdvisorRouter } = require('./routes/advisorRoutes');
 const { createSchedulerRuleRouter } = require('./routes/schedulerRuleRoutes');
 const { createQuickQueueRouter } = require('./routes/quickQueueRoutes');
+const { createPeriodicTaskRouter } = require('./routes/periodicTaskRoutes');
 const { createGoogleRouter } = require('./routes/googleRoutes');
 const { createLogRouter } = require('./routes/logRoutes');
 const { logger, requestLogger } = require('./logger');
@@ -119,6 +133,7 @@ const routeDependencies = {
   deleteQuickQueueItem,
   clearDoneQuickQueueItems,
   moveQuickQueueItem,
+  reorderQuickQueueItems,
   fetchGoogleConnection,
   saveGoogleConnection,
   deleteGoogleConnection,
@@ -131,12 +146,24 @@ const routeDependencies = {
   deleteAdvisorMemoryRule,
   fetchSchedulerRules,
   fetchActiveSchedulerRules,
+  fetchSchedulerConstraintTypes,
   findSchedulerRuleById,
   createSchedulerRule,
   updateSchedulerRule,
   deleteSchedulerRule,
   fetchCommittedSchedulerReservedBlocks,
   createSchedulerScheduleBatch,
+  fetchPeriodicTasks,
+  findPeriodicTaskById,
+  createPeriodicTask,
+  updatePeriodicTask,
+  deletePeriodicTask,
+  createPeriodicTaskConstraint,
+  updatePeriodicTaskConstraint,
+  deletePeriodicTaskConstraint,
+  fetchPeriodicTaskOccurrences,
+  createPeriodicTaskOccurrence,
+  updatePeriodicTaskOccurrence,
   createGoogleOAuthState,
   consumeGoogleOAuthState,
   checkConnection,
@@ -151,6 +178,7 @@ app.use(createAdvisorRouter(routeDependencies));
 app.use(createSchedulerRuleRouter(routeDependencies));
 app.use('/api', createSchedulerRuleRouter(routeDependencies));
 app.use(createQuickQueueRouter(routeDependencies));
+app.use(createPeriodicTaskRouter(routeDependencies));
 app.use(createGoogleRouter(routeDependencies));
 app.use(createLogRouter());
 

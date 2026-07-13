@@ -10,7 +10,9 @@ COPY --chown=node:node shared/ ../shared/
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=8000
+    PORT=8000 \
+    OPENAI_REQUEST_TIMEOUT_MS=30000 \
+    SCHEDULER_REQUEST_TIMEOUT_MS=30000
 
 USER node
 

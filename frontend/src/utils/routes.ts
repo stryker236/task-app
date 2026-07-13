@@ -7,6 +7,7 @@ export const VIEW_PATHS: Record<ViewKey, string> = {
   collections: '/collections',
   sharedNotes: '/shared-notes',
   calendar: '/calendar',
+  periodicTasks: '/rotinas',
   learnedRules: '/learned-rules',
   schedulerRules: '/scheduler-rules',
   logs: '/logs',

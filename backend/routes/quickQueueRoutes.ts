@@ -9,7 +9,8 @@ function createQuickQueueRouter({
   updateQuickQueueItem,
   deleteQuickQueueItem,
   clearDoneQuickQueueItems,
-  moveQuickQueueItem
+  moveQuickQueueItem,
+  reorderQuickQueueItems
 }) {
   const router = express.Router();
 
@@ -27,14 +28,17 @@ function createQuickQueueRouter({
       if (!text || text.length > 500) {
         throw createValidationError([!text ? 'text is required' : 'text must have at most 500 characters']);
       }
-      const item = await withTransaction((client) => createQuickQueueItem(client, text));
+      const placement = normalizeString(req.body.placement) || 'bottom';
+      if (!['top', 'bottom'].includes(placement)) throw createValidationError(['placement must be top or bottom']);
+      const item = await withTransaction((client) => createQuickQueueItem(client, text, placement));
       logInfo(requestLogMeta(req, {
         event: 'quick_queue.create',
         entity: 'quick_queue_item',
         entityId: item.id,
         itemId: item.id,
         textLength: item.text?.length || 0,
-        position: item.position
+        position: item.position,
+        placement
       }), 'quick queue item created');
       res.status(201).json(item);
     } catch (error) {
@@ -102,6 +106,23 @@ function createQuickQueueRouter({
         direction,
         itemCount: items.length
       }), 'quick queue item moved');
+      return res.json(items);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.post('/quick-queue/reorder', async (req, res, next) => {
+    try {
+      const ids = Array.isArray(req.body.ids) ? req.body.ids.map(String).filter(Boolean) : [];
+      if (!ids.length) throw createValidationError(['ids must be a non-empty array']);
+      const items = await withTransaction((client) => reorderQuickQueueItems(client, ids));
+      if (!items) return res.status(400).json({ error: 'ids must include every quick queue item exactly once' });
+      logInfo(requestLogMeta(req, {
+        event: 'quick_queue.reorder',
+        entity: 'quick_queue_item',
+        itemCount: items.length
+      }), 'quick queue reordered');
       return res.json(items);
     } catch (error) {
       return next(error);

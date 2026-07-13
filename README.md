@@ -12,7 +12,7 @@ The goal is not to become a heavy project management platform. The goal is to be
 - Which cards can be archived?
 - Which tags, checklist items, priorities, dependencies, or deadlines are missing?
 - What can be improved automatically, while still letting me approve every change?
-- Which learned advisor rules are affecting new suggestions?
+- Which Feedback AI memory rules are affecting new suggestions?
 
 The app is desktop-first, but the backend is designed so other clients can be added later, for example an Android app.
 
@@ -22,7 +22,7 @@ The long-term direction is for Task App to become a personal operating layer for
 
 Instead of only storing tasks, it should help interpret the task list, propose improvements, surface risks, suggest next actions, and reduce the amount of manual grooming needed to keep tasks useful.
 
-The AI Advisor is intentionally approval-based. It should not silently mutate data. It proposes actions into a review buffer, and the user chooses what to accept or ignore. The frontend only exposes fixed advisor buttons; the backend owns the prompts for each action. Feedback on proposals is also structured: the user answers fixed controls, and the backend derives memory rules from that feedback.
+The AI Advisor is intentionally approval-based. It should not silently mutate data. It proposes actions into a review buffer, and the user chooses what to accept or ignore. The frontend only exposes fixed advisor buttons; the backend owns the prompts for each action. Feedback on proposals is also structured: the user answers fixed controls, OpenAI interprets that feedback into contextual memory rules when available, and the backend validates/falls back to deterministic rules.
 
 ## What the app does today
 
@@ -34,8 +34,9 @@ The app organizes work through several views:
 - Quick Queue, for short-term reminders synchronized through the database.
 - Notes, for shared notes that can be reused across tasks.
 - Calendar, for Google Calendar visibility and Advisor-generated schedule previews.
+- Rotinas, for reusable periodic tasks such as study, gym, and other recurring work.
+- Feedback AI, for reviewing and deleting advisor memory learned from feedback.
 - Agenda AI, for natural-language scheduler rules that affect calendar planning.
-- Rules, for reviewing and deleting learned advisor rules.
 - Archived, for closed work.
 
 Each task can have:
@@ -66,7 +67,7 @@ The AI Advisor can currently suggest:
 
 It does not apply changes automatically. Suggestions appear in a buffer where each action can be accepted or ignored individually or in bulk.
 
-The Advisor can also learn from structured feedback. For example, if a tag suggestion is weak, the user can mark which tags were good or bad and whether there should have been more or fewer tags. Priority recommendations use a separate feedback form for whether the priority was too high/low, and whether task age or overdue duration were weighted correctly. The backend stores that as learned rules and filters future suggestions with both prompt context and deterministic checks.
+The Advisor can also learn from structured feedback. For example, if a tag suggestion is weak, the user can mark which tags were good or bad and whether there should have been more or fewer tags. Priority recommendations use a separate feedback form for whether the priority was too high/low, and whether task age or overdue duration were weighted correctly. The backend sends proposal feedback, source task context, and existing memory to OpenAI to interpret a reusable Feedback AI rule. The interpreted rule is stored in `advisor_memory_rules.rule` with summary, context, behavior, confidence, and source fields. If OpenAI is unavailable, the backend stores a deterministic fallback rule. Future suggestions use both prompt context and backend deterministic checks.
 
 ## What it could become
 
@@ -106,7 +107,7 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 
 ## Main features
 
-- Kanban, Queue, Quick Queue, Probable Follow-ups, Notes, Calendar, Rules, Agenda AI, and Archived views
+- Kanban, Queue, Quick Queue, Probable Follow-ups, Notes, Calendar, Rotinas, Feedback AI, Agenda AI, and Archived views
 - Independent filters per view
 - Reusable tags, multi-tag filtering, and deactivation/reactivation of unused tags
 - Priorities, due dates, favorites, checklist, and optional estimate
@@ -118,11 +119,12 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 - Database-backed Quick Queue for short-term reminders shared between clients
 - Google Calendar weekly view with multiple calendars and calendar filters
 - OR-Tools calendar scheduling with draggable preview events
+- Periodic task routines with target frequency, hard windows/days, one-off constraints, and occurrence history
 - Natural-language scheduler rules with persisted derived constraints
 - Break preview blocks and exact-date scheduling constraints
 - Gmail daily task email for today's and overdue active tasks
 - AI Advisor with proposal buffer: accept/ignore individually or in bulk
-- Learned advisor rules from structured feedback, with a dedicated management view
+- Feedback AI advisor memory from structured feedback, with a dedicated management view
 
 ## Structure
 
@@ -562,10 +564,10 @@ Tags are soft-deactivated, not physically deleted. A tag can be deactivated when
 | --- | --- | --- |
 | `GET` | `/advisor?limit=5` | Simple suggestion of what to do next |
 | `POST` | `/ai/advisor/request` | Generate AI proposals from a user request |
-| `POST` | `/ai/advisor/feedback` | Store structured proposal feedback and derive a memory rule |
+| `POST` | `/ai/advisor/feedback` | Store structured proposal feedback and interpret a contextual Feedback AI memory rule |
 | `POST` | `/ai/advisor/interaction-feedback` | Store structured feedback for the whole Advisor interaction |
-| `GET` | `/ai/advisor/memory` | List learned advisor rules |
-| `DELETE` | `/ai/advisor/memory/:id` | Delete a learned advisor rule |
+| `GET` | `/ai/advisor/memory` | List Feedback AI advisor memory rules |
+| `DELETE` | `/ai/advisor/memory/:id` | Delete a Feedback AI advisor memory rule |
 | `POST` | `/ai/commands/preview` | Validate/preview AI commands |
 | `POST` | `/ai/commands/apply` | Apply accepted AI commands |
 | `GET` | `/scheduler/rules` | List natural-language scheduler rules and derived constraints |
@@ -588,7 +590,7 @@ schedule_calendar_events
 
 The Advisor does not apply changes by itself. It generates proposals shown in the frontend buffer, where the user accepts or ignores each action.
 
-For `suggest_tags`, the backend sends about 70% of active tasks to the model, prioritized by highest priority and then nearest due date. Learned rules are passed as structured context, and the backend also filters repeated bad tag suggestions deterministically before returning proposals.
+For `suggest_tags`, the backend sends about 70% of active tasks to the model, prioritized by highest priority and then nearest due date. Feedback AI memory rules are passed as structured context, and the backend also filters repeated bad tag suggestions deterministically before returning proposals.
 
 For `priority_management`, the backend asks only for priority changes. It prioritizes context by overdue duration, then task age, then current priority, and filters out proposals that try to change anything other than `priority`.
 
@@ -678,7 +680,24 @@ Shared notes can have tags and can be attached to multiple tasks. The Notes view
 | `PATCH` | `/quick-queue/:id` | Update quick queue item |
 | `DELETE` | `/quick-queue/:id` | Delete quick queue item |
 | `POST` | `/quick-queue/:id/move` | Move item up/down |
+| `POST` | `/quick-queue/reorder` | Persist a dragged custom order |
 | `DELETE` | `/quick-queue/done` | Clear completed items |
+
+### Periodic Tasks
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/periodic-tasks` | List reusable periodic task routines |
+| `POST` | `/periodic-tasks` | Create a periodic task routine |
+| `PATCH` | `/periodic-tasks/:id` | Update or pause a periodic task routine |
+| `DELETE` | `/periodic-tasks/:id` | Delete a periodic task routine |
+| `GET` | `/periodic-tasks/:id/occurrences` | List schedule history for a routine |
+| `POST` | `/periodic-tasks/:id/constraints` | Add a one-off hard constraint |
+| `PATCH` | `/periodic-task-constraints/:id` | Update a one-off constraint |
+| `DELETE` | `/periodic-task-constraints/:id` | Delete a one-off constraint |
+| `PATCH` | `/periodic-task-occurrences/:id` | Mark an occurrence scheduled/completed/skipped/cancelled |
+
+Periodic tasks are reusable scheduling candidates, not duplicated normal tasks. Active routines are included in calendar scheduling, and accepted periodic calendar proposals create `periodic_task_occurrences` for history tracking.
 
 ### Google
 

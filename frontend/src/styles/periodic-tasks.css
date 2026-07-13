@@ -1,0 +1,36 @@
+.periodic-view { display: grid; gap: 14px; }
+.periodic-header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; border: 1px solid var(--line); border-radius: 11px; padding: 16px; background: var(--surface); box-shadow: 0 2px 8px rgba(25, 35, 55, .025); }
+.periodic-header span { display: block; color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.periodic-header h2 { margin: 2px 0 4px; color: var(--text-strong); font-size: 20px; }
+.periodic-header p { margin: 0; color: var(--text-soft); font-size: 13px; }
+.periodic-editor { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--surface); }
+.periodic-editor h3 { margin: 0; color: var(--text-strong); font-size: 15px; }
+.periodic-form-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; }
+.periodic-form-grid textarea { grid-column: span 2; min-height: 42px; }
+.periodic-form-grid label { display: grid; gap: 4px; color: var(--text-soft); font-size: 11px; font-weight: 750; }
+.periodic-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.periodic-days button { border: 1px solid var(--field-border); border-radius: 7px; padding: 6px 10px; background: var(--surface); color: var(--text-soft); font-size: 12px; font-weight: 800; }
+.periodic-days button.active { background: #eaf0ff; border-color: #9cb1ff; color: #315efb; }
+.periodic-active { display: inline-flex; align-items: center; gap: 7px; width: fit-content; color: var(--text-soft); font-size: 12px; font-weight: 750; }
+.periodic-active input { width: auto; }
+.periodic-editor-actions { display: flex; gap: 8px; }
+.periodic-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+.periodic-card { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--surface); }
+.periodic-card > header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.periodic-card header span { color: var(--muted); font-size: 10px; font-weight: 850; text-transform: uppercase; }
+.periodic-card h3 { margin: 2px 0 4px; color: var(--text-strong); font-size: 16px; }
+.periodic-card p { margin: 0; color: var(--text-soft); font-size: 12px; }
+.periodic-card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.periodic-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+.periodic-summary span { border-radius: 999px; padding: 4px 8px; background: var(--surface-soft); color: var(--text-soft); font-size: 11px; font-weight: 750; }
+.periodic-constraint-composer { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 7px; align-items: center; }
+.periodic-constraints { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.periodic-constraints li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 7px; background: var(--surface-soft); }
+.periodic-constraints span { color: var(--text-strong); font-size: 11px; font-weight: 850; }
+.periodic-constraints code { overflow: hidden; text-overflow: ellipsis; color: var(--text-soft); font-size: 11px; white-space: nowrap; }
+.periodic-constraints button { border: 0; background: transparent; color: var(--danger); font-size: 11px; font-weight: 800; }
+.periodic-occurrences { display: grid; gap: 6px; }
+.periodic-occurrences strong { color: var(--text-strong); font-size: 12px; }
+.periodic-occurrences div { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 8px; align-items: center; color: var(--text-soft); font-size: 12px; }
+.periodic-occurrences select { padding: 5px 7px; font-size: 12px; }
+.periodic-occurrences p { color: var(--text-soft); font-size: 12px; }

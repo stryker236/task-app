@@ -62,6 +62,7 @@ type UseGoogleCalendarOptions = {
 export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions = {}) {
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus>({ connected: false, accountEmail: null, scopes: [] });
   const [googleLoading, setGoogleLoading] = useState(true);
+  const [googleSessionExpired, setGoogleSessionExpired] = useState(false);
   const [calendarDate, setCalendarDate] = useState(todayInputValue);
   const [calendarEvents, setCalendarEvents] = useState<GoogleCalendarEvent[]>([]);
   const [calendarWeekStart, setCalendarWeekStartState] = useState(() => startOfWeekInputValue(todayInputValue()));
@@ -92,10 +93,16 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
   async function refreshGoogleStatus() {
     setGoogleLoading(true);
     try {
-      setGoogleStatus(await getGoogleStatus());
+      const status = await getGoogleStatus();
+      setGoogleStatus(status);
+      if (status.connected) setGoogleSessionExpired(false);
+      if (status.requiresReconnect) setGoogleSessionExpired(true);
     } catch (error) {
       setError?.(errorMessage(error));
-      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+      if (isGoogleSessionExpired(error)) {
+        setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+        setGoogleSessionExpired(true);
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -112,7 +119,10 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       window.location.href = url; // Redirect the user to the Google OAuth URL for authentication and authorization
     } catch (error) {
       setError?.(errorMessage(error));
-      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+      if (isGoogleSessionExpired(error)) {
+        setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+        setGoogleSessionExpired(true);
+      }
       setGoogleLoading(false);
     }
   }
@@ -129,6 +139,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       setGoogleCalendars([]);
       setSelectedCalendarIds([]);
       setCalendarAccountEmail(null);
+      setGoogleSessionExpired(false);
     } catch (error) {
       setError?.(errorMessage(error));
     } finally {
@@ -159,7 +170,10 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       return calendars;
     } catch (error) {
       setError?.(errorMessage(error));
-      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+      if (isGoogleSessionExpired(error)) {
+        setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+        setGoogleSessionExpired(true);
+      }
       return [];
     } finally {
       setGoogleLoading(false);
@@ -182,7 +196,10 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       clientLog('info', 'calendar.events.load.completed', '', { mode: 'day', date, calendarIds, eventCount: data.events?.length || 0 });
     } catch (error) {
       setError?.(errorMessage(error));
-      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+      if (isGoogleSessionExpired(error)) {
+        setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+        setGoogleSessionExpired(true);
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -208,7 +225,10 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       clientLog('info', 'calendar.events.load.completed', '', { mode: 'week', start: normalizedStart, end, calendarIds, eventCount: data.events?.length || 0 });
     } catch (error) {
       setError?.(errorMessage(error));
-      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+      if (isGoogleSessionExpired(error)) {
+        setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+        setGoogleSessionExpired(true);
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -232,7 +252,10 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       clientLog('info', 'calendar.events.load.completed', '', { mode: 'range', start, end, calendarIds, eventCount: data.events?.length || 0 });
     } catch (error) {
       setError?.(errorMessage(error));
-      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+      if (isGoogleSessionExpired(error)) {
+        setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+        setGoogleSessionExpired(true);
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -251,7 +274,10 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       return await sendGoogleDailyTaskEmail(advisorDefaultCalendarId, date);
     } catch (error) {
       setError?.(errorMessage(error));
-      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+      if (isGoogleSessionExpired(error)) {
+        setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+        setGoogleSessionExpired(true);
+      }
       return null;
     } finally {
       setGoogleLoading(false);
@@ -269,7 +295,10 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
       return result;
     } catch (error) {
       setError?.(errorMessage(error));
-      if (isGoogleSessionExpired(error)) setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+      if (isGoogleSessionExpired(error)) {
+        setGoogleStatus({ connected: false, accountEmail: null, scopes: [] });
+        setGoogleSessionExpired(true);
+      }
       return null;
     } finally {
       setGoogleLoading(false);
@@ -299,6 +328,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
 
   return {
     googleStatus,
+    googleSessionExpired,
     googleLoading,
     calendarDate,
     setCalendarDate,
