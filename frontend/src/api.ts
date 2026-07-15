@@ -36,6 +36,8 @@ export type AppLogEntry = {
   requestId?: string | null;
   client?: string | null;
   route?: string | null;
+  method?: string | null;
+  statusCode?: number | null;
   durationMs?: number | null;
   metadata?: Record<string, unknown>;
   msg?: string;
@@ -363,6 +365,13 @@ export function applyAiCommands(commands: AiCommand[], options: { reservedBlocks
     body: JSON.stringify({ commands, reservedBlocks: options.reservedBlocks || [] })
   });
 }
+export function requestScheduleExplanation(commands: AiCommand[], schedulerDebug: Record<string, unknown>) {
+  return requestJson<{ model: string | null; summary: string; commands: Array<{ id: string; reason: string }> }>('/ai/advisor/schedule-explanation', {
+    method: 'POST',
+    body: JSON.stringify({ commands, schedulerDebug }),
+    timeoutMs: DEFAULT_API_TIMEOUT_MS
+  });
+}
 
 export type AdvisorFeedbackInput = {
   action: string;
@@ -506,12 +515,17 @@ export const updateAppSettings = (patch: AppSettingsUpdate) => requestJson<AppSe
 export const getLogs = (filters: {
   level?: string;
   event?: string;
+  route?: string;
   requestId?: string;
   requestIds?: string[];
   excludeRequestIds?: string[];
   events?: string[];
   excludeEvents?: string[];
+  routes?: string[];
+  excludeRoutes?: string[];
   search?: string;
+  statusCode?: number | '';
+  minDurationMs?: number | '';
   limit?: number;
 } = {}) => {
   const params = new URLSearchParams();

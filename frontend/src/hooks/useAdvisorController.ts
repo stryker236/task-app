@@ -7,6 +7,7 @@ import {
   getAdvisorMemoryRules,
   getTaskAdvisorAdvice,
   requestTaskAdvisorCommands,
+  requestScheduleExplanation,
   submitAdvisorFeedback,
   submitAdvisorInteractionFeedback,
   updateAdvisorMemoryRule,

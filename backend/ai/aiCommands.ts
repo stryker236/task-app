@@ -211,7 +211,7 @@ async function findExistingGoogleCalendarEvent(event, dependencies) {
   const summary = normalizeString(event?.summary);
   if (!summary) return null;
 
-  const calendar = await getAuthorizedCalendarClient(dependencies);
+  const calendar = await getAuthorizedCalendarClient({ ...dependencies, calendarClient: dependencies.calendarApplyCache?.calendarClient });
   const existingResult = await calendar.events.list({
     calendarId: event.calendarId || 'primary',
     q: summary,
@@ -348,7 +348,7 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
   const existingEvent = await findExistingGoogleCalendarEvent(event, dependencies);
   if (existingEvent) {
     if (prepared.taskId && insertTaskCalendarEvent) {
-      await insertTaskCalendarEvent(pool, {
+      const linked = await insertTaskCalendarEvent(pool, {
         taskId: prepared.taskId,
         googleEventId: existingEvent.id,
         calendarId: event.calendarId || 'primary',
@@ -361,7 +361,7 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
     return { ...existingEvent, alreadyExists: true };
   }
 
-  const calendar = await getAuthorizedCalendarClient(dependencies);
+  const calendar = await getAuthorizedCalendarClient({ ...dependencies, calendarClient: dependencies.calendarApplyCache?.calendarClient });
   const result = await calendar.events.insert({
     calendarId: event.calendarId || 'primary',
     requestBody: {
@@ -379,7 +379,7 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
     }
   });
   if (prepared.taskId && insertTaskCalendarEvent) {
-    await insertTaskCalendarEvent(pool, {
+    const linked = await insertTaskCalendarEvent(pool, {
       taskId: prepared.taskId,
       googleEventId: result.data.id,
       calendarId: event.calendarId || 'primary',

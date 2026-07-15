@@ -27,6 +27,46 @@ type RequestWithLogging = Request & {
   user?: { id?: string };
 };
 
+type StoredLogEntry = {
+  time: string;
+  level: LogLevel;
+  event: string;
+  requestId: string | null;
+  userId?: string;
+  route?: string;
+  method?: string;
+  statusCode?: number;
+  durationMs?: number;
+  metadata: Record<string, unknown>;
+  msg: string;
+};
+
+const recentLogs: StoredLogEntry[] = [];
+const maxRecentLogs = Math.max(100, Math.min(10000, Number(process.env.LOG_BUFFER_SIZE || 2000)));
+
+function rememberLog(level: LogLevel, meta: LogMeta, message: string) {
+  const { event, requestId, userId, route, method, statusCode, durationMs, metadata, ...rest } = meta;
+  const nested = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata as Record<string, unknown> : {};
+  recentLogs.push({
+    time: new Date().toISOString(),
+    level,
+    event,
+    requestId: requestId || null,
+    userId,
+    route,
+    method,
+    statusCode,
+    durationMs,
+    metadata: { ...rest, ...nested },
+    msg: message
+  });
+  if (recentLogs.length > maxRecentLogs) recentLogs.splice(0, recentLogs.length - maxRecentLogs);
+}
+
+function getRecentLogs() {
+  return [...recentLogs].reverse();
+}
+
 const redactPaths = [
   'password',
   'token',

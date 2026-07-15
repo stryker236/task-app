@@ -766,6 +766,42 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 	};
 }
 
+function scheduleExplanationInputFromDebug(commands: any[] = [], schedulerDebug: any = {}) {
+	const context = schedulerDebug.context || {};
+	const schedulerRequest = schedulerDebug.schedulerRequest || {};
+	const schedulerResponse = schedulerDebug.schedulerResponse || {};
+	const taskItems: any[] = [
+		...(context.eligibleTasks || []),
+		...(context.periodicCandidates || []),
+		...(context.periodicTasks || [])
+	];
+	const taskEntries = taskItems
+		.map((task): [string, Record<string, any>] => {
+			const id = String(task.taskId || task.id || '');
+			return [id, {
+				id,
+				title: task.taskTitle || task.title || '',
+				status: task.status || '',
+				priority: task.priority || 0,
+				dueDateTime: task.dueDateTime || null,
+				estimatedMinutes: task.estimatedMinutes || null,
+				tags: task.tags || [],
+				blockedByTaskIds: task.blockedByTaskIds || []
+			}];
+		})
+		.filter(([id]) => Boolean(id));
+	const tasksById = new Map(taskEntries);
+	return {
+		commands,
+		tasksById,
+		busyEvents: context.googleBusyEvents || [],
+		schedulerRules: context.activeSchedulerRules || [],
+		reservedBlocks: schedulerResponse.reserved || [],
+		now: schedulerRequest.now || '',
+		horizonEnd: schedulerRequest.horizonEnd || '',
+		timeZone: schedulerRequest.timeZone || schedulerDebug.defaultCalendar?.timeZone || ''
+	};
+}
 function createAdvisorRouter({
 	fetchTasks,
 	fetchTags,
@@ -907,6 +943,28 @@ function createAdvisorRouter({
 		} catch (error) { next(error); }
 	});
 
+	router.post('/ai/advisor/schedule-explanation', async (req, res, next) => {
+		try {
+			const startedAt = Date.now();
+			const commands = getAiCommandsFromBody({ commands: req.body.commands || [] })
+				.filter((command) => command.type === 'create_calendar_event');
+			const schedulerDebug = req.body.schedulerDebug && typeof req.body.schedulerDebug === 'object' ? req.body.schedulerDebug : null;
+			if (!schedulerDebug) throw createValidationError(['schedulerDebug is required']);
+			(req as any).log?.('info', 'advisor.schedule_explanation.started', {
+				metadata: { commandCount: commands.length }
+			});
+			const explained = await explainScheduleCommandsWithOpenAi(scheduleExplanationInputFromDebug(commands, schedulerDebug));
+			res.json({
+				model: explained.model,
+				summary: explained.summary,
+				commands: explained.commands.map((command) => ({ id: command.id, reason: command.reason }))
+			});
+			(req as any).log?.('info', 'advisor.schedule_explanation.completed', {
+				durationMs: Date.now() - startedAt,
+				metadata: { commandCount: commands.length }
+			});
+		} catch (error) { next(error); }
+	});
 	router.post('/ai/advisor/feedback', async (req, res, next) => {
 		try {
 			const action = normalizeString(req.body.action);

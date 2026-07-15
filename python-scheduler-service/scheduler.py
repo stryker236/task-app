@@ -4,13 +4,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ortools.sat.python import cp_model
 
 from scheduler_breaks import reserve_breaks_after_selected_task, update_daily_limits
 from scheduler_constraints import (
     candidate_overlaps_busy,
     constraint_map,
     evaluate_task_constraints,
+    normalize_constraints,
     task_constraints,
     task_priority_bias,
 )
@@ -24,6 +24,25 @@ def duration_minutes(task: dict[str, Any]) -> int:
     except (TypeError, ValueError):
         minutes = DEFAULT_DURATION_MINUTES
     return max(SLOT_MINUTES, min(MAX_DURATION_MINUTES, minutes))
+
+
+def sorted_busy_intervals(busy: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    return sorted(busy, key=lambda item: item[0])
+
+
+def first_busy_overlap(start: datetime, end: datetime, busy: list[tuple[datetime, datetime]]) -> tuple[datetime, datetime] | None:
+    for busy_start, busy_end in busy:
+        if busy_start >= end:
+            return None
+        if start < busy_end and busy_start < end:
+            return busy_start, busy_end
+    return None
+
+
+def better_candidate(current: Candidate | None, candidate: Candidate) -> Candidate:
+    if current is None:
+        return candidate
+    return candidate if candidate_sort_key(candidate) < candidate_sort_key(current) else current
 
 
 def build_candidates(
@@ -61,48 +80,44 @@ def build_candidates(
             return [], "fixed slot violates scheduler constraints", blocking
         return [Candidate(candidate.task_id, candidate.start, candidate.end, candidate.slot, candidate.order, score, tuple(applied))], None, []
 
-    candidates: list[Candidate] = []
+    ordered_busy = sorted_busy_intervals(busy)
+    best: Candidate | None = None
     cursor = ceil_to_slot(now)
     while cursor + timedelta(minutes=minutes) <= horizon_end:
         day_start, day_end = workday_bounds(cursor)
         if cursor < day_start:
             cursor = day_start
         end = cursor + timedelta(minutes=minutes)
-        if end <= day_end and (not due or end <= due):
-            candidate = Candidate(task_id, cursor, end, int((cursor - now).total_seconds() // 60), order)
-            if not candidate_overlaps_busy(candidate, busy):
-                allowed, score, applied, _ = evaluate_task_constraints(candidate, task_rule_constraints, minutes, daily_counts)
-                if allowed:
-                    candidates.append(Candidate(task_id, cursor, end, int((cursor - now).total_seconds() // 60), order, score, tuple(applied)))
+        if end > day_end:
+            cursor = ceil_to_slot(day_start + timedelta(days=1))
+            continue
+        if due and end > due:
+            break
+        overlap = first_busy_overlap(cursor, end, ordered_busy)
+        if overlap:
+            cursor = ceil_to_slot(overlap[1])
+            continue
+        candidate = Candidate(task_id, cursor, end, int((cursor - now).total_seconds() // 60), order)
+        allowed, score, applied, _ = evaluate_task_constraints(candidate, task_rule_constraints, minutes, daily_counts)
+        if allowed:
+            best = better_candidate(best, Candidate(task_id, cursor, end, int((cursor - now).total_seconds() // 60), order, score, tuple(applied)))
         cursor += timedelta(minutes=SLOT_MINUTES)
 
-    if candidates:
-        return candidates, None, []
+    if best:
+        return [best], None, []
     if due and due <= now:
         return [], "due date is in the past", []
     return [], "no available slot before due date" if due else "no available future slot", []
 
 
-def select_candidate(task_id: str, candidates: list[Candidate], task_count: int) -> Candidate | None:
-    model = cp_model.CpModel()
-    candidate_vars: list[tuple[Candidate, cp_model.IntVar]] = []
-    for index, candidate in enumerate(candidates):
-        var = model.NewBoolVar(f"{task_id}_{index}")
-        candidate_vars.append((candidate, var))
-    model.AddExactlyOne(var for _, var in candidate_vars)
-    preference_weight = max(1, int((max(candidate.slot for candidate, _ in candidate_vars) + task_count + 1) * 10))
-    model.Minimize(sum((candidate.score * preference_weight + candidate.slot * max(1, task_count) + candidate.order) * var for candidate, var in candidate_vars))
+def candidate_sort_key(candidate: Candidate) -> tuple[int, int, int]:
+    return (candidate.score, candidate.slot, candidate.order)
 
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 1
-    solver.parameters.num_search_workers = 8
-    status = solver.Solve(model)
-    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+
+def select_candidate(task_id: str, candidates: list[Candidate], task_count: int) -> Candidate | None:
+    if not candidates:
         return None
-    for candidate, var in candidate_vars:
-        if solver.BooleanValue(var):
-            return candidate
-    return None
+    return min(candidates, key=candidate_sort_key)
 
 
 def parse_busy(payload: dict[str, Any], target_timezone: timezone | ZoneInfo) -> list[tuple[datetime, datetime]]:
@@ -130,7 +145,7 @@ def solve_schedule(payload: dict[str, Any]) -> dict[str, Any]:
     unscheduled: list[dict[str, Any]] = []
     task_order = {str(task["id"]): index for index, task in enumerate(tasks)}
     task_rule_constraints = {
-        str(task["id"]): task_constraints(payload, str(task["id"]))
+        str(task["id"]): normalize_constraints(task_constraints(payload, str(task["id"])))
         for task in tasks
     }
     ordered_tasks = sorted(

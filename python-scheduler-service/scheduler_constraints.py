@@ -33,18 +33,42 @@ def task_constraints(payload: dict[str, Any], task_id: str) -> list[dict[str, An
     return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
 
 
+def integer_set(values: Any) -> set[int]:
+    if not isinstance(values, list):
+        return set()
+    return {int(value) for value in values if str(value).isdigit()}
+
+
+def normalized_constraint(constraint: dict[str, Any]) -> dict[str, Any]:
+    payload = constraint.get("payload") if isinstance(constraint.get("payload"), dict) else {}
+    normalized_payload = dict(payload)
+    normalized_payload["_daysSet"] = integer_set(payload.get("days"))
+    normalized_payload["_daysOfMonthSet"] = integer_set(payload.get("daysOfMonth"))
+    normalized_payload["_startMinutes"] = parse_hhmm(payload.get("startTime"))
+    normalized_payload["_endMinutes"] = parse_hhmm(payload.get("endTime"))
+    return {**constraint, "payload": normalized_payload}
+
+
+def normalize_constraints(constraints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [normalized_constraint(constraint) for constraint in constraints]
+
+
 def candidate_overlaps_busy(candidate: Candidate, busy: list[tuple]) -> bool:
     return any(overlaps(candidate.start, candidate.end, start, end) for start, end in busy)
 
 
 def day_matches(candidate: Candidate, payload: dict[str, Any]) -> bool:
-    days = payload.get("days")
-    days_of_month = payload.get("daysOfMonth")
-    if isinstance(days, list) and days:
-        if candidate.start.isoweekday() not in {int(day) for day in days if str(day).isdigit()}:
+    days = payload.get("_daysSet")
+    days_of_month = payload.get("_daysOfMonthSet")
+    if not isinstance(days, set):
+        days = integer_set(payload.get("days"))
+    if not isinstance(days_of_month, set):
+        days_of_month = integer_set(payload.get("daysOfMonth"))
+    if days:
+        if candidate.start.isoweekday() not in days:
             return False
-    if isinstance(days_of_month, list) and days_of_month:
-        if candidate.start.day not in {int(day) for day in days_of_month if str(day).isdigit()}:
+    if days_of_month:
+        if candidate.start.day not in days_of_month:
             return False
     return True
 
@@ -57,7 +81,12 @@ def candidate_minutes(candidate: Candidate) -> tuple[int, int]:
 
 
 def window_payload(payload: dict[str, Any]) -> tuple[int | None, int | None]:
-    return parse_hhmm(payload.get("startTime")), parse_hhmm(payload.get("endTime"))
+    start = payload.get("_startMinutes")
+    end = payload.get("_endMinutes")
+    return (
+        start if isinstance(start, int) else parse_hhmm(payload.get("startTime")),
+        end if isinstance(end, int) else parse_hhmm(payload.get("endTime")),
+    )
 
 
 def candidate_overlaps_window(candidate: Candidate, payload: dict[str, Any]) -> bool:
@@ -162,8 +191,10 @@ def evaluate_task_constraints(
         elif kind == "allowed_window":
             violates = not candidate_inside_window(candidate, payload)
         elif kind == "avoid_day":
-            days = payload.get("days")
-            violates = isinstance(days, list) and candidate.start.isoweekday() in {int(day) for day in days if str(day).isdigit()}
+            days = payload.get("_daysSet")
+            if not isinstance(days, set):
+                days = integer_set(payload.get("days"))
+            violates = candidate.start.isoweekday() in days
         elif kind == "min_duration":
             violates = duration < int(payload.get("minutes") or 0)
         elif kind == "max_duration":
