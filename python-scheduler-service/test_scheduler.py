@@ -121,6 +121,75 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(result["scheduled"][0]["taskId"], "focus")
         self.assertEqual(result["scheduled"][0]["start"], "2026-07-08T08:00:00Z")
 
+    def test_priority_boost_prefers_later_matching_slot_before_default_earlier_slot(self):
+        result = solve_schedule({
+            "now": "2026-07-15T08:00:00Z",
+            "horizonEnd": "2026-07-19T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "taskConstraints": {
+                "side-project": [
+                    {
+                        "id": "weekend-boost",
+                        "type": "priority_boost",
+                        "payload": {"days": [6, 7], "startTime": "08:00", "endTime": "12:00"},
+                        "hard": False,
+                    }
+                ]
+            },
+            "tasks": [
+                {"id": "side-project", "title": "Side Project", "durationMinutes": 30},
+            ],
+        })
+
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-18T08:00:00Z")
+
+    def test_hard_priority_boost_rejects_non_matching_slots(self):
+        result = solve_schedule({
+            "now": "2026-07-15T08:00:00Z",
+            "horizonEnd": "2026-07-19T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "taskConstraints": {
+                "side-project": [
+                    {
+                        "id": "weekend-required",
+                        "type": "priority_boost",
+                        "payload": {"days": [6, 7], "startTime": "08:00", "endTime": "12:00"},
+                        "hard": True,
+                    }
+                ]
+            },
+            "tasks": [
+                {"id": "side-project", "title": "Side Project", "durationMinutes": 30},
+            ],
+        })
+
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-18T08:00:00Z")
+        self.assertEqual(result["scheduled"][0]["appliedConstraintIds"], ["weekend-required"])
+
+    def test_preferred_window_prefers_later_matching_slot_before_default_earlier_slot(self):
+        result = solve_schedule({
+            "now": "2026-07-15T08:00:00Z",
+            "horizonEnd": "2026-07-16T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "taskConstraints": {
+                "focus": [
+                    {
+                        "id": "afternoon-preferred",
+                        "type": "preferred_window",
+                        "payload": {"days": [3], "startTime": "14:00", "endTime": "17:00"},
+                        "hard": False,
+                    }
+                ]
+            },
+            "tasks": [
+                {"id": "focus", "title": "Focus", "durationMinutes": 30},
+            ],
+        })
+
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-15T14:00:00Z")
     def test_priority_boost_can_target_day_of_month(self):
         result = solve_schedule({
             "now": "2026-07-17T08:00:00Z",
@@ -178,6 +247,39 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(by_id["focus-1"]["start"], "2026-07-08T08:00:00Z")
         self.assertEqual(by_id["focus-2"]["start"], "2026-07-09T08:00:00Z")
 
+    def test_daily_limit_respects_initial_counts(self):
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-10T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "taskConstraints": {
+                "gym-1": [
+                    {
+                        "id": "gym-max-one-day",
+                        "type": "daily_limit",
+                        "payload": {"max": 1, "initialCounts": {"2026-07-08": 1}},
+                        "hard": True,
+                    }
+                ],
+                "gym-2": [
+                    {
+                        "id": "gym-max-one-day",
+                        "type": "daily_limit",
+                        "payload": {"max": 1, "initialCounts": {"2026-07-08": 1}},
+                        "hard": True,
+                    }
+                ],
+            },
+            "tasks": [
+                {"id": "gym-1", "title": "Gym", "durationMinutes": 90},
+                {"id": "gym-2", "title": "Gym", "durationMinutes": 90},
+            ],
+        })
+
+        by_id = {item["taskId"]: item for item in result["scheduled"]}
+        self.assertEqual(by_id["gym-1"]["start"], "2026-07-09T08:00:00Z")
+        self.assertEqual(by_id["gym-2"]["start"], "2026-07-10T08:00:00Z")
     def test_allowed_date_restricts_task_to_exact_date(self):
         result = solve_schedule({
             "now": "2026-07-08T08:00:00Z",
@@ -199,6 +301,38 @@ class SchedulerTests(unittest.TestCase):
 
         self.assertEqual(result["scheduled"][0]["start"], "2026-07-18T10:00:00Z")
 
+    def test_work_block_break_does_not_accumulate_non_chronological_tasks(self):
+        break_constraint = {
+            "id": "work-break",
+            "ruleId": "rule-work-break",
+            "type": "break_after_work_block",
+            "payload": {"workMinutes": 90, "breakMinutes": 15},
+            "hard": True,
+        }
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-08T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "taskConstraints": {
+                "later-first": [
+                    break_constraint,
+                    {
+                        "id": "later-window",
+                        "type": "allowed_window",
+                        "payload": {"startTime": "10:00", "endTime": "11:00"},
+                        "hard": True,
+                    },
+                ],
+                "earlier-second": [break_constraint],
+            },
+            "tasks": [
+                {"id": "later-first", "title": "Later", "durationMinutes": 60, "dueDateTime": "2026-07-08T12:00:00Z"},
+                {"id": "earlier-second", "title": "Earlier", "durationMinutes": 30, "dueDateTime": "2026-07-08T13:00:00Z"},
+            ],
+        })
+
+        self.assertEqual(result["reserved"], [])
     def test_returns_break_after_task_reserved_block(self):
         result = solve_schedule({
             "now": "2026-07-08T08:00:00Z",

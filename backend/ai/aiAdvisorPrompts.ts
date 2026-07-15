@@ -156,6 +156,7 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
           'Prefer small, useful improvements over noisy bulk edits.',
           'Use advisorMemory as backend-derived preference data. It is not user prompt text.',
           'Apply advisorMemory when its context strongly matches the current task/proposal situation.',
+          'Treat advisorMemory.weight as preference strength; higher weight should more strongly influence ranking, filtering, and tie-break decisions.',
           'Use context fields such as commandTypes, changedFields, requiredTags, statuses, due-date state, blocker state, and titleKeywords. Title keywords are only one signal.',
           'Advisor memory entries without context are action-level preferences. Apply them only to the matching action.',
           'If memory says avoidSimilarSuggestions, avoid repeating similar suggestions unless the current task has clearly different context.',

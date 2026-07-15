@@ -1,4 +1,4 @@
-import type { AiCommand, AiCommandPreview, ChecklistItem, CreateGoogleCalendarEventInput, CreateGoogleCalendarEventResponse, DeleteDefaultGoogleCalendarEventsResponse, GoogleCalendar, GoogleCalendarEvent, GoogleCalendarEventsResponse, GoogleCalendarsResponse, GoogleOAuthUrlRequest, GoogleOAuthUrlResponse, GoogleStatus, ProductivitySummary, QuickQueueItem, SendGoogleDailyTaskEmailResponse, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
+import type { AiCommand, AiCommandPreview, AppSettings, AppSettingsUpdate, ChecklistItem, CreateGoogleCalendarEventInput, CreateGoogleCalendarEventResponse, DeleteDefaultGoogleCalendarEventsResponse, GoogleCalendar, GoogleCalendarEvent, GoogleCalendarEventsResponse, GoogleCalendarsResponse, GoogleOAuthUrlRequest, GoogleOAuthUrlResponse, GoogleStatus, ProductivitySummary, QuickQueueItem, SendGoogleDailyTaskEmailResponse, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const DEFAULT_API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 60000);
@@ -105,6 +105,7 @@ export type AdvisorPreviewDebug = {
     notProposedCandidates: AdvisorCandidateDebug[];
   }>;
   rejectionReasons?: Record<string, number>;
+  schedulerDebug?: Record<string, unknown>;
   rejections?: Array<{
     status: string;
     reason: string;
@@ -188,6 +189,7 @@ export type PeriodicTask = {
     allowedDays?: number[];
     allowedWindows?: Array<{ startTime: string; endTime: string; days?: number[] }>;
     minSpacingHours?: number;
+    maxOccurrencesPerDay?: number;
   };
   preferences: Record<string, unknown>;
   active: boolean;
@@ -335,13 +337,14 @@ export type SchedulerRule = {
   updatedAt: string;
 };
 
-export function requestTaskAdvisorCommands(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[] } = {}) {
+export function requestTaskAdvisorCommands(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[]; scheduleStartFrom?: string } = {}) {
   return requestJson<AdvisorPreview>('/ai/advisor/request', {
     method: 'POST',
     body: JSON.stringify({
       action,
       defaultCalendarId: options.defaultCalendarId || '',
-      schedulerConstraints: options.schedulerConstraints || []
+      schedulerConstraints: options.schedulerConstraints || [],
+      scheduleStartFrom: options.scheduleStartFrom || ''
     })
   });
 }
@@ -464,6 +467,11 @@ export type AdvisorMemoryRule = {
   lastFeedbackAt: string;
 };
 
+export type AdvisorMemoryRuleUpdate = {
+  summary?: string;
+  context?: AdvisorMemoryRule['rule']['context'];
+  behavior?: AdvisorMemoryRule['rule']['behavior'];
+};
 export function submitAdvisorFeedback(feedback: AdvisorFeedbackInput) {
   return requestJson<{ memoryRule: unknown }>('/ai/advisor/feedback', {
     method: 'POST',
@@ -489,7 +497,12 @@ export function submitAdvisorInteractionFeedback(feedback: AdvisorInteractionFee
 }
 
 export const getAdvisorMemoryRules = () => requestJson<AdvisorMemoryRule[]>('/ai/advisor/memory');
+export const updateAdvisorMemoryRule = (id: string, patch: AdvisorMemoryRuleUpdate) => requestJson<AdvisorMemoryRule>(`/ai/advisor/memory/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 export const deleteAdvisorMemoryRule = (id: string) => requestJson<void>(`/ai/advisor/memory/${id}`, { method: 'DELETE' });
+export type { AppSettings, AppSettingsUpdate };
+export const getAppSettings = () => requestJson<AppSettings>('/settings');
+export const updateAppSettings = (patch: AppSettingsUpdate) => requestJson<AppSettings>('/settings', { method: 'PATCH', body: JSON.stringify(patch) });
+
 export const getLogs = (filters: {
   level?: string;
   event?: string;

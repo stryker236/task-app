@@ -3,6 +3,7 @@ const { ADVISOR_ACTIONS, generateTaskAdvisorAdvice, generateTaskAdvisorCommands,
 const { createCalendarClient, createOAuthClient } = require('../google/googleClient');
 const { decryptJson } = require('../google/tokenCrypto');
 const { requestSchedule } = require('../ai/schedulerClient');
+const { explainScheduleCommandsWithOpenAi } = require('../ai/scheduleExplanations');
 const {
 	getAiCommandsFromBody,
 	prepareAiCommand,
@@ -323,11 +324,23 @@ function normalizePeriodicWindow(window: any = {}) {
 	};
 }
 
+function periodicOccurrenceCountsByDay(task: any) {
+	const counts: Record<string, number> = {};
+	for (const occurrence of task.occurrences || []) {
+		if (!['scheduled', 'completed'].includes(occurrence.status)) continue;
+		const start = Date.parse(occurrence.scheduledStart || '');
+		if (Number.isNaN(start)) continue;
+		const day = new Date(start).toISOString().slice(0, 10);
+		counts[day] = (counts[day] || 0) + 1;
+	}
+	return counts;
+}
 function periodicTaskConstraintsForCandidate(task: any, candidateId: string, now = new Date()) {
 	const constraints = [];
 	const hard = task.hardConstraints && typeof task.hardConstraints === 'object' ? task.hardConstraints : {};
 	const allowedDays = Array.isArray(hard.allowedDays) ? hard.allowedDays : [];
 	const allowedWindows = Array.isArray(hard.allowedWindows) ? hard.allowedWindows : [];
+	const maxOccurrencesPerDay = Number(hard.maxOccurrencesPerDay || 0);
 	for (const [index, window] of allowedWindows.entries()) {
 		const payload = normalizePeriodicWindow(window);
 		if (allowedDays.length && !payload.days) payload.days = allowedDays;
@@ -347,6 +360,15 @@ function periodicTaskConstraintsForCandidate(task: any, candidateId: string, now
 			ruleId: `periodic:${task.id}`,
 			type: 'allowed_window',
 			payload: { days: allowedDays, startTime: '00:00', endTime: '23:59' },
+			hard: true
+		});
+	}
+	if (maxOccurrencesPerDay > 0) {
+		constraints.push({
+			id: `periodic:${task.id}:max_occurrences_per_day`,
+			ruleId: `periodic:${task.id}`,
+			type: 'daily_limit',
+			payload: { max: Math.max(1, Math.floor(maxOccurrencesPerDay)), initialCounts: periodicOccurrenceCountsByDay(task) },
 			hard: true
 		});
 	}
@@ -544,6 +566,7 @@ async function fetchAdvisorBusyEvents({ pool, fetchGoogleConnection, saveGoogleC
 			});
 			return (result.data.items || []).map((event) => ({
 				calendarId: id,
+				summary: event.summary || '',
 				start: event.start?.dateTime || event.start?.date || '',
 				end: event.end?.dateTime || event.end?.date || ''
 			})).filter((event) => event.start && event.end);
@@ -555,7 +578,7 @@ async function fetchAdvisorBusyEvents({ pool, fetchGoogleConnection, saveGoogleC
 	return results.flat();
 }
 
-async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requestedDefaultCalendarId, constraints, dependencies }: any) {
+async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requestedDefaultCalendarId, constraints, scheduleStartFrom, dependencies }: any) {
 	const defaultCalendar = defaultAdvisorCalendar(calendars, requestedDefaultCalendarId);
 	const calendarId = defaultCalendar?.id || defaultAdvisorCalendarId(calendars, requestedDefaultCalendarId);
 	const calendarSummary = defaultCalendar?.summary || calendarId;
@@ -582,10 +605,12 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 	for (const [taskId, periodicConstraints] of Object.entries(periodicScheduler.taskConstraints)) {
 		taskConstraints[taskId] = [...(taskConstraints[taskId] || []), ...(periodicConstraints as any[])];
 	}
-	const now = new Date().toISOString();
+	const requestedStart = Date.parse(String(scheduleStartFrom || ''));
+	const nowDate = Number.isNaN(requestedStart) ? new Date() : new Date(Math.max(Date.now(), requestedStart));
+	const now = nowDate.toISOString();
 	const periodicFixedMap = new Map(periodicScheduler.fixedConstraints.map((item) => [String(item.taskId), item]));
 	const combinedFixedConstraints = new Map([...fixedConstraints.entries(), ...periodicFixedMap.entries()]);
-	const horizonEnd = scheduleHorizon(schedulerCandidates, combinedFixedConstraints, new Date(now));
+	const horizonEnd = scheduleHorizon(schedulerCandidates, combinedFixedConstraints, nowDate);
 	const busy = await fetchAdvisorBusyEvents({
 		...dependencies,
 		calendarId,
@@ -593,6 +618,11 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 		timeMin: now,
 		timeMax: horizonEnd
 	});
+	const calendarSummaryById = new Map(calendars.map((calendar) => [String(calendar.id), calendar.summary || String(calendar.id)]));
+	const busyWithCalendarSummaries = busy.map((event) => ({
+		...event,
+		calendarSummary: calendarSummaryById.get(String(event.calendarId)) || String(event.calendarId || '')
+	}));
 	const reservedBusy = dependencies.fetchCommittedSchedulerReservedBlocks
 		? (await dependencies.fetchCommittedSchedulerReservedBlocks(dependencies.pool)).map((block) => ({
 			calendarId: 'scheduler-reserved',
@@ -600,11 +630,11 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			end: block.end
 		}))
 		: [];
-	const scheduled = await requestSchedule({
+	const schedulerRequest = {
 		now,
 		horizonEnd,
 		timeZone: calendarTimeZone,
-		busy: [...busy, ...reservedBusy, ...periodicScheduler.spacingBusy],
+		busy: [...busyWithCalendarSummaries, ...reservedBusy, ...periodicScheduler.spacingBusy],
 		taskConstraints,
 		constraints: [...combinedFixedConstraints.entries()].map(([taskId, constraint]) => ({
 			taskId,
@@ -616,22 +646,34 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			title: task.title || '',
 			durationMinutes: taskDurationMinutes(task),
 			dueDateTime: task.dueDateTime || null,
+			periodicTaskId: task.periodicTaskId || null,
 			...(combinedFixedConstraints.get(String(task.id)) || {})
 		}))
-	});
+	};
+	const scheduled = await requestSchedule(schedulerRequest);
 	const tasksById = new Map(schedulerCandidates.map((task) => [String(task.id), task]));
-	const commands = scheduled.scheduled.map((item) => {
+	let commands = scheduled.scheduled.map((item) => {
 		const task = tasksById.get(String(item.taskId));
 		const fixed = combinedFixedConstraints.has(String(item.taskId));
+		const appliedRules = (item.appliedConstraintIds || [])
+			.map((constraintId) => {
+				const rule = activeSchedulerRules.find((candidate) => (candidate.constraints || []).some((constraint) => String(constraint.id) === String(constraintId)));
+				const constraint = (rule?.constraints || []).find((item) => String(item.id) === String(constraintId));
+				return rule ? { ruleId: rule.id, constraintId: String(constraintId), title: rule.text, type: constraint?.type || '', payload: constraint?.payload || {} } : null;
+			})
+			.filter(Boolean);
 		const periodicTaskId = task?.periodicTaskId || null;
+		const baseReason = periodicTaskId
+			? (fixed ? 'Rotina periodica com horario fixo.' : 'Rotina periodica encaixada pelo OR-Tools.')
+			: (fixed ? 'Horario ajustado pelo utilizador e reagendado pelo OR-Tools.' : 'Horario escolhido pelo OR-Tools no proximo slot livre.');
 		return {
 			id: `schedule_${item.taskId}`,
 			type: 'create_calendar_event',
 			taskId: periodicTaskId ? null : item.taskId,
 			periodicTaskId,
-			reason: periodicTaskId
-				? (fixed ? 'Rotina periodica com horario fixo.' : 'Rotina periodica encaixada pelo OR-Tools.')
-				: (fixed ? 'Horario ajustado pelo utilizador e reagendado pelo OR-Tools.' : 'Horario escolhido pelo OR-Tools no proximo slot livre.'),
+			reason: appliedRules.length ? `${baseReason} Regras consideradas: ${appliedRules.slice(0, 2).map((rule) => rule.title).join('; ')}.` : baseReason,
+			appliedRules,
+			fixed,
 			event: {
 				summary: task?.title || 'Task',
 				description: task?.notes || '',
@@ -644,10 +686,58 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			}
 		};
 	});
+	let explanationModel = null;
+	let explanationSummary = '';
+	try {
+		const explained = await explainScheduleCommandsWithOpenAi({
+			commands,
+			tasksById,
+			busyEvents: busyWithCalendarSummaries,
+			schedulerRules: activeSchedulerRules,
+			reservedBlocks: scheduled.reserved || [],
+			now,
+			horizonEnd,
+			timeZone: calendarTimeZone
+		});
+		commands = explained.commands;
+		explanationModel = explained.model;
+		explanationSummary = explained.summary || '';
+	} catch (error: any) {
+		logger.warn('advisor.schedule_explanations.failed', { metadata: { message: error.message } });
+	}
 	return {
 		commands,
+		explanationModel,
+		explanationSummary,
 		reservedBlocks: scheduled.reserved || [],
 		debug: {
+			schedulerDebug: {
+				generatedAt: new Date().toISOString(),
+				scheduleStartFrom: scheduleStartFrom || '',
+				defaultCalendar: { id: calendarId, summary: calendarSummary, timeZone: calendarTimeZone },
+				schedulerRequest,
+				schedulerResponse: scheduled,
+				context: {
+					eligibleTasks: eligibleTasks.map((task) => compactCandidateTask(task)),
+					periodicTasks: periodicTasks.map((task) => ({
+						id: task.id,
+						title: task.title,
+						period: task.period,
+						targetCount: task.targetCount,
+						estimatedMinutes: task.estimatedMinutes,
+						hardConstraints: task.hardConstraints || {},
+						constraints: task.constraints || [],
+						occurrences: task.occurrences || []
+					})),
+					periodicCandidates: periodicScheduler.candidates.map((task) => compactCandidateTask(task)),
+					periodicSpacingBusy: periodicScheduler.spacingBusy,
+					activeSchedulerRules,
+					googleBusyEvents: busyWithCalendarSummaries,
+					committedReservedBusy: reservedBusy,
+					manualFixedConstraints: [...fixedConstraints.entries()].map(([taskId, constraint]) => ({ taskId, ...constraint })),
+					combinedFixedConstraints: [...combinedFixedConstraints.entries()].map(([taskId, constraint]) => ({ taskId, ...constraint }))
+				}
+			},
 			generatedCount: eligibleTasks.length,
 			afterActionFilter: commands.length,
 			afterCalendarFilter: commands.length,
@@ -662,7 +752,7 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			rejectedCount: scheduled.unscheduled.length,
 			activeSchedulerRuleCount: activeSchedulerRules.length,
 			schedulerHorizonEnd: horizonEnd,
-			schedulerBusyEventCount: busy.length,
+			schedulerBusyEventCount: busyWithCalendarSummaries.length,
 			schedulerReservedBusyCount: reservedBusy.length,
 			reservedBlockCount: (scheduled.reserved || []).length,
 			rejectionReasons: countRejectionReasons(scheduled.unscheduled.map((item) => ({ reason: item.reason }))),
@@ -690,6 +780,7 @@ function createAdvisorRouter({
 	fetchAdvisorMemoryRules,
 	saveAdvisorFeedback,
 	upsertAdvisorMemoryRule,
+	updateAdvisorMemoryRule,
 	deleteAdvisorMemoryRule,
 	fetchTaskCalendarEvents,
 	insertTaskCalendarEvent,
@@ -745,7 +836,7 @@ function createAdvisorRouter({
 			const memory = buildAdvisorMemoryContext(memoryRules);
 
 			if (action === 'schedule_calendar_events')
-				return await ProcessCreateEventsRequest(tasks, calendars, requestedDefaultCalendarId, req.body.schedulerConstraints, {
+				return await ProcessCreateEventsRequest(tasks, calendars, requestedDefaultCalendarId, req.body.schedulerConstraints, normalizeString(req.body.scheduleStartFrom), {
 					pool,
 					fetchGoogleConnection,
 					saveGoogleConnection,
@@ -974,12 +1065,13 @@ function createAdvisorRouter({
 module.exports = { createAdvisorRouter };
 
 export { };
-async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedDefaultCalendarId: any, schedulerConstraints: any, dependencies: any, res: any) {
+async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedDefaultCalendarId: any, schedulerConstraints: any, scheduleStartFrom: any, dependencies: any, res: any) {
 	const scheduled = await scheduleCalendarCommandsWithMicroservice({
 		tasks,
 		calendars,
 		requestedDefaultCalendarId,
 		constraints: schedulerConstraints,
+		scheduleStartFrom,
 		dependencies
 	});
 	const previews = buildAiCommandsPreview(scheduled.commands, tasks);
@@ -990,8 +1082,8 @@ async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedD
 		mode: 'advisor_preview',
 		generatedAt: new Date().toISOString(),
 		source: 'scheduler',
-		model: 'python-ortools',
-		summary: 'Propostas de eventos geradas pelo OR-Tools para validacao.',
+		model: scheduled.explanationModel ? 'python-ortools + ' + scheduled.explanationModel : 'python-ortools',
+		summary: scheduled.explanationSummary || (scheduled.explanationModel ? 'Propostas agendadas pelo OR-Tools com explicacoes geradas por OpenAI.' : 'Propostas de eventos geradas pelo OR-Tools para validacao.'),
 		commandCount: labeledPreviews.length,
 		commands: labeledPreviews,
 		rawCommands: scheduled.commands,

@@ -114,7 +114,13 @@ def daily_limit_key(constraint: dict[str, Any]) -> str:
 
 def scheduled_count_for_candidate(candidate: Candidate, constraint: dict[str, Any], daily_counts: dict[tuple[str, str], int]) -> int:
     day_key = candidate.start.date().isoformat()
-    return daily_counts.get((daily_limit_key(constraint), day_key), 0)
+    payload = constraint.get("payload") if isinstance(constraint.get("payload"), dict) else {}
+    initial_counts = payload.get("initialCounts") if isinstance(payload.get("initialCounts"), dict) else {}
+    try:
+        initial_count = int(initial_counts.get(day_key) or 0)
+    except (TypeError, ValueError):
+        initial_count = 0
+    return initial_count + daily_counts.get((daily_limit_key(constraint), day_key), 0)
 
 
 def priority_boost_weight(payload: dict[str, Any]) -> int:
@@ -164,15 +170,21 @@ def evaluate_task_constraints(
             minutes = int(payload.get("minutes") or MAX_DURATION_MINUTES)
             violates = duration > minutes
         elif kind == "preferred_window":
-            if candidate_inside_window(candidate, payload):
+            matches = candidate_inside_window(candidate, payload)
+            if hard:
+                violates = not matches
+            elif matches:
                 score -= int(payload.get("weight") or 100)
-                if constraint_id:
-                    applied.append(constraint_id)
+            if matches and constraint_id:
+                applied.append(constraint_id)
         elif kind == "priority_boost":
-            if candidate_matches_temporal_payload(candidate, payload):
+            matches = candidate_matches_temporal_payload(candidate, payload)
+            if hard:
+                violates = not matches
+            elif matches:
                 score -= priority_boost_weight(payload)
-                if constraint_id:
-                    applied.append(constraint_id)
+            if matches and constraint_id:
+                applied.append(constraint_id)
         elif kind == "daily_limit":
             max_count = int(payload.get("max") or 0)
             if max_count > 0 and candidate_matches_temporal_payload(candidate, payload):
@@ -185,7 +197,7 @@ def evaluate_task_constraints(
         if violates and hard:
             if constraint_id:
                 blocking.append(constraint_id)
-        elif not violates and constraint_id and kind != "preferred_window":
+        elif not violates and constraint_id and kind not in ("preferred_window", "priority_boost"):
             applied.append(constraint_id)
 
     return not blocking, score, applied, blocking

@@ -1,4 +1,4 @@
-import type { QuickQueueItem, Task, TaskStatus } from '../../../shared/types';
+import type { AppSettings, AppSettingsUpdate, ProductivitySummary, QuickQueueItem, Task, TaskStatus } from '../../../shared/types';
 import type { TaskFilters } from '../api';
 import type { ViewKey } from '../constants/tasks';
 import { useAdvisorContext } from '../context/AdvisorContext';
@@ -7,11 +7,13 @@ import KanbanView from './KanbanView';
 import LearnedRulesView from './LearnedRulesView';
 import LogsView from './LogsView';
 import PeriodicTasksView from './PeriodicTasksView';
+import ProductivityView from './ProductivityView';
 import QueueView from './QueueView';
 import type { QueueSort } from './QueueView';
 import QuickQueue from './QuickQueue';
 import SchedulerRulesView from './SchedulerRulesView';
 import SharedNotesView from './SharedNotesView';
+import SettingsView from './SettingsView';
 import TaskCard from './TaskCard';
 import type { TaskCardActions } from './TaskCard';
 
@@ -29,6 +31,14 @@ type MainViewProps = {
   collectionSections: CollectionSection[];
   quickQueueItems: QuickQueueItem[];
   quickQueueLoading: boolean;
+  productivitySummary: ProductivitySummary;
+  productivityLoading: boolean;
+  onProductivityRefresh: () => void | Promise<void>;
+  settings: AppSettings;
+  settingsLoading: boolean;
+  settingsSaving: boolean;
+  onSettingsSave: (patch: AppSettingsUpdate) => Promise<AppSettings> | AppSettings;
+  onSettingsRefresh: () => void | Promise<void>;
   onQuickQueueAdd: (text: string, placement: 'top' | 'bottom') => void;
   onQuickQueueToggle: (id: string, done: boolean) => void;
   onQuickQueueEdit: (id: string, text: string) => void | Promise<void>;
@@ -55,6 +65,14 @@ export default function MainView({
   collectionSections,
   quickQueueItems,
   quickQueueLoading,
+  productivitySummary,
+  productivityLoading,
+  onProductivityRefresh,
+  settings,
+  settingsLoading,
+  settingsSaving,
+  onSettingsSave,
+  onSettingsRefresh,
   onQuickQueueAdd,
   onQuickQueueToggle,
   onQuickQueueEdit,
@@ -99,6 +117,14 @@ export default function MainView({
     return <PeriodicTasksView onError={onError} />;
   }
 
+  if (view === 'productivity') {
+    return <ProductivityView summary={productivitySummary} loading={productivityLoading} onRefresh={onProductivityRefresh} tasks={allTasks} onOpenTask={onOpenTask} />;
+  }
+
+  if (view === 'settings') {
+    return <SettingsView settings={settings} loading={settingsLoading} saving={settingsSaving} onSave={onSettingsSave} onRefresh={onSettingsRefresh} />;
+  }
+
   if (view === 'learnedRules') {
     return (
       <LearnedRulesView
@@ -106,6 +132,7 @@ export default function MainView({
         loading={advisor.advisorMemoryLoading}
         onRefresh={advisor.refreshAdvisorMemoryRules}
         onForget={advisor.forgetAdvisorMemoryRule}
+        onUpdate={advisor.saveAdvisorMemoryRule}
       />
     );
   }

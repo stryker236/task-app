@@ -5,7 +5,7 @@ const { logger } = require('../logger');
 const { mergeAdvisorMemoryRulePayload } = require('../ai/advisorMemory');
 
 import type { PoolClient, Pool as PgPool } from 'pg';
-import type { ProductivityEvent, ProductivitySummary, TaskCalendarEvent } from '../../shared/types';
+import type { AppSettings, AppSettingsUpdate, ProductivityEvent, ProductivitySummary, TaskCalendarEvent } from '../../shared/types';
 
 type Queryable = PgPool | PoolClient;
 type QueryPatch = Record<string, unknown>;
@@ -108,6 +108,81 @@ type ProductivityEventInput = {
 	metadata?: Record<string, unknown>;
 	occurredAt?: string;
 };
+
+const DEFAULT_APP_SETTINGS: AppSettings = {
+	productivity: {
+		dailyGoalXp: 50,
+		showDashboardPanel: true
+	},
+	ai: {
+		advisorEnabled: true,
+		feedbackMemoryEnabled: true,
+		feedbackMemoryStrength: 'strong',
+		agendaRulesEnabled: true
+	},
+	calendar: {
+		defaultEventDurationMinutes: 60,
+		workingHoursStart: '09:00',
+		workingHoursEnd: '18:00',
+		weekdaysOnly: true
+	},
+	ui: {
+		compactMode: false
+	}
+};
+
+function clampInteger(value: unknown, fallback: number, min: number, max: number) {
+	const number = Math.round(Number(value));
+	if (!Number.isFinite(number)) return fallback;
+	return Math.max(min, Math.min(max, number));
+}
+
+function boolValue(value: unknown, fallback: boolean) {
+	return typeof value === 'boolean' ? value : fallback;
+}
+
+function timeValue(value: unknown, fallback: string) {
+	const text = String(value || '').trim();
+	return /^([01]\d|2[0-3]):[0-5]\d$/.test(text) ? text : fallback;
+}
+
+function enumValue<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+	return allowed.includes(String(value) as T) ? String(value) as T : fallback;
+}
+
+function normalizeAppSettings(value: unknown): AppSettings {
+	const source = value && typeof value === 'object' ? value as Partial<AppSettings> : {};
+	return {
+		productivity: {
+			dailyGoalXp: clampInteger(source.productivity?.dailyGoalXp, DEFAULT_APP_SETTINGS.productivity.dailyGoalXp, 10, 500),
+			showDashboardPanel: boolValue(source.productivity?.showDashboardPanel, DEFAULT_APP_SETTINGS.productivity.showDashboardPanel)
+		},
+		ai: {
+			advisorEnabled: boolValue(source.ai?.advisorEnabled, DEFAULT_APP_SETTINGS.ai.advisorEnabled),
+			feedbackMemoryEnabled: boolValue(source.ai?.feedbackMemoryEnabled, DEFAULT_APP_SETTINGS.ai.feedbackMemoryEnabled),
+			feedbackMemoryStrength: enumValue(source.ai?.feedbackMemoryStrength, ['low', 'normal', 'strong'] as const, DEFAULT_APP_SETTINGS.ai.feedbackMemoryStrength),
+			agendaRulesEnabled: boolValue(source.ai?.agendaRulesEnabled, DEFAULT_APP_SETTINGS.ai.agendaRulesEnabled)
+		},
+		calendar: {
+			defaultEventDurationMinutes: clampInteger(source.calendar?.defaultEventDurationMinutes, DEFAULT_APP_SETTINGS.calendar.defaultEventDurationMinutes, 15, 480),
+			workingHoursStart: timeValue(source.calendar?.workingHoursStart, DEFAULT_APP_SETTINGS.calendar.workingHoursStart),
+			workingHoursEnd: timeValue(source.calendar?.workingHoursEnd, DEFAULT_APP_SETTINGS.calendar.workingHoursEnd),
+			weekdaysOnly: boolValue(source.calendar?.weekdaysOnly, DEFAULT_APP_SETTINGS.calendar.weekdaysOnly)
+		},
+		ui: {
+			compactMode: boolValue(source.ui?.compactMode, DEFAULT_APP_SETTINGS.ui.compactMode)
+		}
+	};
+}
+
+function mergeAppSettings(current: AppSettings, patch: AppSettingsUpdate): AppSettings {
+	return normalizeAppSettings({
+		productivity: { ...current.productivity, ...(patch.productivity || {}) },
+		ai: { ...current.ai, ...(patch.ai || {}) },
+		calendar: { ...current.calendar, ...(patch.calendar || {}) },
+		ui: { ...current.ui, ...(patch.ui || {}) }
+	});
+}
 
 if (!process.env.DATABASE_URL) {
 	throw new Error('DATABASE_URL is required. Copy .env.example to .env and add the Supabase PostgreSQL connection string.');
@@ -1050,6 +1125,24 @@ async function deleteTaskCalendarEventsByCalendarId(db: Queryable, calendarId: s
 	return result.rowCount || 0;
 }
 
+async function fetchAppSettings(db: Queryable = pool): Promise<AppSettings> {
+	const result = await db.query('SELECT value FROM app_settings WHERE key = $1', ['app']);
+	return normalizeAppSettings(result.rows[0]?.value || DEFAULT_APP_SETTINGS);
+}
+
+async function updateAppSettings(db: Queryable = pool, patch: AppSettingsUpdate): Promise<AppSettings> {
+	const current = await fetchAppSettings(db);
+	const next = mergeAppSettings(current, patch || {});
+	const result = await db.query(
+		`INSERT INTO app_settings (key, value)
+		 VALUES ($1, $2::jsonb)
+		 ON CONFLICT (key)
+		 DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+		 RETURNING value`,
+		['app', JSON.stringify(next)]
+	);
+	return normalizeAppSettings(result.rows[0]?.value || next);
+}
 async function createProductivityEvent(db: Queryable, event: ProductivityEventInput): Promise<ProductivityEvent> {
 	const result = await db.query(
 		`INSERT INTO productivity_events
@@ -1070,7 +1163,9 @@ async function createProductivityEvent(db: Queryable, event: ProductivityEventIn
 	return mapProductivityEvent(result.rows[0]);
 }
 
-async function fetchProductivitySummary(db: Queryable = pool, { dailyGoalXp = 50 } = {}): Promise<ProductivitySummary> {
+async function fetchProductivitySummary(db: Queryable = pool, options: { dailyGoalXp?: number } = {}): Promise<ProductivitySummary> {
+	const appSettings = await fetchAppSettings(db);
+	const dailyGoalXp = clampInteger(options.dailyGoalXp, appSettings.productivity.dailyGoalXp, 10, 500);
 	const now = new Date();
 	const todayStart = startOfLocalDay(now);
 	const tomorrowStart = addDays(todayStart, 1);
@@ -1197,6 +1292,17 @@ async function upsertAdvisorMemoryRule(db: Queryable, memoryRule: DbRow) {
 	return mapAdvisorMemoryRule(result.rows[0]);
 }
 
+async function updateAdvisorMemoryRule(db: Queryable = pool, id: string, rule: Record<string, unknown>) {
+	const result = await db.query(
+		`UPDATE advisor_memory_rules
+		 SET rule = $2::jsonb,
+		     updated_at = now()
+		 WHERE id = $1
+		 RETURNING *`,
+		[id, JSON.stringify(rule || {})]
+	);
+	return result.rows[0] ? mapAdvisorMemoryRule(result.rows[0]) : null;
+}
 async function deleteAdvisorMemoryRule(db: Queryable = pool, id: string) {
 	const result = await db.query('DELETE FROM advisor_memory_rules WHERE id = $1', [id]);
 	return result.rowCount > 0;
@@ -1612,9 +1718,12 @@ module.exports = {
 	deleteTaskCalendarEventsByCalendarId,
 	createProductivityEvent,
 	fetchProductivitySummary,
+	fetchAppSettings,
+	updateAppSettings,
 	fetchAdvisorMemoryRules,
 	saveAdvisorFeedback,
 	upsertAdvisorMemoryRule,
+	updateAdvisorMemoryRule,
 	deleteAdvisorMemoryRule,
 	fetchSchedulerRules,
 	fetchActiveSchedulerRules,

@@ -18,6 +18,7 @@ import { EMPTY_FILTERS } from './constants/tasks';
 import { AdvisorProvider } from './context/AdvisorContext';
 import { GoogleCalendarProvider } from './context/GoogleCalendarContext';
 import useAdvisorController from './hooks/useAdvisorController';
+import useAppSettings from './hooks/useAppSettings';
 import useDashboardData from './hooks/useDashboardData';
 import useGoogleCalendar from './hooks/useGoogleCalendar';
 import useProgressLogController from './hooks/useProgressLogController';
@@ -76,7 +77,8 @@ export default function App() {
   }, [darkMode]);
 
   const googleCalendar = useGoogleCalendar({ setError });
-  const { productivitySummary, productivityLoading } = useProductivitySummary({ setError });
+  const { settings, settingsLoading, settingsSaving, refreshSettings, saveSettings } = useAppSettings({ setError });
+  const { productivitySummary, productivityLoading, refreshProductivitySummary } = useProductivitySummary({ setError });
 
   const {
     quickQueueItems,
@@ -214,6 +216,7 @@ export default function App() {
         <div className="app-shell">
       <AppHeader
         onCreateTask={taskForm.openCreateTaskForm}
+        onOpenSettings={() => navigate(viewPath('settings'))}
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((current) => !current)}
         todayXp={productivitySummary.todayXp}
@@ -221,13 +224,13 @@ export default function App() {
       />
 
       <main>
-        <ProductivityPanel summary={productivitySummary} loading={productivityLoading} />
+        {view !== 'productivity' && view !== 'settings' && settings.productivity.showDashboardPanel && <ProductivityPanel summary={productivitySummary} loading={productivityLoading} />}
 
-        <DashboardCounters counters={counters} />
+        {view !== 'productivity' && view !== 'settings' && <DashboardCounters counters={counters} />}
 
         <ViewTabs view={view} />
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <GoogleDailyPanel
             status={googleCalendar.googleStatus}
             loading={googleCalendar.googleLoading}
@@ -242,21 +245,21 @@ export default function App() {
           />
         )}
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <AdvisorPanelContainer
             allTasks={allTasks}
           />
         )}
 
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <BulkArchiveActions
             onArchiveDone={() => taskActions.archiveTasksWithStatus('done')}
             onArchiveCancelled={() => taskActions.archiveTasksWithStatus('cancelled')}
           />
         )}
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <Filters
             filters={filters}
             tags={availableTags}
@@ -288,6 +291,14 @@ export default function App() {
           collectionSections={collectionSections}
           quickQueueItems={quickQueueItems}
           quickQueueLoading={quickQueueLoading}
+          productivitySummary={productivitySummary}
+          productivityLoading={productivityLoading}
+          onProductivityRefresh={refreshProductivitySummary}
+          settings={settings}
+          settingsLoading={settingsLoading}
+          settingsSaving={settingsSaving}
+          onSettingsSave={saveSettings}
+          onSettingsRefresh={refreshSettings}
           onQuickQueueAdd={addQuickQueueItem}
           onQuickQueueToggle={toggleQuickQueueItem}
           onQuickQueueEdit={editQuickQueueItem}

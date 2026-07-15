@@ -11,6 +11,7 @@
 .periodic-days { display: flex; flex-wrap: wrap; gap: 6px; }
 .periodic-days button { border: 1px solid var(--field-border); border-radius: 7px; padding: 6px 10px; background: var(--surface); color: var(--text-soft); font-size: 12px; font-weight: 800; }
 .periodic-days button.active { background: #eaf0ff; border-color: #9cb1ff; color: #315efb; }
+.periodic-option-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
 .periodic-active { display: inline-flex; align-items: center; gap: 7px; width: fit-content; color: var(--text-soft); font-size: 12px; font-weight: 750; }
 .periodic-active input { width: auto; }
 .periodic-editor-actions { display: flex; gap: 8px; }

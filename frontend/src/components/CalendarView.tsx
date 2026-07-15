@@ -3,10 +3,15 @@ import type { Task } from '../../../shared/types';
 import { useAdvisorContext } from '../context/AdvisorContext';
 import { useGoogleCalendarContext } from '../context/GoogleCalendarContext';
 import { advisorCalendarPreviewEvents, advisorReservedPreviewEvents, taskDueDateCalendarEvents } from '../utils/advisorCalendarPreviews';
+import { filterAdvisorProposalBatch } from '../utils/advisorProposalFilters';
 import { AdvisorProposalBuffer } from './AdvisorPanel';
 import CalendarWeekView from './CalendarWeekView';
 
 const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar';
+
+function scheduleStartIso(value: string) {
+  return value ? new Date(`${value}T00:00:00`).toISOString() : '';
+}
 
 type CalendarViewProps = {
   allTasks: Task[];
@@ -16,19 +21,23 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
   const googleCalendar = useGoogleCalendarContext();
   const advisor = useAdvisorContext();
   const [schedulerConstraints, setSchedulerConstraints] = useState<Array<{ taskId: string; start: string; end?: string }>>([]);
+  const [scheduleStartDate, setScheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const calendarProposals = useMemo(
+    () => filterAdvisorProposalBatch(advisor.proposalBatch, 'calendar-events', advisor.lastAdvisorAction),
+    [advisor.lastAdvisorAction, advisor.proposalBatch]
+  );
   const advisorPreviewEvents = useMemo(
     () => advisorCalendarPreviewEvents(
-      advisor.proposalBatch,
+      calendarProposals,
       advisor.proposalStatuses,
       googleCalendar.googleCalendars
     ),
-    [advisor.proposalBatch, advisor.proposalStatuses, googleCalendar.googleCalendars]
+    [calendarProposals, advisor.proposalStatuses, googleCalendar.googleCalendars]
   );
   const dueDateEvents = useMemo(() => taskDueDateCalendarEvents(allTasks), [allTasks]);
-  const reservedPreviewEvents = useMemo(() => advisorReservedPreviewEvents(advisor.proposalBatch), [advisor.proposalBatch]);
+  const reservedPreviewEvents = useMemo(() => advisorReservedPreviewEvents(calendarProposals), [calendarProposals]);
   const calendarWriteReady = googleCalendar.googleStatus.connected && googleCalendar.googleStatus.scopes.includes(CALENDAR_WRITE_SCOPE);
-  const showAdvisorBuffer = advisor.lastAdvisorAction === 'schedule_calendar_events'
-    || (advisor.proposalBatch?.commands || []).some((command) => command.type === 'create_calendar_event');
+  const showAdvisorBuffer = Boolean(calendarProposals);
 
   async function moveAdvisorPreviewEvent(taskId: string, start: string, end: string) {
     const nextConstraints = [
@@ -36,12 +45,12 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
       { taskId, start, end }
     ];
     setSchedulerConstraints(nextConstraints);
-    await advisor.rescheduleAdvisorCalendarEvents(googleCalendar.advisorDefaultCalendarId, nextConstraints);
+    await advisor.rescheduleAdvisorCalendarEvents(googleCalendar.advisorDefaultCalendarId, nextConstraints, scheduleStartIso(scheduleStartDate));
   }
 
   async function clearAdvisorScheduleConstraints() {
     setSchedulerConstraints([]);
-    await advisor.rescheduleAdvisorCalendarEvents(googleCalendar.advisorDefaultCalendarId, []);
+    await advisor.rescheduleAdvisorCalendarEvents(googleCalendar.advisorDefaultCalendarId, [], scheduleStartIso(scheduleStartDate));
   }
 
   return (
@@ -71,7 +80,9 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
         onDeleteDefaultCalendarEvents={googleCalendar.deleteDefaultCalendarEvents}
         advisorLoading={advisor.advisorLoading}
         advisorConstraintCount={schedulerConstraints.length}
-        onRequestAdvisorCalendarEvents={() => advisor.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId, schedulerConstraints })}
+        scheduleStartDate={scheduleStartDate}
+        onScheduleStartDateChange={setScheduleStartDate}
+        onRequestAdvisorCalendarEvents={() => advisor.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId, schedulerConstraints, scheduleStartFrom: scheduleStartIso(scheduleStartDate) })}
         onMoveAdvisorPreviewEvent={moveAdvisorPreviewEvent}
         onClearAdvisorScheduleConstraints={clearAdvisorScheduleConstraints}
       />
@@ -79,7 +90,7 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
         <AdvisorProposalBuffer
           allTasks={allTasks}
           googleCalendars={googleCalendar.googleCalendars}
-          proposals={advisor.proposalBatch}
+          proposals={calendarProposals}
           action={advisor.lastAdvisorAction}
           proposalStatuses={advisor.proposalStatuses}
           proposalFeedbackStatuses={advisor.proposalFeedbackStatuses}

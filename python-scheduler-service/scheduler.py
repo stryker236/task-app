@@ -90,7 +90,8 @@ def select_candidate(task_id: str, candidates: list[Candidate], task_count: int)
         var = model.NewBoolVar(f"{task_id}_{index}")
         candidate_vars.append((candidate, var))
     model.AddExactlyOne(var for _, var in candidate_vars)
-    model.Minimize(sum((candidate.slot * max(1, task_count) + candidate.order + candidate.score) * var for candidate, var in candidate_vars))
+    preference_weight = max(1, int((max(candidate.slot for candidate, _ in candidate_vars) + task_count + 1) * 10))
+    model.Minimize(sum((candidate.score * preference_weight + candidate.slot * max(1, task_count) + candidate.order) * var for candidate, var in candidate_vars))
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 1

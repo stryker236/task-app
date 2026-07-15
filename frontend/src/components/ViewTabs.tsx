@@ -3,6 +3,7 @@ import type { ViewKey } from '../constants/tasks';
 import { viewPath } from '../utils/routes';
 
 const TABS = [
+  ['productivity', 'Produtividade'],
   ['kanban', 'Kanban'],
   ['quickQueue', 'Fila rapida'],
   ['collections', 'Cobrancas provaveis'],

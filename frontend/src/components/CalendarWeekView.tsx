@@ -39,6 +39,8 @@ type CalendarWeekViewProps = {
   onDeleteDefaultCalendarEvents: () => Promise<{ calendarSummary: string; deletedCount: number; unlinkedCount: number } | null>;
   advisorLoading: boolean;
   advisorConstraintCount: number;
+  scheduleStartDate: string;
+  onScheduleStartDateChange: (value: string) => void;
   onRequestAdvisorCalendarEvents: () => void;
   onMoveAdvisorPreviewEvent: (taskId: string, start: string, end: string) => void;
   onClearAdvisorScheduleConstraints: () => void;
@@ -194,6 +196,8 @@ export default function CalendarWeekView({
   onDeleteDefaultCalendarEvents,
   advisorLoading,
   advisorConstraintCount,
+  scheduleStartDate,
+  onScheduleStartDateChange,
   onRequestAdvisorCalendarEvents,
   onMoveAdvisorPreviewEvent,
   onClearAdvisorScheduleConstraints
@@ -369,6 +373,10 @@ export default function CalendarWeekView({
                 </select>
               </label>
             )}
+            <label>
+              <span>Agendar desde</span>
+              <input type="date" value={scheduleStartDate} onChange={(event) => onScheduleStartDateChange(event.target.value)} />
+            </label>
             <button
               type="button"
               className="button primary small"

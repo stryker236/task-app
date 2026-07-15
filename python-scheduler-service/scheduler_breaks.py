@@ -127,7 +127,7 @@ def reserve_breaks_after_selected_task(
     )
     work_minutes_threshold = int(constraint_payload.get("workMinutes") or 0)
     previous_task_end = work_block_state.get("last_end")
-    if not previous_task_end or selected_candidate.start > previous_task_end:
+    if not previous_task_end or selected_candidate.start != previous_task_end:
         work_block_state["minutes"] = 0
     work_block_state["minutes"] = (
         int(work_block_state.get("minutes") or 0) + task_duration_minutes

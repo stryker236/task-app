@@ -37,9 +37,12 @@ const {
   deleteTaskCalendarEventsByCalendarId,
   createProductivityEvent,
   fetchProductivitySummary,
+  fetchAppSettings,
+  updateAppSettings,
   fetchAdvisorMemoryRules,
   saveAdvisorFeedback,
   upsertAdvisorMemoryRule,
+  updateAdvisorMemoryRule,
   deleteAdvisorMemoryRule,
   fetchSchedulerRules,
   fetchActiveSchedulerRules,
@@ -73,6 +76,7 @@ const { createAdvisorRouter } = require('./routes/advisorRoutes');
 const { createSchedulerRuleRouter } = require('./routes/schedulerRuleRoutes');
 const { createQuickQueueRouter } = require('./routes/quickQueueRoutes');
 const { createProductivityRouter } = require('./routes/productivityRoutes');
+const { createSettingsRouter } = require('./routes/settingsRoutes');
 const { createPeriodicTaskRouter } = require('./routes/periodicTaskRoutes');
 const { createGoogleRouter } = require('./routes/googleRoutes');
 const { createLogRouter } = require('./routes/logRoutes');
@@ -145,9 +149,12 @@ const routeDependencies = {
   deleteTaskCalendarEventsByCalendarId,
   createProductivityEvent,
   fetchProductivitySummary,
+  fetchAppSettings,
+  updateAppSettings,
   fetchAdvisorMemoryRules,
   saveAdvisorFeedback,
   upsertAdvisorMemoryRule,
+  updateAdvisorMemoryRule,
   deleteAdvisorMemoryRule,
   fetchSchedulerRules,
   fetchActiveSchedulerRules,
@@ -184,6 +191,7 @@ app.use(createSchedulerRuleRouter(routeDependencies));
 app.use('/api', createSchedulerRuleRouter(routeDependencies));
 app.use(createQuickQueueRouter(routeDependencies));
 app.use(createProductivityRouter(routeDependencies));
+app.use(createSettingsRouter(routeDependencies));
 app.use(createPeriodicTaskRouter(routeDependencies));
 app.use(createGoogleRouter(routeDependencies));
 app.use(createLogRouter());

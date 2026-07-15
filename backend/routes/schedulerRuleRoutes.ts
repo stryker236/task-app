@@ -248,7 +248,11 @@ function createSchedulerRuleRouter({
   router.patch('/scheduler/rules/:id', async (req, res, next) => {
     try {
       const patch: Record<string, any> = {};
-      if (typeof req.body?.text === 'string') patch.text = normalizeString(req.body.text);
+      if (typeof req.body?.text === 'string') {
+        patch.text = normalizeString(req.body.text);
+        if (!patch.text) throw createValidationError(['text is required']);
+        if (patch.text.length > 1000) throw createValidationError(['text must have at most 1000 characters']);
+      }
       if (typeof req.body?.enabled === 'boolean') {
         patch.enabled = req.body.enabled;
         patch.status = req.body.enabled ? 'active' : 'disabled';

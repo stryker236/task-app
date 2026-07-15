@@ -8,6 +8,8 @@ export const VIEW_PATHS: Record<ViewKey, string> = {
   sharedNotes: '/shared-notes',
   calendar: '/calendar',
   periodicTasks: '/rotinas',
+  productivity: '/productivity',
+  settings: '/settings',
   learnedRules: '/learned-rules',
   schedulerRules: '/scheduler-rules',
   logs: '/logs',

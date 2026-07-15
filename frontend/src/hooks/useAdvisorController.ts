@@ -9,8 +9,10 @@ import {
   requestTaskAdvisorCommands,
   submitAdvisorFeedback,
   submitAdvisorInteractionFeedback,
+  updateAdvisorMemoryRule,
   type AdvisorFeedbackInput,
   type AdvisorMemoryRule,
+  type AdvisorMemoryRuleUpdate,
   type SchedulerConstraintInput,
   type TaskFilters
 } from '../api';
@@ -73,7 +75,7 @@ export default function useAdvisorController({
     }
   }
 
-  async function requestAdvisorActions(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[] } = {}) {
+  async function requestAdvisorActions(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[]; scheduleStartFrom?: string } = {}) {
     if (!action) return;
 
     try {
@@ -109,6 +111,15 @@ export default function useAdvisorController({
     }
   }
 
+
+  async function saveAdvisorMemoryRule(id: string, patch: AdvisorMemoryRuleUpdate) {
+    try {
+      const updated = await updateAdvisorMemoryRule(id, patch);
+      setAdvisorMemoryRules((current) => current.map((rule) => rule.id === updated.id ? updated : rule));
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    }
+  }
   async function forgetAdvisorMemoryRule(id: string) {
     try {
       await deleteAdvisorMemoryRule(id);
@@ -236,8 +247,8 @@ export default function useAdvisorController({
     });
   }
 
-  async function rescheduleAdvisorCalendarEvents(defaultCalendarId: string, schedulerConstraints: SchedulerConstraintInput[]) {
-    await requestAdvisorActions('schedule_calendar_events', { defaultCalendarId, schedulerConstraints });
+  async function rescheduleAdvisorCalendarEvents(defaultCalendarId: string, schedulerConstraints: SchedulerConstraintInput[], scheduleStartFrom = '') {
+    await requestAdvisorActions('schedule_calendar_events', { defaultCalendarId, schedulerConstraints, scheduleStartFrom });
   }
 
   async function saveAdvisorInteractionFeedback(feedback: AdvisorFeedbackInput['feedback']) {
@@ -299,6 +310,7 @@ export default function useAdvisorController({
     rescheduleAdvisorCalendarEvents,
     refreshAdvisorMemoryRules,
     forgetAdvisorMemoryRule,
+    saveAdvisorMemoryRule,
     applyAdvisorProposal,
     ignoreAdvisorProposal,
     applyAllAdvisorProposals,

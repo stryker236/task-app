@@ -1,22 +1,25 @@
 import type { Task } from '../../../shared/types';
 import { useAdvisorContext } from '../context/AdvisorContext';
 import { useGoogleCalendarContext } from '../context/GoogleCalendarContext';
+import { filterAdvisorProposalBatch, type AdvisorProposalSurface } from '../utils/advisorProposalFilters';
 import AdvisorPanel from './AdvisorPanel';
 
 type AdvisorPanelContainerProps = {
   allTasks: Task[];
+  proposalSurface?: AdvisorProposalSurface;
 };
 
-export default function AdvisorPanelContainer({ allTasks }: AdvisorPanelContainerProps) {
+export default function AdvisorPanelContainer({ allTasks, proposalSurface = 'task-planning' }: AdvisorPanelContainerProps) {
   const googleCalendar = useGoogleCalendarContext();
   const advisor = useAdvisorContext();
+  const visibleProposals = filterAdvisorProposalBatch(advisor.proposalBatch, proposalSurface, advisor.lastAdvisorAction);
 
   return (
     <AdvisorPanel
       allTasks={allTasks}
       advice={advisor.advisor}
       loading={advisor.advisorLoading}
-      proposals={advisor.proposalBatch}
+      proposals={visibleProposals}
       currentAction={advisor.lastAdvisorAction}
       proposalStatuses={advisor.proposalStatuses}
       proposalFeedbackStatuses={advisor.proposalFeedbackStatuses}

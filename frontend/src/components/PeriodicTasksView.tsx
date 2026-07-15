@@ -33,7 +33,8 @@ const EMPTY_FORM = {
   allowedDays: [] as number[],
   windowStart: '',
   windowEnd: '',
-  minSpacingHours: 0
+  minSpacingHours: 0,
+  maxOnePerDay: false
 };
 
 type PeriodicTasksViewProps = {
@@ -74,7 +75,8 @@ function formFromTask(task: PeriodicTask) {
     allowedDays: task.hardConstraints.allowedDays || [],
     windowStart: firstWindow.startTime || '',
     windowEnd: firstWindow.endTime || '',
-    minSpacingHours: Number(task.hardConstraints.minSpacingHours || 0)
+    minSpacingHours: Number(task.hardConstraints.minSpacingHours || 0),
+    maxOnePerDay: Number(task.hardConstraints.maxOccurrencesPerDay || 0) === 1
   };
 }
 
@@ -91,7 +93,8 @@ function taskInputFromForm(form: typeof EMPTY_FORM): PeriodicTaskInput {
     hardConstraints: {
       allowedDays: form.allowedDays,
       allowedWindows: form.windowStart && form.windowEnd ? [{ startTime: form.windowStart, endTime: form.windowEnd }] : [],
-      minSpacingHours: form.minSpacingHours || 0
+      minSpacingHours: form.minSpacingHours || 0,
+      maxOccurrencesPerDay: form.maxOnePerDay ? 1 : 0
     },
     preferences: {}
   };
@@ -283,7 +286,10 @@ export default function PeriodicTasksView({ onError }: PeriodicTasksViewProps) {
             </button>
           ))}
         </div>
-        <label className="periodic-active"><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /> Ativa</label>
+        <div className="periodic-option-row">
+          <label className="periodic-active"><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /> Ativa</label>
+          <label className="periodic-active"><input type="checkbox" checked={form.maxOnePerDay} onChange={(event) => setForm({ ...form, maxOnePerDay: event.target.checked })} /> Max. 1 ocorrencia por dia</label>
+        </div>
         <div className="periodic-editor-actions">
           <button type="button" className="button primary" onClick={save} disabled={!form.title.trim()}>Guardar rotina</button>
           {editingId && <button type="button" className="button secondary" onClick={() => { setEditingId(''); setForm(EMPTY_FORM); }}>Cancelar</button>}
@@ -310,6 +316,7 @@ export default function PeriodicTasksView({ onError }: PeriodicTasksViewProps) {
                 <span>Dias: {dayLabels(task.hardConstraints.allowedDays || []) || 'qualquer'}</span>
                 <span>Janela: {task.hardConstraints.allowedWindows?.[0] ? `${task.hardConstraints.allowedWindows[0].startTime}-${task.hardConstraints.allowedWindows[0].endTime}` : 'sem janela'}</span>
                 <span>Espaco: {task.hardConstraints.minSpacingHours || 0}h</span>
+                <span>Limite diario: {Number(task.hardConstraints.maxOccurrencesPerDay || 0) === 1 ? 'max. 1' : 'sem limite'}</span>
               </div>
               <ConstraintComposer task={task} onCreate={addConstraint} />
               {task.constraints.length ? (

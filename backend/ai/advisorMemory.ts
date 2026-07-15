@@ -3,6 +3,10 @@ const STOP_WORDS = new Set([
   'o', 'os', 'para', 'por', 'que', 'the', 'to', 'of', 'and'
 ]);
 
+const ADVISOR_MEMORY_SUPPORT_WEIGHT = 3;
+const ADVISOR_MEMORY_MANUAL_CONFIDENCE_FLOOR = 0.9;
+const ADVISOR_MEMORY_LEARNED_CONFIDENCE_FLOOR = 0.65;
+
 // Convert free text into stable comparison tokens used by fingerprints.
 function sanitizeWord(value: string) {
   const withoutAccents = value
@@ -285,11 +289,26 @@ function contextSpecificity(context: Record<string, any> = {}) {
 
 function memoryRuleStrength(item: Record<string, any> = {}) {
   const context = ruleContext(item.rule || item);
-  const behavior = ruleBehavior(item.rule || item);
-  const confidence = Number(behavior.confidence ?? item.rule?.confidence ?? 0);
-  const supportCount = Number(item.supportCount || item.support_count || 1);
+  const confidence = advisorMemoryConfidence(item);
+  const supportCount = advisorMemorySupportCount(item);
   const specificity = contextSpecificity(context);
-  return specificity * 10 + Math.min(10, supportCount * 2) + Math.max(0, Math.min(1, confidence)) * 5;
+  return specificity * 10 + Math.min(30, supportCount * 2) + Math.max(0, Math.min(1, confidence)) * 10;
+}
+
+function advisorMemorySupportCount(item: Record<string, any> = {}) {
+  const supportCount = Number(item.supportCount || item.support_count || 1);
+  return Math.max(1, supportCount) * ADVISOR_MEMORY_SUPPORT_WEIGHT;
+}
+
+function advisorMemoryConfidence(item: Record<string, any> = {}) {
+  const rule = item.rule || item;
+  const behavior = ruleBehavior(rule);
+  const rawConfidence = Number(behavior.confidence ?? rule.confidence ?? 0);
+  const source = String(rule.source || '');
+  const floor = source === 'manual_memory_edit'
+    ? ADVISOR_MEMORY_MANUAL_CONFIDENCE_FLOOR
+    : ADVISOR_MEMORY_LEARNED_CONFIDENCE_FLOOR;
+  return Math.max(floor, Math.max(0, Math.min(1, rawConfidence || 0)));
 }
 
 function hasConcreteBehavior(behavior: Record<string, any> = {}) {
@@ -320,10 +339,9 @@ function hasConcreteBehavior(behavior: Record<string, any> = {}) {
 }
 
 function isWeakGenericRule(item: Record<string, any> = {}) {
-  const behavior = ruleBehavior(item.rule || item);
   const context = ruleContext(item.rule || item);
-  const confidence = Number(behavior.confidence ?? item.rule?.confidence ?? 0);
-  const supportCount = Number(item.supportCount || item.support_count || 1);
+  const confidence = advisorMemoryConfidence(item);
+  const supportCount = advisorMemorySupportCount(item);
   return contextSpecificity(context) < 3 && supportCount < 2 && confidence < 0.7;
 }
 
@@ -613,7 +631,8 @@ function buildAdvisorMemoryContext(rules: any[] = []) {
       action: item.item.action,
       summary: item.item.rule.summary || '',
       source: item.item.rule.source || 'backend_feedback_fallback',
-      confidence: item.item.rule.confidence ?? null,
+      confidence: advisorMemoryConfidence(item.item),
+      weight: advisorMemorySupportCount(item.item),
       context: item.context,
       behavior: item.behavior,
       appliesToCommandType: item.behavior.appliesToCommandType || item.context.commandTypes?.[0] || '',
@@ -669,8 +688,8 @@ function contextMatchesRule(preview: Record<string, any>, rule: Record<string, a
   const expected = ruleContext(rule);
   const actual = previewContext(preview);
   const behavior = ruleBehavior(rule);
-  const supportCount = Number(rule.supportCount || 1);
-  const confidence = Number(behavior.confidence ?? 0);
+  const supportCount = advisorMemorySupportCount(rule);
+  const confidence = advisorMemoryConfidence(rule);
   const specificity = contextSpecificity(expected);
   if (!hasConcreteBehavior(behavior)) return false;
   if (specificity < 3 && supportCount < 2 && confidence < 0.7) return false;

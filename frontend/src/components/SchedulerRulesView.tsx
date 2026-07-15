@@ -3,11 +3,13 @@ import {
   createSchedulerRulesFromText,
   deleteSchedulerRule,
   getSchedulerRules,
+  getTasks,
   reinterpretSchedulerRule,
   updateSchedulerRule,
   type SchedulerRule,
   type SchedulerRuleConstraint
 } from '../api';
+import type { Task } from '../../../shared/types';
 
 type ConstraintDraft = {
   type: string;
@@ -114,6 +116,57 @@ function selectedStrings(current: string[], value: string, checked: boolean) {
   if (checked) set.add(value);
   else set.delete(value);
   return [...set];
+}
+function appendTaskIdList(current: string, taskId: string) {
+  return [...new Set([...splitList(current), taskId])].join(', ');
+}
+
+function TaskIdPicker({
+  tasks,
+  currentValue,
+  copiedTaskId,
+  onCopy,
+  onInsert
+}: {
+  tasks: Task[];
+  currentValue: string;
+  copiedTaskId: string;
+  onCopy: (task: Task) => void;
+  onInsert: (value: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const selectedIds = splitList(currentValue);
+  const visibleTasks = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase();
+    return tasks
+      .filter((task) => !term || task.title.toLocaleLowerCase().includes(term) || task.id.toLocaleLowerCase().includes(term))
+      .slice(0, 12);
+  }, [search, tasks]);
+
+  return (
+    <div className="scheduler-task-id-picker">
+      <label>
+        <span>Encontrar task ID</span>
+        <input value={search} placeholder="Pesquisar por titulo ou ID" onChange={(event) => setSearch(event.target.value)} />
+      </label>
+      <div className="scheduler-task-id-list">
+        {visibleTasks.length ? visibleTasks.map((task) => (
+          <article key={task.id}>
+            <div>
+              <strong>{task.title}</strong>
+              <code>{task.id}</code>
+            </div>
+            <div>
+              <button type="button" className="button ghost small" onClick={() => onCopy(task)}>{copiedTaskId === task.id ? 'Copiado' : 'Copiar'}</button>
+              <button type="button" className="button secondary small" disabled={selectedIds.includes(task.id)} onClick={() => onInsert(appendTaskIdList(currentValue, task.id))}>
+                {selectedIds.includes(task.id) ? 'No escopo' : 'Usar'}
+              </button>
+            </div>
+          </article>
+        )) : <p className="advisor-empty">Nenhuma tarefa encontrada.</p>}
+      </div>
+    </div>
+  );
 }
 
 function validateTimeRange(payload: Record<string, unknown>, errors: string[]) {
@@ -282,18 +335,26 @@ function ConstraintDetails({
   constraint,
   copied,
   saving,
+  tasks,
+  copiedTaskId,
   onCopy,
+  onCopyTaskId,
   onSave
 }: {
   constraint: SchedulerRuleConstraint;
   copied: boolean;
   saving: boolean;
+  tasks: Task[];
+  copiedTaskId: string;
   onCopy: (constraint: SchedulerRuleConstraint) => void;
+  onCopyTaskId: (task: Task) => void;
   onSave: (constraint: SchedulerRuleConstraint, draft: ConstraintDraft) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [showJson, setShowJson] = useState(false);
   const [draft, setDraft] = useState(() => draftFromConstraint(constraint));
   const errors = validateDraft(draft);
+  const constraintJson = JSON.stringify(constraint, null, 2);
 
   useEffect(() => {
     setDraft(draftFromConstraint(constraint));
@@ -325,6 +386,13 @@ function ConstraintDetails({
               <label><span>Titulo contem</span><input value={draft.scope.titleIncludes} placeholder="invoice, cliente" onChange={(event) => setDraft({ ...draft, scope: { ...draft.scope, titleIncludes: event.target.value } })} /></label>
               <label><span>Task IDs</span><input value={draft.scope.taskIds} placeholder="uuid1, uuid2" onChange={(event) => setDraft({ ...draft, scope: { ...draft.scope, taskIds: event.target.value } })} /></label>
             </div>
+            <TaskIdPicker
+              tasks={tasks}
+              currentValue={draft.scope.taskIds}
+              copiedTaskId={copiedTaskId}
+              onCopy={onCopyTaskId}
+              onInsert={(taskIds) => setDraft({ ...draft, scope: { ...draft.scope, taskIds, allTasks: false } })}
+            />
             <span className="scheduler-editor-label">Estados</span>
             <div className="scheduler-checkbox-row">{STATUS_OPTIONS.map((status) => <label key={status}><input type="checkbox" checked={draft.scope.statuses.includes(status)} onChange={(event) => setDraft({ ...draft, scope: { ...draft.scope, statuses: selectedStrings(draft.scope.statuses, status, event.target.checked) } })} /><span>{status}</span></label>)}</div>
             <span className="scheduler-editor-label">Prioridades</span>
@@ -343,17 +411,21 @@ function ConstraintDetails({
           </div>
         </div>
       ) : (
-        <dl>
-          <div><dt>Escopo</dt><dd>{formatScope(constraint.scope)}</dd></div>
-          <div><dt>Parametros</dt><dd>{formatPayload(constraint.payload)}</dd></div>
-          <div>
-            <dt>Acoes</dt>
-            <dd className="scheduler-constraint-actions">
-              <button type="button" className="button secondary small" onClick={() => setEditing(true)}>Editar seguro</button>
-              <button type="button" className="button ghost small" onClick={() => onCopy(constraint)}>{copied ? 'Copiado' : 'Copiar JSON'}</button>
-            </dd>
-          </div>
-        </dl>
+        <>
+          <dl>
+            <div><dt>Escopo</dt><dd>{formatScope(constraint.scope)}</dd></div>
+            <div><dt>Parametros</dt><dd>{formatPayload(constraint.payload)}</dd></div>
+            <div>
+              <dt>Acoes</dt>
+              <dd className="scheduler-constraint-actions">
+                <button type="button" className="button secondary small" onClick={() => setEditing(true)}>Editar seguro</button>
+                <button type="button" className="button secondary small" onClick={() => setShowJson((current) => !current)}>{showJson ? 'Ocultar JSON' : 'Ver JSON'}</button>
+                <button type="button" className="button ghost small" onClick={() => onCopy(constraint)}>{copied ? 'Copiado' : 'Copiar JSON'}</button>
+              </dd>
+            </div>
+          </dl>
+          {showJson && <pre className="scheduler-constraint-json">{constraintJson}</pre>}
+        </>
       )}
     </article>
   );
@@ -361,6 +433,7 @@ function ConstraintDetails({
 
 export default function SchedulerRulesView() {
   const [rules, setRules] = useState<SchedulerRule[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -369,6 +442,9 @@ export default function SchedulerRulesView() {
   const [error, setError] = useState('');
   const [lastCreatedCount, setLastCreatedCount] = useState(0);
   const [copiedConstraintId, setCopiedConstraintId] = useState('');
+  const [copiedTaskId, setCopiedTaskId] = useState('');
+  const [ruleTitleDraft, setRuleTitleDraft] = useState('');
+  const [savingRuleTitle, setSavingRuleTitle] = useState(false);
 
   const selectedRule = useMemo(() => rules.find((rule) => rule.id === selectedId) || rules[0] || null, [rules, selectedId]);
 
@@ -376,8 +452,9 @@ export default function SchedulerRulesView() {
     try {
       setLoading(true);
       setError('');
-      const nextRules = await getSchedulerRules();
+      const [nextRules, nextTasks] = await Promise.all([getSchedulerRules(), getTasks({ includeArchived: true })]);
       setRules(nextRules);
+      setTasks(nextTasks);
       setSelectedId((current) => current && nextRules.some((rule) => rule.id === current) ? current : nextRules[0]?.id || '');
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
@@ -434,6 +511,30 @@ export default function SchedulerRulesView() {
     }
   }
 
+  async function saveRuleTitle(rule: SchedulerRule) {
+    const text = ruleTitleDraft.trim();
+    if (!text) {
+      setError('O titulo da regra nao pode ficar vazio.');
+      return;
+    }
+    try {
+      setError('');
+      setSavingRuleTitle(true);
+      const updated = await updateSchedulerRule(rule.id, { text });
+      setRules((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setSelectedId(updated.id);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setSavingRuleTitle(false);
+    }
+  }
+
+  async function copyTaskId(task: Task) {
+    await navigator.clipboard.writeText(task.id);
+    setCopiedTaskId(task.id);
+    window.setTimeout(() => setCopiedTaskId((current) => current === task.id ? '' : current), 1500);
+  }
   async function reinterpret(rule: SchedulerRule) {
     try {
       setError('');
@@ -464,6 +565,10 @@ export default function SchedulerRulesView() {
   }
 
   useEffect(() => { refresh(); }, []);
+
+  useEffect(() => {
+    setRuleTitleDraft(selectedRule?.text || '');
+  }, [selectedRule?.id, selectedRule?.text]);
 
   return (
     <section className="scheduler-rules-view" aria-label="Regras de agendamento AI">
@@ -501,7 +606,16 @@ export default function SchedulerRulesView() {
           {selectedRule ? (
             <>
               <header>
-                <div><span>Detalhes</span><h3>{selectedRule.text}</h3></div>
+                <div className="scheduler-rule-title-editor">
+                  <span>Detalhes</span>
+                  <label>
+                    <span>Titulo da regra</span>
+                    <input value={ruleTitleDraft} maxLength={1000} onChange={(event) => setRuleTitleDraft(event.target.value)} />
+                  </label>
+                  <button type="button" className="button secondary small" disabled={savingRuleTitle || !ruleTitleDraft.trim() || ruleTitleDraft.trim() === selectedRule.text} onClick={() => saveRuleTitle(selectedRule)}>
+                    {savingRuleTitle ? 'A guardar...' : 'Guardar titulo'}
+                  </button>
+                </div>
                 <span className={`scheduler-rule-status is-${selectedRule.status}`}>{selectedRule.status}</span>
               </header>
 
@@ -523,7 +637,7 @@ export default function SchedulerRulesView() {
                 {selectedRule.constraints.length ? (
                   <div className="scheduler-constraints-list">
                     {selectedRule.constraints.map((constraint) => (
-                      <ConstraintDetails key={constraint.id} constraint={constraint} copied={copiedConstraintId === constraint.id} saving={savingConstraintId === constraint.id} onCopy={copyConstraintPayload} onSave={(item, draft) => saveConstraint(selectedRule, item, draft)} />
+                      <ConstraintDetails key={constraint.id} constraint={constraint} copied={copiedConstraintId === constraint.id} saving={savingConstraintId === constraint.id} tasks={tasks} copiedTaskId={copiedTaskId} onCopy={copyConstraintPayload} onCopyTaskId={copyTaskId} onSave={(item, draft) => saveConstraint(selectedRule, item, draft)} />
                     ))}
                   </div>
                 ) : <p className="advisor-empty">Sem restricoes derivadas. A regra pode precisar de revisao.</p>}

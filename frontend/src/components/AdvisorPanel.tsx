@@ -576,6 +576,105 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
   );
 }
 
+function decisionSummaryItems(text: string) {
+  const normalized = text.replace(/\r/g, '\n').trim();
+  const numbered = [...normalized.matchAll(/(?:^|\n)\s*\d+[.)]\s*([\s\S]*?)(?=\n\s*\d+[.)]\s*|$)/g)]
+    .map((match) => match[1].replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (numbered.length) return numbered;
+  return normalized
+    .split(/\n+|(?=\s*\d+[.)]\s+)/)
+    .map((item) => item.replace(/^\s*\d+[.)]\s*/, '').trim())
+    .filter(Boolean);
+}
+
+function decisionDetailLabel(detail: string) {
+  const value = detail.toLocaleLowerCase();
+  if (/\b(\d{1,2}:\d{2}|start|end|inicio|início|fim|hora|slot|agend)/i.test(detail)) return 'Horario';
+  if (/busy|ocupad|livre|free|calendar|calendario|calendário|google|evento/i.test(detail)) return 'Agenda';
+  if (/rule|regra|constraint|stored|agenda ai|afetou|affected/i.test(detail)) return 'Regras';
+  if (/due|prazo|priority|prioridade|duration|dura[cç][aã]o|sinal/i.test(detail)) return 'Sinais';
+  if (value.includes('porque') || value.includes('why') || value.includes('selected') || value.includes('escolh')) return 'Motivo';
+  return 'Detalhe';
+}
+
+function splitDecisionSummaryItem(item: string) {
+  const cleaned = item.replace(/\s+/g, ' ').trim();
+  const colonIndex = cleaned.indexOf(':');
+  const sentenceMatch = cleaned.match(/[.!?]\s/);
+  const titleEnd = colonIndex > 5 && colonIndex < 120
+    ? colonIndex
+    : sentenceMatch?.index != null && sentenceMatch.index < 120
+      ? sentenceMatch.index + 1
+      : Math.min(cleaned.length, 110);
+  const title = cleaned.slice(0, titleEnd).replace(/[:;,.\s]+$/, '').trim() || 'Decisao de agendamento';
+  const rest = cleaned.slice(titleEnd + (cleaned[titleEnd] === ':' ? 1 : 0)).trim();
+  const details = rest
+    .split(/(?:;|\.\s+|\s+\|\s+)/)
+    .map((part) => part.trim().replace(/[.;]+$/, ''))
+    .filter(Boolean);
+  return { title, details: details.length ? details : [cleaned] };
+}
+
+function AdvisorDecisionSummary({ summary, enabled }: { summary: string; enabled: boolean }) {
+  if (!enabled) return <p>{summary || 'Reve e aplica apenas o que fizer sentido.'}</p>;
+  const text = summary || 'Reve e aplica apenas o que fizer sentido.';
+  const items = decisionSummaryItems(text);
+  if (!items.length) return <p className="advisor-decision-summary-fallback">{text}</p>;
+  return (
+    <div className="advisor-decision-summary" aria-label="Resumo das decisoes de agendamento">
+      <header>
+        <span>Resumo das decisoes</span>
+        <strong>{items.length} {items.length === 1 ? 'decisao' : 'decisoes'}</strong>
+      </header>
+      <div className="advisor-decision-list">
+        {items.map((item, index) => {
+          const decision = splitDecisionSummaryItem(item);
+          return (
+            <article className="advisor-decision-card" key={`${index}-${item.slice(0, 20)}`}>
+              <b>{index + 1}</b>
+              <div>
+                <strong>{decision.title}</strong>
+                <dl>
+                  {decision.details.map((detail, detailIndex) => (
+                    <div key={`${index}-${detailIndex}-${detail.slice(0, 12)}`}>
+                      <dt>{decisionDetailLabel(detail)}</dt>
+                      <dd>{detail}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+function SchedulerDebugReveal({ debug }: { debug?: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  if (!debug) return null;
+  const debugJson = JSON.stringify(debug, null, 2);
+  async function copyDebugJson() {
+    await navigator.clipboard.writeText(debugJson);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+  return (
+    <section className="advisor-scheduler-debug" aria-label="Scheduler debug JSON">
+      <div>
+        <strong>Scheduler debug</strong>
+        <span>Request, response, regras, rotinas, busy events e candidatos usados neste agendamento.</span>
+      </div>
+      <div className="advisor-scheduler-debug-actions">
+        <button type="button" className="button secondary small" onClick={() => setOpen((current) => !current)}>{open ? 'Ocultar debug' : 'Reveal debug JSON'}</button>
+        <button type="button" className="button ghost small" onClick={copyDebugJson}>{copied ? 'Copiado' : 'Copiar debug JSON'}</button>
+      </div>
+      {open && <pre>{debugJson}</pre>}
+    </section>
+  );
+}
 export function AdvisorProposalBuffer({
   allTasks = [],
   googleCalendars = [],
@@ -625,13 +724,13 @@ export function AdvisorProposalBuffer({
   const pendingCount = visibleCommands.length;
   const hasCalendarProposal = commands.some((command) => command.type === 'create_calendar_event');
   const calendarPermissionBlocked = hasCalendarProposal && !calendarWriteReady;
+  const schedulerDebug = proposals.debug?.schedulerDebug;
 
   return (
     <section className="advisor-buffer" aria-label="Propostas do assistente">
       <header>
         <div>
           <h3>Propostas para validar</h3>
-          <p>{proposals.summary || 'Reve e aplica apenas o que fizer sentido.'}</p>
         </div>
         <div className="advisor-buffer-actions">
           <button type="button" className="button primary small" onClick={onApplyAllProposals} disabled={!pendingCount || applyingAllProposals || calendarPermissionBlocked}>
@@ -654,6 +753,8 @@ export function AdvisorProposalBuffer({
           </button>
         </div>
       )}
+
+      <SchedulerDebugReveal debug={schedulerDebug} />
 
       <AdvisorDebugSummary proposals={proposals} />
 
