@@ -664,8 +664,8 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			.filter(Boolean);
 		const periodicTaskId = task?.periodicTaskId || null;
 		const baseReason = periodicTaskId
-			? (fixed ? 'Rotina periodica com horario fixo.' : 'Rotina periodica encaixada pelo OR-Tools.')
-			: (fixed ? 'Horario ajustado pelo utilizador e reagendado pelo OR-Tools.' : 'Horario escolhido pelo OR-Tools no proximo slot livre.');
+			? (fixed ? 'Rotina periodica com horario fixo.' : 'Rotina periodica encaixada pelo scheduler.')
+			: (fixed ? 'Horario ajustado pelo utilizador e reagendado pelo scheduler.' : 'Horario escolhido pelo scheduler no proximo slot livre.');
 		return {
 			id: `schedule_${item.taskId}`,
 			type: 'create_calendar_event',
@@ -686,25 +686,8 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			}
 		};
 	});
-	let explanationModel = null;
-	let explanationSummary = '';
-	try {
-		const explained = await explainScheduleCommandsWithOpenAi({
-			commands,
-			tasksById,
-			busyEvents: busyWithCalendarSummaries,
-			schedulerRules: activeSchedulerRules,
-			reservedBlocks: scheduled.reserved || [],
-			now,
-			horizonEnd,
-			timeZone: calendarTimeZone
-		});
-		commands = explained.commands;
-		explanationModel = explained.model;
-		explanationSummary = explained.summary || '';
-	} catch (error: any) {
-		logger.warn('advisor.schedule_explanations.failed', { metadata: { message: error.message } });
-	}
+	const explanationModel = null;
+	const explanationSummary = '';
 	return {
 		commands,
 		explanationModel,
@@ -1021,6 +1004,13 @@ function createAdvisorRouter({
 		} catch (error) { next(error); }
 	});
 
+	function updateTasksAfterCommand(tasks, commandResult) {
+		if (!commandResult?.task) return tasks;
+		return tasks.some((task) => task.id === commandResult.task.id)
+			? tasks.map((task) => task.id === commandResult.task.id ? commandResult.task : task)
+			: [...tasks, commandResult.task];
+	}
+
 	router.post('/ai/advisor/interaction-feedback', async (req, res, next) => {
 		try {
 			const action = normalizeString(req.body.action);
@@ -1076,6 +1066,11 @@ function createAdvisorRouter({
 			});
 			const result = await withTransaction(async (client) => {
 				const applied = [];
+				const calendarApplyCache = {
+					calendarClient: null,
+					existingByFingerprint: new Map(),
+					linkedEventsByTaskId: new Map()
+				};
 				let tasks = await fetchTasks(client);
 				for (const [index, command] of commands.entries()) {
 					const prepared = prepareAiCommand(command, tasks, index);
@@ -1091,10 +1086,12 @@ function createAdvisorRouter({
 						fetchTaskCalendarEvents,
 						insertTaskCalendarEvent,
 						createProductivityEvent,
-						createPeriodicTaskOccurrence
+						createPeriodicTaskOccurrence,
+						calendarApplyCache
 					});
 					applied.push(commandResult);
-					tasks = await fetchTasks(client);
+					tasks = updateTasksAfterCommand(tasks, commandResult);
+					if (!commandResult.task && prepared.type !== 'create_calendar_event') tasks = await fetchTasks(client);
 				}
 				const reservedBlocks = sanitizeReservedBlocks(req.body?.reservedBlocks);
 				if (reservedBlocks.length && createSchedulerScheduleBatch) {
@@ -1116,7 +1113,6 @@ function createAdvisorRouter({
 			});
 		} catch (error) { next(error); }
 	});
-
 	return router;
 }
 
@@ -1140,8 +1136,8 @@ async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedD
 		mode: 'advisor_preview',
 		generatedAt: new Date().toISOString(),
 		source: 'scheduler',
-		model: scheduled.explanationModel ? 'python-ortools + ' + scheduled.explanationModel : 'python-ortools',
-		summary: scheduled.explanationSummary || (scheduled.explanationModel ? 'Propostas agendadas pelo OR-Tools com explicacoes geradas por OpenAI.' : 'Propostas de eventos geradas pelo OR-Tools para validacao.'),
+		model: scheduled.explanationModel ? 'python-scheduler + ' + scheduled.explanationModel : 'python-scheduler',
+		summary: scheduled.explanationSummary || (scheduled.explanationModel ? 'Propostas agendadas pelo scheduler com explicacoes geradas por OpenAI.' : 'Propostas de eventos geradas pelo scheduler para validacao.'),
 		commandCount: labeledPreviews.length,
 		commands: labeledPreviews,
 		rawCommands: scheduled.commands,

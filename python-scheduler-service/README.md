@@ -1,6 +1,6 @@
 # Python Scheduler Service
 
-Small HTTP service for Advisor calendar scheduling. It uses Google OR-Tools CP-SAT to place eligible tasks into future work slots.
+Small HTTP service for Advisor calendar scheduling. It uses a deterministic greedy scheduler to place eligible tasks into future work slots.
 
 ## Setup
 

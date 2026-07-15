@@ -94,6 +94,27 @@ export default function useAdvisorController({
       setProposalStatuses({});
       setProposalFeedbackStatuses({});
       setInteractionFeedbackSaved(false);
+      if (action === 'schedule_calendar_events' && response.rawCommands?.length && response.debug?.schedulerDebug) {
+        void requestScheduleExplanation(response.rawCommands, response.debug.schedulerDebug as Record<string, unknown>)
+          .then((explanation) => {
+            setProposalBatch((current) => {
+              if (!current || current.generatedAt !== response.generatedAt) return current;
+              const reasonsById = new Map(explanation.commands.map((command) => [command.id, command.reason]));
+              return {
+                ...current,
+                model: explanation.model ? [current.model || 'python-scheduler', explanation.model].join(' + ') : current.model,
+                summary: explanation.summary || current.summary,
+                commands: current.commands.map((command) => ({
+                  ...command,
+                  reason: reasonsById.get(command.id) || command.reason
+                }))
+              };
+            });
+          })
+          .catch((explanationError) => {
+            clientLog('warn', 'advisor.schedule_explanation.failed', errorMessage(explanationError), { action });
+          });
+      }
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {

@@ -1,4 +1,4 @@
-import type { GoogleCalendar, GoogleCalendarEvent, Task } from '../../../shared/types';
+import type { GoogleCalendar, GoogleCalendarEvent } from '../../../shared/types';
 import type { AdvisorPreview } from '../api';
 
 type ObjectRecord = Record<string, unknown>;
@@ -15,10 +15,6 @@ export type AdvisorReservedPreviewEvent = GoogleCalendarEvent & {
   sourceConstraintId?: string | null;
 };
 
-export type TaskDueDateCalendarEvent = GoogleCalendarEvent & {
-  taskDueDate: true;
-  taskId: string;
-};
 
 function isObject(value: unknown): value is ObjectRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -83,31 +79,3 @@ export function advisorReservedPreviewEvents(proposals: AdvisorPreview | null): 
     .filter((event) => event.start && event.end);
 }
 
-export function taskDueDateCalendarEvents(tasks: Task[]): TaskDueDateCalendarEvent[] {
-  return tasks
-    .filter((task) => task.dueDateTime && !task.isArchived && !['done', 'cancelled'].includes(task.status))
-    .map((task) => {
-      const start = task.dueDateTime as string;
-      const startTime = Date.parse(start);
-      const durationMinutes = Number(task.estimatedMinutes || 0) > 0
-        ? Math.max(15, Math.min(240, Number(task.estimatedMinutes)))
-        : 30;
-      const end = Number.isNaN(startTime) ? null : new Date(startTime + durationMinutes * 60000).toISOString();
-
-      return {
-        id: `task-due-${task.id}`,
-        taskDueDate: true as const,
-        taskId: task.id,
-        calendarId: 'task-due-dates',
-        calendarSummary: 'Due dates',
-        calendarColor: '#0f8b8d',
-        summary: task.title,
-        description: task.notes || '',
-        location: '',
-        status: 'task_due_date',
-        start,
-        end,
-        htmlLink: null
-      };
-    });
-}

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Task } from '../../../shared/types';
 import { useAdvisorContext } from '../context/AdvisorContext';
 import { useGoogleCalendarContext } from '../context/GoogleCalendarContext';
-import { advisorCalendarPreviewEvents, advisorReservedPreviewEvents, taskDueDateCalendarEvents } from '../utils/advisorCalendarPreviews';
+import { advisorCalendarPreviewEvents, advisorReservedPreviewEvents } from '../utils/advisorCalendarPreviews';
 import { filterAdvisorProposalBatch } from '../utils/advisorProposalFilters';
 import { AdvisorProposalBuffer } from './AdvisorPanel';
 import CalendarWeekView from './CalendarWeekView';
@@ -34,7 +34,6 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
     ),
     [calendarProposals, advisor.proposalStatuses, googleCalendar.googleCalendars]
   );
-  const dueDateEvents = useMemo(() => taskDueDateCalendarEvents(allTasks), [allTasks]);
   const reservedPreviewEvents = useMemo(() => advisorReservedPreviewEvents(calendarProposals), [calendarProposals]);
   const calendarWriteReady = googleCalendar.googleStatus.connected && googleCalendar.googleStatus.scopes.includes(CALENDAR_WRITE_SCOPE);
   const showAdvisorBuffer = Boolean(calendarProposals);
@@ -63,7 +62,6 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
         events={googleCalendar.weeklyCalendarEvents}
         advisorPreviewEvents={advisorPreviewEvents}
         advisorReservedPreviewEvents={reservedPreviewEvents}
-        taskDueDateEvents={dueDateEvents}
         calendars={googleCalendar.googleCalendars}
         selectedCalendarIds={googleCalendar.selectedCalendarIds}
         advisorDefaultCalendarId={googleCalendar.advisorDefaultCalendarId}

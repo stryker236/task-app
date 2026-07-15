@@ -177,6 +177,8 @@ function normalizeCalendarEventForTask(event, task) {
 }
 
 async function getAuthorizedCalendarClient(dependencies) {
+  if (dependencies.calendarClient) return dependencies.calendarClient;
+  if (dependencies.calendarApplyCache?.calendarClient) return dependencies.calendarApplyCache.calendarClient;
   const { pool, fetchGoogleConnection, saveGoogleConnection } = dependencies;
   if (!fetchGoogleConnection || !saveGoogleConnection || !pool) {
     const error = new Error('Google Calendar dependencies are not configured');
@@ -204,22 +206,44 @@ async function getAuthorizedCalendarClient(dependencies) {
       expiresAt: connection.expiresAt
     }).catch((error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
   });
-  return createCalendarClient(authClient);
+  const calendarClient = createCalendarClient(authClient);
+  if (dependencies.calendarApplyCache) dependencies.calendarApplyCache.calendarClient = calendarClient;
+  return calendarClient;
+}
+
+function eventSearchWindow(event) {
+  const startTime = Date.parse(event?.start || '');
+  const endTime = Date.parse(event?.end || '');
+  if (Number.isNaN(startTime)) return {};
+  const timeMin = new Date(startTime);
+  timeMin.setHours(0, 0, 0, 0);
+  const timeMax = new Date(Number.isNaN(endTime) ? startTime : endTime);
+  timeMax.setHours(23, 59, 59, 999);
+  return { timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString() };
 }
 
 async function findExistingGoogleCalendarEvent(event, dependencies) {
   const summary = normalizeString(event?.summary);
   if (!summary) return null;
 
-  const calendar = await getAuthorizedCalendarClient({ ...dependencies, calendarClient: dependencies.calendarApplyCache?.calendarClient });
+  const fingerprint = calendarEventDuplicateFingerprint(event);
+  if (dependencies.calendarApplyCache?.existingByFingerprint?.has(fingerprint)) {
+    return dependencies.calendarApplyCache.existingByFingerprint.get(fingerprint);
+  }
+  const calendar = await getAuthorizedCalendarClient(dependencies);
   const existingResult = await calendar.events.list({
     calendarId: event.calendarId || 'primary',
     q: summary,
-    maxResults: 2500,
+    maxResults: 20,
     showDeleted: false,
     singleEvents: true,
+    ...eventSearchWindow(event)
   });
-  return (existingResult.data.items || []).find((candidate) => isSameGoogleCalendarEvent(candidate, event)) || null;
+  const existing = (existingResult.data.items || []).find((candidate) => isSameGoogleCalendarEvent(candidate, event)) || null;
+  if (dependencies.calendarApplyCache?.existingByFingerprint) {
+    dependencies.calendarApplyCache.existingByFingerprint.set(fingerprint, existing);
+  }
+  return existing;
 }
 
 function prepareAiCommand(command, tasks, index) {
@@ -330,9 +354,16 @@ function prepareAiCommand(command, tasks, index) {
 async function insertGoogleCalendarEvent(prepared, dependencies) {
   const event = prepared.calendarEvent;
   const { fetchTaskCalendarEvents, insertTaskCalendarEvent, pool } = dependencies;
-  const linkedEvents = prepared.taskId && fetchTaskCalendarEvents
-    ? await fetchTaskCalendarEvents(pool, prepared.taskId)
-    : [];
+  let linkedEvents = [];
+  if (prepared.taskId && fetchTaskCalendarEvents) {
+    const linkedCache = dependencies.calendarApplyCache?.linkedEventsByTaskId;
+    if (linkedCache?.has(prepared.taskId)) {
+      linkedEvents = linkedCache.get(prepared.taskId) || [];
+    } else {
+      linkedEvents = await fetchTaskCalendarEvents(pool, prepared.taskId);
+      linkedCache?.set(prepared.taskId, linkedEvents);
+    }
+  }
   if (linkedEvents.length) {
     const linkedEvent = linkedEvents[0];
     return {
@@ -357,11 +388,12 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
         end: existingEvent.end?.dateTime || existingEvent.end?.date || event.end,
         htmlLink: existingEvent.htmlLink || null
       });
+      dependencies.calendarApplyCache?.linkedEventsByTaskId?.set(prepared.taskId, [linked]);
     }
     return { ...existingEvent, alreadyExists: true };
   }
 
-  const calendar = await getAuthorizedCalendarClient({ ...dependencies, calendarClient: dependencies.calendarApplyCache?.calendarClient });
+  const calendar = await getAuthorizedCalendarClient(dependencies);
   const result = await calendar.events.insert({
     calendarId: event.calendarId || 'primary',
     requestBody: {
@@ -388,6 +420,7 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
       end: result.data.end?.dateTime || result.data.end?.date || event.end,
       htmlLink: result.data.htmlLink || null
     });
+    dependencies.calendarApplyCache?.linkedEventsByTaskId?.set(prepared.taskId, [linked]);
   }
   return { ...result.data, alreadyExists: false };
 }
