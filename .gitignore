@@ -6,3 +6,4 @@ schema-current.sql
 *.log
 .vscode/
 sugestoes.md
+run-local-dev.ps1

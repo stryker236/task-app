@@ -35,6 +35,8 @@ const {
   fetchTaskCalendarEvents,
   insertTaskCalendarEvent,
   deleteTaskCalendarEventsByCalendarId,
+  createProductivityEvent,
+  fetchProductivitySummary,
   fetchAdvisorMemoryRules,
   saveAdvisorFeedback,
   upsertAdvisorMemoryRule,
@@ -70,6 +72,7 @@ const { createTaskRouter } = require('./routes/taskRoutes');
 const { createAdvisorRouter } = require('./routes/advisorRoutes');
 const { createSchedulerRuleRouter } = require('./routes/schedulerRuleRoutes');
 const { createQuickQueueRouter } = require('./routes/quickQueueRoutes');
+const { createProductivityRouter } = require('./routes/productivityRoutes');
 const { createPeriodicTaskRouter } = require('./routes/periodicTaskRoutes');
 const { createGoogleRouter } = require('./routes/googleRoutes');
 const { createLogRouter } = require('./routes/logRoutes');
@@ -140,6 +143,8 @@ const routeDependencies = {
   fetchTaskCalendarEvents,
   insertTaskCalendarEvent,
   deleteTaskCalendarEventsByCalendarId,
+  createProductivityEvent,
+  fetchProductivitySummary,
   fetchAdvisorMemoryRules,
   saveAdvisorFeedback,
   upsertAdvisorMemoryRule,
@@ -178,6 +183,7 @@ app.use(createAdvisorRouter(routeDependencies));
 app.use(createSchedulerRuleRouter(routeDependencies));
 app.use('/api', createSchedulerRuleRouter(routeDependencies));
 app.use(createQuickQueueRouter(routeDependencies));
+app.use(createProductivityRouter(routeDependencies));
 app.use(createPeriodicTaskRouter(routeDependencies));
 app.use(createGoogleRouter(routeDependencies));
 app.use(createLogRouter());
@@ -226,3 +232,4 @@ server = app.listen(PORT, HOST, () => {
 });
 
 export {};
+

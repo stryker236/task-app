@@ -47,6 +47,11 @@ function buildFeedbackRuleInterpreterRequest({
           'Create preference/context memory only: when this context appears again, how should the Advisor behave differently?',
           'Use title keywords as one context signal, not as the whole rule.',
           'Prefer compact contextual rules over broad global rules.',
+          'Do not create broad action-level rules from one feedback item.',
+          'A reusable rule should normally include at least two non-title context signals when available, such as commandTypes plus changedFields, requiredTags, status, due-date state, blocked state, or priority range.',
+          'If feedback contradicts existingAdvisorMemory, make the new rule narrower than the existing rule. If you cannot identify a narrower context, set confidence below 0.5 and behavior.askForMoreContext true.',
+          'Do not output both sides of an opposite preference in the same rule: avoid/prefer the same tag, too_high/too_low priority, too_early/too_late due date, or urgent/lower priority.',
+          'Use empty arrays and nulls for unknown context. Do not infer generic context just to fill the schema.',
           'If the feedback is too weak or only says the proposal was useful, return a low-impact behavior and confidence below 0.5.',
           'Allowed behavior fields: avoidTags, preferTags, tagVolume, avoidSimilarSuggestions, reviewReasoning, reviewPriority, reviewDeadline, priorityDirection, taskAgeImportance, overdueImportance, dueDateDirection, calendarChoice, calendarDurationDirection, unnecessaryEvent, wrongCalendar, chosenCalendarId, chosenCalendarSummary, preferredCalendarId, preferredCalendarSummary, shouldBeUrgent, shouldBeLowerPriority, askForMoreContext.',
           'Allowed context fields: titleKeywords, commandTypes, changedFields, requiredTags, statuses, priorityMin, priorityMax, hasDueDate, isOverdue, isBlocked.'

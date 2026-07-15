@@ -2,9 +2,10 @@ const { Pool } = require('pg');
 const { randomUUID } = require('crypto');
 const { iso } = require('../utils/date');
 const { logger } = require('../logger');
+const { mergeAdvisorMemoryRulePayload } = require('../ai/advisorMemory');
 
 import type { PoolClient, Pool as PgPool } from 'pg';
-import type { TaskCalendarEvent } from '../../shared/types';
+import type { ProductivityEvent, ProductivitySummary, TaskCalendarEvent } from '../../shared/types';
 
 type Queryable = PgPool | PoolClient;
 type QueryPatch = Record<string, unknown>;
@@ -95,6 +96,17 @@ type PeriodicTaskOccurrenceInput = {
 	googleEventId?: string | null;
 	htmlLink?: string | null;
 	status?: string;
+};
+
+type ProductivityEventInput = {
+	eventType: string;
+	xp: number;
+	taskId?: string | null;
+	quickQueueItemId?: string | null;
+	checklistItemId?: string | null;
+	calendarEventId?: string | null;
+	metadata?: Record<string, unknown>;
+	occurredAt?: string;
 };
 
 if (!process.env.DATABASE_URL) {
@@ -195,6 +207,65 @@ function mapTaskCalendarEvent(row: DbRow): TaskCalendarEvent {
 		createdAt: iso(row.created_at),
 		updatedAt: iso(row.updated_at)
 	};
+}
+
+function mapProductivityEvent(row: DbRow): ProductivityEvent {
+	return {
+		id: String(row.id),
+		eventType: row.event_type,
+		xp: Number(row.xp || 0),
+		taskId: row.task_id ? String(row.task_id) : null,
+		quickQueueItemId: row.quick_queue_item_id ? String(row.quick_queue_item_id) : null,
+		checklistItemId: row.checklist_item_id ? String(row.checklist_item_id) : null,
+		calendarEventId: row.calendar_event_id ? String(row.calendar_event_id) : null,
+		metadata: row.metadata || {},
+		occurredAt: iso(row.occurred_at),
+		createdAt: iso(row.created_at)
+	};
+}
+
+function localDayKey(value: string | Date = new Date()) {
+	const date = value instanceof Date ? value : new Date(value);
+	return [
+		date.getFullYear(),
+		String(date.getMonth() + 1).padStart(2, '0'),
+		String(date.getDate()).padStart(2, '0')
+	].join('-');
+}
+
+function startOfLocalDay(value = new Date()) {
+	const date = new Date(value);
+	date.setHours(0, 0, 0, 0);
+	return date;
+}
+
+function addDays(value: Date, days: number) {
+	const date = new Date(value);
+	date.setDate(date.getDate() + days);
+	return date;
+}
+
+function buildStreak(dayXp: Map<string, number>, dailyGoalXp: number) {
+	const today = startOfLocalDay();
+	let currentStreak = 0;
+	for (let offset = 0; offset < 366; offset += 1) {
+		const key = localDayKey(addDays(today, -offset));
+		if ((dayXp.get(key) || 0) < dailyGoalXp) break;
+		currentStreak += 1;
+	}
+
+	let longestStreak = 0;
+	let running = 0;
+	for (let offset = 365; offset >= 0; offset -= 1) {
+		const key = localDayKey(addDays(today, -offset));
+		if ((dayXp.get(key) || 0) >= dailyGoalXp) {
+			running += 1;
+			longestStreak = Math.max(longestStreak, running);
+		} else {
+			running = 0;
+		}
+	}
+	return { currentStreak, longestStreak };
 }
 
 function mapSchedulerConstraint(row: DbRow) {
@@ -978,6 +1049,75 @@ async function deleteTaskCalendarEventsByCalendarId(db: Queryable, calendarId: s
 	const result = await db.query('DELETE FROM task_calendar_events WHERE calendar_id = $1', [calendarId]);
 	return result.rowCount || 0;
 }
+
+async function createProductivityEvent(db: Queryable, event: ProductivityEventInput): Promise<ProductivityEvent> {
+	const result = await db.query(
+		`INSERT INTO productivity_events
+		 (event_type, xp, task_id, quick_queue_item_id, checklist_item_id, calendar_event_id, metadata, occurred_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, COALESCE($8::timestamptz, now()))
+		 RETURNING *`,
+		[
+			event.eventType,
+			Math.max(0, Math.round(Number(event.xp) || 0)),
+			event.taskId || null,
+			event.quickQueueItemId || null,
+			event.checklistItemId || null,
+			event.calendarEventId || null,
+			JSON.stringify(event.metadata || {}),
+			event.occurredAt || null
+		]
+	);
+	return mapProductivityEvent(result.rows[0]);
+}
+
+async function fetchProductivitySummary(db: Queryable = pool, { dailyGoalXp = 50 } = {}): Promise<ProductivitySummary> {
+	const now = new Date();
+	const todayStart = startOfLocalDay(now);
+	const tomorrowStart = addDays(todayStart, 1);
+	const historyStart = addDays(todayStart, -365);
+	const weekStart = addDays(todayStart, -6);
+	const [todayResult, historyResult, recentResult] = await Promise.all([
+		db.query(
+			`SELECT COALESCE(sum(xp), 0)::int AS xp, count(*)::int AS event_count
+			 FROM productivity_events
+			 WHERE occurred_at >= $1 AND occurred_at < $2`,
+			[todayStart.toISOString(), tomorrowStart.toISOString()]
+		),
+		db.query(
+			`SELECT occurred_at, xp
+			 FROM productivity_events
+			 WHERE occurred_at >= $1
+			 ORDER BY occurred_at ASC`,
+			[historyStart.toISOString()]
+		),
+		db.query(
+			`SELECT *
+			 FROM productivity_events
+			 ORDER BY occurred_at DESC
+			 LIMIT 8`
+		)
+	]);
+
+	const dayXp = new Map<string, number>();
+	for (const row of historyResult.rows) {
+		const key = localDayKey(row.occurred_at);
+		dayXp.set(key, (dayXp.get(key) || 0) + Number(row.xp || 0));
+	}
+	const streak = buildStreak(dayXp, dailyGoalXp);
+	const activeDaysThisWeek = [...dayXp.entries()]
+		.filter(([key, xp]) => key >= localDayKey(weekStart) && xp >= dailyGoalXp)
+		.length;
+
+	return {
+		todayXp: Number(todayResult.rows[0]?.xp || 0),
+		todayEventCount: Number(todayResult.rows[0]?.event_count || 0),
+		dailyGoalXp,
+		currentStreak: streak.currentStreak,
+		longestStreak: streak.longestStreak,
+		activeDaysThisWeek,
+		recentEvents: recentResult.rows.map(mapProductivityEvent)
+	};
+}
 // TODO: Make limit configurable
 async function fetchAdvisorMemoryRules(db: Queryable = pool) {
 	const result = await db.query(
@@ -1011,14 +1151,41 @@ async function saveAdvisorFeedback(db: Queryable, feedback: DbRow) {
 }
 
 async function upsertAdvisorMemoryRule(db: Queryable, memoryRule: DbRow) {
+	const existing = await db.query(
+		`SELECT *
+		 FROM advisor_memory_rules
+		 WHERE rule_type = $1
+		   AND title_fingerprint = $2
+		   AND action = $3
+		 FOR UPDATE`,
+		[
+			memoryRule.ruleType,
+			memoryRule.titleFingerprint || '',
+			memoryRule.action || ''
+		]
+	);
+
+	if (existing.rows[0]) {
+		const mergedRule = mergeAdvisorMemoryRulePayload(existing.rows[0].rule || {}, memoryRule.rule || {});
+		const updated = await db.query(
+			`UPDATE advisor_memory_rules
+			 SET rule = $2::jsonb,
+			     support_count = support_count + 1,
+			     last_feedback_at = now(),
+			     updated_at = now()
+			 WHERE id = $1
+			 RETURNING *`,
+			[
+				existing.rows[0].id,
+				JSON.stringify(mergedRule)
+			]
+		);
+		return mapAdvisorMemoryRule(updated.rows[0]);
+	}
+
 	const result = await db.query(
 		`INSERT INTO advisor_memory_rules (rule_type, title_fingerprint, action, rule, support_count, last_feedback_at)
 		 VALUES ($1, $2, $3, $4::jsonb, 1, now())
-		 ON CONFLICT (rule_type, title_fingerprint, action)
-		 DO UPDATE SET
-		   rule = advisor_memory_rules.rule || EXCLUDED.rule,
-		   support_count = advisor_memory_rules.support_count + 1,
-		   last_feedback_at = now()
 		 RETURNING *`,
 		[
 			memoryRule.ruleType,
@@ -1443,6 +1610,8 @@ module.exports = {
 	fetchTaskCalendarEvents,
 	insertTaskCalendarEvent,
 	deleteTaskCalendarEventsByCalendarId,
+	createProductivityEvent,
+	fetchProductivitySummary,
 	fetchAdvisorMemoryRules,
 	saveAdvisorFeedback,
 	upsertAdvisorMemoryRule,
@@ -1473,3 +1642,4 @@ module.exports = {
 };
 
 export {};
+

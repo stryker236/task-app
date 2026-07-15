@@ -18,6 +18,7 @@ function createTaskRouter({
   insertTask,
   updateTaskRecord,
   insertActivity,
+  createProductivityEvent = async (_db: unknown, _event: unknown) => null,
   syncInverseRelationships,
   findTaskById
 }) {
@@ -161,6 +162,14 @@ function createTaskRouter({
             message: `Status changed from ${previous.status} to ${validated.status}`,
             fromStatus: previous.status, toStatus: validated.status, createdAt: now
           });
+          if (validated.status === 'done') {
+            await createProductivityEvent(client, {
+              eventType: 'task_completed',
+              xp: 50,
+              taskId: updated.id,
+              metadata: { title: updated.title, previousStatus: previous.status }
+            });
+          }
         }
         if (hasInverse) await syncInverseRelationships(client, updated, inverseIds, now);
         updateLog = {
@@ -290,6 +299,15 @@ function createTaskRouter({
           [req.params.itemId, task.id, req.body.isDone, now]
         );
         if (!updated.rowCount) return { missingItem: true };
+        if (req.body.isDone) {
+          await createProductivityEvent(client, {
+            eventType: 'checklist_completed',
+            xp: 20,
+            taskId: task.id,
+            checklistItemId: req.params.itemId,
+            metadata: { title: task.title }
+          });
+        }
         await client.query('UPDATE tasks SET updated_at = $2 WHERE id = $1', [task.id, now]);
         return { task: await findTaskById(client, task.id) };
       });
@@ -327,6 +345,12 @@ function createTaskRouter({
         const now = new Date().toISOString();
         const entry = { id: randomUUID(), type: 'note', message, createdAt: now };
         await insertActivity(client, task.id, entry);
+        await createProductivityEvent(client, {
+          eventType: 'progress_logged',
+          xp: 10,
+          taskId: task.id,
+          metadata: { title: task.title, messageLength: message.length }
+        });
         await client.query('UPDATE tasks SET updated_at = $2 WHERE id = $1', [task.id, now]);
         return { task: await findTaskById(client, task.id), entry };
       });
@@ -435,7 +459,7 @@ function createTaskRouter({
         const task = {
           ...source,
           id: randomUUID(),
-          title: `${source.title} (cópia)`,
+          title: `${source.title} (cÃƒÆ’Ã‚Â³pia)`,
           status: 'new',
           createdAt: now,
           updatedAt: now,
@@ -473,3 +497,5 @@ function createTaskRouter({
 module.exports = { createTaskRouter };
 
 export {};
+
+

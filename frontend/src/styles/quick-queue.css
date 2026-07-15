@@ -24,6 +24,7 @@
 .quick-queue-list label { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; color: #344057; font-size: 14px; font-weight: 650; }
 .quick-queue-list input { width: auto; margin-top: 2px; }
 .quick-queue-list label span { overflow-wrap: anywhere; line-height: 1.35; }
+.quick-queue-list .quick-queue-edit-input { width: 100%; min-width: 0; margin: 0; padding: 7px 9px; border: 1px solid #b8c5e2; border-radius: 6px; color: #253049; font-size: 14px; font-weight: 650; }
 .quick-queue-list time { color: #8a94a7; font-size: 11px; text-align: right; }
 .quick-queue-list li.done label span { color: #8992a3; text-decoration: line-through; }
 .quick-queue-item-actions { display: flex; align-items: center; gap: 6px; }

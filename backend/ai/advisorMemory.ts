@@ -269,6 +269,222 @@ function ruleContext(rule: Record<string, any> = {}) {
   return { ...(rule.context && typeof rule.context === 'object' ? rule.context : {}), titleKeywords: rule.context?.titleKeywords || rule.titleKeywords || [] };
 }
 
+function contextSpecificity(context: Record<string, any> = {}) {
+  let score = 0;
+  if (context.commandTypes?.length) score += 2;
+  if (context.changedFields?.length) score += 2;
+  if (context.requiredTags?.length) score += 2;
+  if (context.statuses?.length) score += 1;
+  if (context.titleKeywords?.length) score += Math.min(2, context.titleKeywords.length);
+  for (const key of ['hasDueDate', 'isOverdue', 'isBlocked']) {
+    if (typeof context[key] === 'boolean') score += 1;
+  }
+  if (context.priorityMin != null || context.priorityMax != null) score += 1;
+  return score;
+}
+
+function memoryRuleStrength(item: Record<string, any> = {}) {
+  const context = ruleContext(item.rule || item);
+  const behavior = ruleBehavior(item.rule || item);
+  const confidence = Number(behavior.confidence ?? item.rule?.confidence ?? 0);
+  const supportCount = Number(item.supportCount || item.support_count || 1);
+  const specificity = contextSpecificity(context);
+  return specificity * 10 + Math.min(10, supportCount * 2) + Math.max(0, Math.min(1, confidence)) * 5;
+}
+
+function hasConcreteBehavior(behavior: Record<string, any> = {}) {
+  return [
+    'avoidTags',
+    'preferTags'
+  ].some((key) => Array.isArray(behavior[key]) && behavior[key].length)
+    || [
+      'avoidSimilarSuggestions',
+      'reviewReasoning',
+      'reviewPriority',
+      'reviewDeadline',
+      'unnecessaryEvent',
+      'wrongCalendar',
+      'shouldBeUrgent',
+      'shouldBeLowerPriority',
+      'askForMoreContext'
+    ].some((key) => behavior[key] === true)
+    || [
+      'tagVolume',
+      'priorityDirection',
+      'taskAgeImportance',
+      'overdueImportance',
+      'dueDateDirection',
+      'calendarChoice',
+      'calendarDurationDirection'
+    ].some((key) => behavior[key] && behavior[key] !== 'ok');
+}
+
+function isWeakGenericRule(item: Record<string, any> = {}) {
+  const behavior = ruleBehavior(item.rule || item);
+  const context = ruleContext(item.rule || item);
+  const confidence = Number(behavior.confidence ?? item.rule?.confidence ?? 0);
+  const supportCount = Number(item.supportCount || item.support_count || 1);
+  return contextSpecificity(context) < 3 && supportCount < 2 && confidence < 0.7;
+}
+
+function conflictClaimsForBehavior(behavior: Record<string, any> = {}) {
+  const claims: Array<{ family: string; value: string }> = [];
+  for (const tag of behavior.avoidTags || []) {
+    claims.push({ family: `tag:${sanitizeWord(tag)}`, value: 'avoid' });
+  }
+  for (const tag of behavior.preferTags || []) {
+    claims.push({ family: `tag:${sanitizeWord(tag)}`, value: 'prefer' });
+  }
+  for (const key of ['tagVolume', 'priorityDirection', 'taskAgeImportance', 'overdueImportance', 'dueDateDirection', 'calendarChoice', 'calendarDurationDirection']) {
+    if (behavior[key] && behavior[key] !== 'ok') claims.push({ family: key, value: String(behavior[key]) });
+  }
+  if (behavior.shouldBeUrgent) claims.push({ family: 'priorityIntent', value: 'urgent' });
+  if (behavior.shouldBeLowerPriority) claims.push({ family: 'priorityIntent', value: 'lower' });
+  return claims.filter((claim) => claim.family && claim.value);
+}
+
+function listOverlaps(left: unknown[] = [], right: unknown[] = []) {
+  if (!left.length || !right.length) return true;
+  const rightSet = normalizedSet(right);
+  return [...normalizedSet(left)].some((item) => rightSet.has(item));
+}
+
+function contextsMayOverlap(left: Record<string, any> = {}, right: Record<string, any> = {}) {
+  if (!listOverlaps(left.commandTypes || [], right.commandTypes || [])) return false;
+  if (!listOverlaps(left.changedFields || [], right.changedFields || [])) return false;
+  if (!listOverlaps(left.requiredTags || [], right.requiredTags || [])) return false;
+  if (!listOverlaps(left.statuses || [], right.statuses || [])) return false;
+  for (const key of ['hasDueDate', 'isOverdue', 'isBlocked']) {
+    if (typeof left[key] === 'boolean' && typeof right[key] === 'boolean' && left[key] !== right[key]) return false;
+  }
+  if ((left.titleKeywords || []).length >= 2 && (right.titleKeywords || []).length >= 2 && !listOverlaps(left.titleKeywords, right.titleKeywords)) return false;
+  return true;
+}
+
+function filterSpecificNonConflictingMemoryRules(rules: any[] = []) {
+  const selected: Array<{ claims: Array<{ family: string; value: string }>; context: Record<string, any> }> = [];
+  return rules
+    .filter((item) => {
+      const behavior = ruleBehavior(item.rule || item);
+      return hasConcreteBehavior(behavior) && !isWeakGenericRule(item);
+    })
+    .sort((a, b) => memoryRuleStrength(b) - memoryRuleStrength(a))
+    .filter((item) => {
+      const claims = conflictClaimsForBehavior(ruleBehavior(item.rule || item));
+      const context = ruleContext(item.rule || item);
+      const conflicts = selected.some((selectedRule) => (
+        contextsMayOverlap(context, selectedRule.context)
+        && claims.some((claim) => selectedRule.claims.some((selectedClaim) => selectedClaim.family === claim.family && selectedClaim.value !== claim.value))
+      ));
+      if (conflicts) return false;
+      selected.push({ claims, context });
+      return true;
+    });
+}
+
+function listIntersection(left: unknown[] = [], right: unknown[] = []) {
+  if (!left.length) return sanitizeStringList(right);
+  if (!right.length) return sanitizeStringList(left);
+  const rightSet = normalizedSet(right);
+  return sanitizeStringList(left).filter((item) => rightSet.has(sanitizeWord(item)));
+}
+
+function mergeContextLists(existing: Record<string, any>, incoming: Record<string, any>, key: string) {
+  const left = existing[key] || [];
+  const right = incoming[key] || [];
+  if (!left.length && !right.length) return [];
+  if (key === 'titleKeywords') return sanitizeStringList([...left, ...right]);
+  return listIntersection(left, right);
+}
+
+function mergeContextValue(existing: Record<string, any>, incoming: Record<string, any>, key: string) {
+  if (existing[key] == null) return incoming[key];
+  if (incoming[key] == null) return existing[key];
+  return existing[key] === incoming[key] ? existing[key] : undefined;
+}
+
+function mergeRuleContexts(existingContext: Record<string, any> = {}, incomingContext: Record<string, any> = {}) {
+  return cleanRuleContext({
+    titleKeywords: mergeContextLists(existingContext, incomingContext, 'titleKeywords'),
+    commandTypes: mergeContextLists(existingContext, incomingContext, 'commandTypes'),
+    changedFields: mergeContextLists(existingContext, incomingContext, 'changedFields'),
+    requiredTags: mergeContextLists(existingContext, incomingContext, 'requiredTags'),
+    statuses: mergeContextLists(existingContext, incomingContext, 'statuses'),
+    priorityMin: existingContext.priorityMin == null
+      ? incomingContext.priorityMin
+      : incomingContext.priorityMin == null ? existingContext.priorityMin : Math.min(Number(existingContext.priorityMin), Number(incomingContext.priorityMin)),
+    priorityMax: existingContext.priorityMax == null
+      ? incomingContext.priorityMax
+      : incomingContext.priorityMax == null ? existingContext.priorityMax : Math.max(Number(existingContext.priorityMax), Number(incomingContext.priorityMax)),
+    hasDueDate: mergeContextValue(existingContext, incomingContext, 'hasDueDate'),
+    isOverdue: mergeContextValue(existingContext, incomingContext, 'isOverdue'),
+    isBlocked: mergeContextValue(existingContext, incomingContext, 'isBlocked')
+  });
+}
+
+function mergeEnumBehavior(existing: Record<string, any>, incoming: Record<string, any>, key: string) {
+  if (!existing[key] || existing[key] === 'ok') return incoming[key];
+  if (!incoming[key] || incoming[key] === 'ok') return existing[key];
+  return existing[key] === incoming[key] ? existing[key] : 'ok';
+}
+
+function mergeRuleBehaviors(existingBehavior: Record<string, any> = {}, incomingBehavior: Record<string, any> = {}) {
+  const avoidTags = sanitizeStringList([...(existingBehavior.avoidTags || []), ...(incomingBehavior.avoidTags || [])]);
+  const preferTags = sanitizeStringList([...(existingBehavior.preferTags || []), ...(incomingBehavior.preferTags || [])]);
+  const avoided = normalizedSet(avoidTags);
+  const preferred = normalizedSet(preferTags);
+  const conflictingTags = new Set([...avoided].filter((tag) => preferred.has(tag)));
+
+  return cleanRuleBehavior({
+    avoidTags: avoidTags.filter((tag) => !conflictingTags.has(sanitizeWord(tag))),
+    preferTags: preferTags.filter((tag) => !conflictingTags.has(sanitizeWord(tag))),
+    tagVolume: mergeEnumBehavior(existingBehavior, incomingBehavior, 'tagVolume'),
+    avoidSimilarSuggestions: existingBehavior.avoidSimilarSuggestions === true || incomingBehavior.avoidSimilarSuggestions === true,
+    reviewReasoning: existingBehavior.reviewReasoning === true || incomingBehavior.reviewReasoning === true || conflictingTags.size > 0,
+    reviewPriority: existingBehavior.reviewPriority === true || incomingBehavior.reviewPriority === true || (existingBehavior.shouldBeUrgent && incomingBehavior.shouldBeLowerPriority) || (existingBehavior.shouldBeLowerPriority && incomingBehavior.shouldBeUrgent),
+    reviewDeadline: existingBehavior.reviewDeadline === true || incomingBehavior.reviewDeadline === true,
+    priorityDirection: mergeEnumBehavior(existingBehavior, incomingBehavior, 'priorityDirection'),
+    taskAgeImportance: mergeEnumBehavior(existingBehavior, incomingBehavior, 'taskAgeImportance'),
+    overdueImportance: mergeEnumBehavior(existingBehavior, incomingBehavior, 'overdueImportance'),
+    dueDateDirection: mergeEnumBehavior(existingBehavior, incomingBehavior, 'dueDateDirection'),
+    calendarChoice: mergeEnumBehavior(existingBehavior, incomingBehavior, 'calendarChoice'),
+    calendarDurationDirection: mergeEnumBehavior(existingBehavior, incomingBehavior, 'calendarDurationDirection'),
+    unnecessaryEvent: existingBehavior.unnecessaryEvent === true || incomingBehavior.unnecessaryEvent === true,
+    wrongCalendar: existingBehavior.wrongCalendar === true || incomingBehavior.wrongCalendar === true,
+    chosenCalendarId: incomingBehavior.chosenCalendarId || existingBehavior.chosenCalendarId || '',
+    chosenCalendarSummary: incomingBehavior.chosenCalendarSummary || existingBehavior.chosenCalendarSummary || '',
+    preferredCalendarId: incomingBehavior.preferredCalendarId || existingBehavior.preferredCalendarId || '',
+    preferredCalendarSummary: incomingBehavior.preferredCalendarSummary || existingBehavior.preferredCalendarSummary || '',
+    shouldBeUrgent: existingBehavior.shouldBeUrgent === true && incomingBehavior.shouldBeLowerPriority !== true || incomingBehavior.shouldBeUrgent === true && existingBehavior.shouldBeLowerPriority !== true,
+    shouldBeLowerPriority: existingBehavior.shouldBeLowerPriority === true && incomingBehavior.shouldBeUrgent !== true || incomingBehavior.shouldBeLowerPriority === true && existingBehavior.shouldBeUrgent !== true,
+    askForMoreContext: existingBehavior.askForMoreContext === true || incomingBehavior.askForMoreContext === true
+  });
+}
+
+function mergeAdvisorMemoryRulePayload(existingRule: Record<string, any> = {}, incomingRule: Record<string, any> = {}) {
+  const existingBehavior = cleanRuleBehavior(ruleBehavior(existingRule));
+  const incomingBehavior = cleanRuleBehavior(ruleBehavior(incomingRule));
+  const existingContext = cleanRuleContext(ruleContext(existingRule));
+  const incomingContext = cleanRuleContext(ruleContext(incomingRule));
+  const behavior = mergeRuleBehaviors(existingBehavior, incomingBehavior);
+  const context = mergeRuleContexts(existingContext, incomingContext);
+  const confidence = Math.max(Number(existingRule.confidence || 0), Number(incomingRule.confidence || 0));
+  const source = incomingRule.source === 'openai_feedback_interpretation' || existingRule.source === 'openai_feedback_interpretation'
+    ? 'openai_feedback_interpretation'
+    : 'backend_feedback_fallback';
+  const summary = sanitizeString(incomingRule.summary) || sanitizeString(existingRule.summary) || memoryRuleSummary(behavior);
+  return {
+    ...existingRule,
+    ...behavior,
+    titleKeywords: context.titleKeywords || existingRule.titleKeywords || incomingRule.titleKeywords || [],
+    summary,
+    source,
+    confidence,
+    context,
+    behavior
+  };
+}
+
 function mergeInterpretedRule({ fallbackRule, interpretedRule, commandPreview, sourceTask = {} }: Record<string, any>) {
   const fallbackBehavior = cleanRuleBehavior(fallbackRule.rule || {});
   const interpretedBehavior = cleanRuleBehavior(interpretedRule?.behavior || interpretedRule?.rule || {});
@@ -388,7 +604,7 @@ function inferAdvisorInteractionMemoryRule({ action, interaction, feedback }: Re
 
 // Mapping. Convert database rows into a compact, prompt-safe memory block for the AI request.
 function buildAdvisorMemoryContext(rules: any[] = []) {
-  return rules
+  return filterSpecificNonConflictingMemoryRules(rules)
     .filter((item) => item?.rule && Object.keys(item.rule).length)
     .slice(0, 40) // TODO: dinamically limit based on token count instead of row count
     .map((item) => ({ item, behavior: ruleBehavior(item.rule), context: ruleContext(item.rule) }))
@@ -452,31 +668,42 @@ function previewContext(commandPreview: Record<string, any>) {
 function contextMatchesRule(preview: Record<string, any>, rule: Record<string, any>) {
   const expected = ruleContext(rule);
   const actual = previewContext(preview);
+  const behavior = ruleBehavior(rule);
+  const supportCount = Number(rule.supportCount || 1);
+  const confidence = Number(behavior.confidence ?? 0);
+  const specificity = contextSpecificity(expected);
+  if (!hasConcreteBehavior(behavior)) return false;
+  if (specificity < 3 && supportCount < 2 && confidence < 0.7) return false;
   let score = 0;
   let possible = 0;
 
   if (expected.commandTypes?.length) {
     possible += 3;
     if (expected.commandTypes.includes(preview.type)) score += 3;
+    else return false;
   }
   if (expected.changedFields?.length) {
     possible += 3;
     const actualFields = new Set(actual.changedFields || []);
     if (expected.changedFields.some((field) => actualFields.has(field))) score += 3;
+    else return false;
   }
   if (expected.requiredTags?.length) {
     possible += 2;
     const actualTags = normalizedSet(actual.requiredTags || []);
     if (expected.requiredTags.some((tag) => actualTags.has(sanitizeWord(tag)))) score += 2;
+    else return false;
   }
   if (expected.statuses?.length) {
     possible += 1;
     if (expected.statuses.includes(actual.statuses?.[0])) score += 1;
+    else return false;
   }
   for (const key of ['hasDueDate', 'isOverdue', 'isBlocked']) {
     if (typeof expected[key] === 'boolean') {
       possible += 1;
       if (expected[key] === actual[key]) score += 1;
+      else return false;
     }
   }
   if (titleMatchesRule(previewTitle(preview), rule)) {
@@ -484,8 +711,8 @@ function contextMatchesRule(preview: Record<string, any>, rule: Record<string, a
     score += 2;
   }
 
-  if (!possible) return titleMatchesRule(previewTitle(preview), rule);
-  return score >= Math.min(4, Math.ceil(possible * 0.55));
+  if (!possible) return false;
+  return score >= Math.max(3, Math.ceil(possible * 0.75));
 }
 
 // TODO: Remove this redundant function once all code is migrated to advisorPreviewTitle.
@@ -602,6 +829,7 @@ module.exports = {
   cleanRuleBehavior,
   cleanRuleContext,
   mergeInterpretedRule,
+  mergeAdvisorMemoryRulePayload,
   buildAdvisorMemoryContext,
   matchingMemorySuppressions,
   filterAdvisorCommandPairsByMemory

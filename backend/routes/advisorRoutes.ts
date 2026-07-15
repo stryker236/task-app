@@ -693,6 +693,7 @@ function createAdvisorRouter({
 	deleteAdvisorMemoryRule,
 	fetchTaskCalendarEvents,
 	insertTaskCalendarEvent,
+	createProductivityEvent,
 	fetchCommittedSchedulerReservedBlocks,
 	createSchedulerScheduleBatch,
 	fetchActiveSchedulerRules,
@@ -940,6 +941,7 @@ function createAdvisorRouter({
 						saveGoogleConnection,
 						fetchTaskCalendarEvents,
 						insertTaskCalendarEvent,
+						createProductivityEvent,
 						createPeriodicTaskOccurrence
 					});
 					applied.push(commandResult);
@@ -997,3 +999,4 @@ async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedD
 		debug: scheduled.debug
 	});
 }
+

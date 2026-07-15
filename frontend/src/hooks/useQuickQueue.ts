@@ -144,6 +144,22 @@ export default function useQuickQueue({ setError }: UseQuickQueueOptions = {}) {
     });
   }
 
+  async function editQuickQueueItem(id: string, text: string) {
+    const value = text.trim();
+    if (!value) return;
+    await runQuickQueueAction(async () => {
+      const previous = quickQueueItems;
+      setQuickQueueItems((current) => current.map((item) => (item.id === id ? { ...item, text: value } : item)));
+      try {
+        const item = await updateQuickQueueItem(id, { text: value });
+        setQuickQueueItems((current) => current.map((currentItem) => (currentItem.id === id ? item : currentItem)));
+      } catch (error) {
+        setQuickQueueItems(previous);
+        throw error;
+      }
+    });
+  }
+
   async function deleteQuickQueueItem(id: string) {
     await runQuickQueueAction(async () => {
       await deleteQuickQueueItemRequest(id);
@@ -187,6 +203,7 @@ export default function useQuickQueue({ setError }: UseQuickQueueOptions = {}) {
     refreshQuickQueueItems,
     addQuickQueueItem,
     toggleQuickQueueItem,
+    editQuickQueueItem,
     deleteQuickQueueItem,
     moveQuickQueueItem,
     reorderQuickQueueItems,

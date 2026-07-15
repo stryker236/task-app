@@ -31,6 +31,7 @@ type MainViewProps = {
   quickQueueLoading: boolean;
   onQuickQueueAdd: (text: string, placement: 'top' | 'bottom') => void;
   onQuickQueueToggle: (id: string, done: boolean) => void;
+  onQuickQueueEdit: (id: string, text: string) => void | Promise<void>;
   onQuickQueueDelete: (id: string) => void;
   onQuickQueueMove: (id: string, direction: 1 | -1) => void;
   onQuickQueueReorder: (ids: string[]) => void;
@@ -56,6 +57,7 @@ export default function MainView({
   quickQueueLoading,
   onQuickQueueAdd,
   onQuickQueueToggle,
+  onQuickQueueEdit,
   onQuickQueueDelete,
   onQuickQueueMove,
   onQuickQueueReorder,
@@ -75,6 +77,7 @@ export default function MainView({
         loading={quickQueueLoading}
         onAdd={onQuickQueueAdd}
         onToggle={onQuickQueueToggle}
+        onEdit={onQuickQueueEdit}
         onDelete={onQuickQueueDelete}
         onMove={onQuickQueueMove}
         onReorder={onQuickQueueReorder}

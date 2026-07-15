@@ -4,7 +4,6 @@ import { viewPath } from '../utils/routes';
 
 const TABS = [
   ['kanban', 'Kanban'],
-  ['queue', 'Fila'],
   ['quickQueue', 'Fila rapida'],
   ['collections', 'Cobrancas provaveis'],
   ['sharedNotes', 'Notas'],

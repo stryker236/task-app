@@ -14,7 +14,9 @@
     "db:dump:file": "supabase db dump --linked --schema public --file schema-current.sql",
     "db:reset": "supabase db reset",
     "docker:up": "docker compose up --build",
-    "docker:app": "docker compose up --build scheduler backend frontend"
+    "docker:app": "docker compose up --build scheduler backend frontend",
+    "dev:local": "powershell -ExecutionPolicy Bypass -File ./run-local-dev.ps1",
+    "dev:local:install-python": "powershell -ExecutionPolicy Bypass -File ./run-local-dev.ps1 -InstallPythonDeps"
   },
   "devDependencies": {
     "husky": "^9.1.7",

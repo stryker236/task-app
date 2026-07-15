@@ -7,6 +7,7 @@ type QuickQueueProps = {
   loading: boolean;
   onAdd: (text: string, placement: 'top' | 'bottom') => void;
   onToggle: (id: string, done: boolean) => void;
+  onEdit: (id: string, text: string) => void | Promise<void>;
   onDelete: (id: string) => void;
   onMove: (id: string, direction: 1 | -1) => void;
   onReorder: (ids: string[]) => void;
@@ -27,11 +28,13 @@ function formatCreatedAt(value: string) {
 
 type DropPosition = 'before' | 'after';
 
-export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, onMove, onReorder, onClearDone, onCreateTask }: QuickQueueProps) {
+export default function QuickQueue({ items, loading, onAdd, onToggle, onEdit, onDelete, onMove, onReorder, onClearDone, onCreateTask }: QuickQueueProps) {
   const [text, setText] = useState('');
   const [placement, setPlacement] = useState<'top' | 'bottom'>('bottom');
   const [draggedId, setDraggedId] = useState('');
   const [dropTarget, setDropTarget] = useState<{ id: string; position: DropPosition } | null>(null);
+  const [editingId, setEditingId] = useState('');
+  const [editingText, setEditingText] = useState('');
 
   const counts = useMemo(() => ({
     total: items.length,
@@ -79,6 +82,23 @@ export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, 
   function handleDragEnd() {
     setDraggedId('');
     setDropTarget(null);
+  }
+
+  function startEditing(item: QuickQueueItem) {
+    setEditingId(item.id);
+    setEditingText(item.text);
+  }
+
+  function cancelEditing() {
+    setEditingId('');
+    setEditingText('');
+  }
+
+  async function saveEditing() {
+    const value = editingText.trim();
+    if (!editingId || !value) return;
+    await onEdit(editingId, value);
+    cancelEditing();
   }
 
   return (
@@ -134,7 +154,7 @@ export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, 
                 dropTarget?.id === item.id ? `drop-${dropTarget.position}` : ''
               ].filter(Boolean).join(' ')}
               key={item.id}
-              draggable
+              draggable={editingId !== item.id}
               onDragStart={(event) => handleDragStart(event, item.id)}
               onDragOver={(event) => handleDragOver(event, item.id)}
               onDrop={(event) => handleDrop(event, item.id)}
@@ -147,10 +167,34 @@ export default function QuickQueue({ items, loading, onAdd, onToggle, onDelete, 
                   checked={item.done}
                   onChange={(event) => onToggle(item.id, event.target.checked)}
                 />
-                <span>{item.text}</span>
+                {editingId === item.id ? (
+                  <input
+                    className="quick-queue-edit-input"
+                    value={editingText}
+                    autoFocus
+                    onChange={(event) => setEditingText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void saveEditing();
+                      }
+                      if (event.key === 'Escape') cancelEditing();
+                    }}
+                  />
+                ) : (
+                  <span>{item.text}</span>
+                )}
               </label>
               <time>{formatCreatedAt(item.createdAt)}</time>
               <div className="quick-queue-item-actions">
+                {editingId === item.id ? (
+                  <>
+                    <button type="button" onClick={() => void saveEditing()} disabled={!editingText.trim()}>Guardar</button>
+                    <button type="button" onClick={cancelEditing}>Cancelar</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => startEditing(item)}>Editar</button>
+                )}
                 <button type="button" onClick={() => onCreateTask(item)}>Criar task</button>
                 <button type="button" onClick={() => onMove(item.id, -1)} disabled={index === 0} aria-label="Subir item">↑</button>
                 <button type="button" onClick={() => onMove(item.id, 1)} disabled={index === items.length - 1} aria-label="Descer item">↓</button>

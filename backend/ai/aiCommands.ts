@@ -454,6 +454,19 @@ async function applyPreparedAiCommand(client, prepared, allTasks, now, dependenc
           message: `AI Advisor: scheduled calendar event for ${patch.dueDateTime} (${patch.estimatedMinutes} min)`,
           createdAt: now
         });
+        if (dependencies.createProductivityEvent) {
+          await dependencies.createProductivityEvent(client, {
+            eventType: 'task_scheduled',
+            xp: 15,
+            taskId: updated.id,
+            metadata: {
+              title: updated.title,
+              start: prepared.calendarEvent.start,
+              end: prepared.calendarEvent.end,
+              alreadyExists: Boolean(event.alreadyExists)
+            }
+          });
+        }
         task = await findTaskById(client, updated.id);
       }
     }
@@ -527,3 +540,4 @@ module.exports = {
 };
 
 export {};
+

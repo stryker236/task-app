@@ -78,6 +78,7 @@ type GoogleRouteDependencies = {
     htmlLink: string | null;
   }) => Promise<TaskCalendarEvent>;
   deleteTaskCalendarEventsByCalendarId?: (db: Queryable, calendarId: string) => Promise<number>;
+  createProductivityEvent?: (db: Queryable, event: { eventType: string; xp: number; taskId?: string | null; calendarEventId?: string | null; metadata?: Record<string, unknown> }) => Promise<unknown>;
 };
 
 function frontendFallbackUrl(): string {
@@ -147,7 +148,7 @@ function toCalendarEvent(event: calendar_v3.Schema$Event, sourceCalendar: Google
     calendarId: sourceCalendar.id,
     calendarSummary: sourceCalendar.summary,
     calendarColor: sourceCalendar.backgroundColor,
-    summary: event.summary || '(Sem título)',
+    summary: event.summary || '(Sem tÃ­tulo)',
     description: event.description || '',
     location: event.location || '',
     status: event.status,
@@ -195,7 +196,7 @@ function formatTaskLine(task) {
     : 'Sem hora';
   const priority = ['Baixa', 'Normal', 'Alta', 'Urgente'][Math.max(0, Number(task.priority || 1) - 1)] || `P${task.priority}`;
   const tags = task.tags?.length ? ` [${task.tags.join(', ')}]` : '';
-  return `- ${due} · ${task.title} · ${priority} · ${task.status}${tags}`;
+  return `- ${due} Â· ${task.title} Â· ${priority} Â· ${task.status}${tags}`;
 }
 
 function buildDailyTasksEmail(tasks) {
@@ -391,7 +392,8 @@ function createGoogleRouter({
   consumeGoogleOAuthState,
   fetchTaskCalendarEvents,
   insertTaskCalendarEvent,
-  deleteTaskCalendarEventsByCalendarId
+  deleteTaskCalendarEventsByCalendarId,
+  createProductivityEvent
 }: GoogleRouteDependencies) {
   const router = express.Router();
   // Get 
@@ -815,6 +817,15 @@ function createGoogleRouter({
         end: result.data.end?.dateTime || end,
         htmlLink: result.data.htmlLink || null
       });
+      if (createProductivityEvent) {
+        await createProductivityEvent(pool, {
+          eventType: 'task_scheduled',
+          xp: 15,
+          taskId,
+          calendarEventId: linkedEvent.id,
+          metadata: { title: task.title, start, end, calendarId }
+        });
+      }
 
       res.status(201).json({ event: linkedEvent });
       (req as any).log?.('info', 'calendar.event.insert.completed', {
@@ -831,3 +842,4 @@ function createGoogleRouter({
 module.exports = { createGoogleRouter };
 
 export {};
+

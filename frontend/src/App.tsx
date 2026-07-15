@@ -10,6 +10,7 @@ import Filters from './components/Filters';
 import GoogleDailyPanel from './components/GoogleDailyPanel';
 import GoogleLoginScreen from './components/GoogleLoginScreen';
 import MainView from './components/MainView';
+import ProductivityPanel from './components/ProductivityPanel';
 import type { QueueSort } from './components/QueueView';
 import type { TaskCardActions } from './components/TaskCard';
 import ViewTabs from './components/ViewTabs';
@@ -20,6 +21,7 @@ import useAdvisorController from './hooks/useAdvisorController';
 import useDashboardData from './hooks/useDashboardData';
 import useGoogleCalendar from './hooks/useGoogleCalendar';
 import useProgressLogController from './hooks/useProgressLogController';
+import useProductivitySummary from './hooks/useProductivitySummary';
 import useQuickQueue from './hooks/useQuickQueue';
 import useTagActions from './hooks/useTagActions';
 import useTaskActions from './hooks/useTaskActions';
@@ -74,12 +76,14 @@ export default function App() {
   }, [darkMode]);
 
   const googleCalendar = useGoogleCalendar({ setError });
+  const { productivitySummary, productivityLoading } = useProductivitySummary({ setError });
 
   const {
     quickQueueItems,
     quickQueueLoading,
     addQuickQueueItem,
     toggleQuickQueueItem,
+    editQuickQueueItem,
     deleteQuickQueueItem,
     moveQuickQueueItem,
     reorderQuickQueueItems,
@@ -208,9 +212,17 @@ export default function App() {
     <GoogleCalendarProvider value={googleCalendar}>
       <AdvisorProvider value={advisorController}>
         <div className="app-shell">
-      <AppHeader onCreateTask={taskForm.openCreateTaskForm} darkMode={darkMode} onToggleDarkMode={() => setDarkMode((current) => !current)} />
+      <AppHeader
+        onCreateTask={taskForm.openCreateTaskForm}
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode((current) => !current)}
+        todayXp={productivitySummary.todayXp}
+        currentStreak={productivitySummary.currentStreak}
+      />
 
       <main>
+        <ProductivityPanel summary={productivitySummary} loading={productivityLoading} />
+
         <DashboardCounters counters={counters} />
 
         <ViewTabs view={view} />
@@ -260,7 +272,7 @@ export default function App() {
         {error && (
           <div className="error-banner" role="alert">
             <span>{error}</span>
-            <button type="button" onClick={() => setError('')} aria-label="Fechar">×</button>
+            <button type="button" onClick={() => setError('')} aria-label="Fechar">Ã—</button>
           </div>
         )}
 
@@ -278,6 +290,7 @@ export default function App() {
           quickQueueLoading={quickQueueLoading}
           onQuickQueueAdd={addQuickQueueItem}
           onQuickQueueToggle={toggleQuickQueueItem}
+          onQuickQueueEdit={editQuickQueueItem}
           onQuickQueueDelete={deleteQuickQueueItem}
           onQuickQueueMove={moveQuickQueueItem}
           onQuickQueueReorder={reorderQuickQueueItems}
@@ -335,3 +348,5 @@ export default function App() {
     </GoogleCalendarProvider>
   );
 }
+
+

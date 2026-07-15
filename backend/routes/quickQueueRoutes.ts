@@ -7,6 +7,7 @@ function createQuickQueueRouter({
   fetchQuickQueueItems,
   createQuickQueueItem,
   updateQuickQueueItem,
+  createProductivityEvent = async (_db: unknown, _event: unknown) => null,
   deleteQuickQueueItem,
   clearDoneQuickQueueItems,
   moveQuickQueueItem,
@@ -75,7 +76,19 @@ function createQuickQueueRouter({
       }
       if (!Object.keys(patch).length) throw createValidationError(['text or done is required']);
 
-      const item = await withTransaction((client) => updateQuickQueueItem(client, req.params.id, patch));
+      const item = await withTransaction(async (client) => {
+        const previous = (await fetchQuickQueueItems(client)).find((entry) => entry.id === req.params.id);
+        const updated = await updateQuickQueueItem(client, req.params.id, patch);
+        if (updated && patch.done === true && previous && !previous.done) {
+          await createProductivityEvent(client, {
+            eventType: 'quick_queue_completed',
+            xp: 10,
+            quickQueueItemId: updated.id,
+            metadata: { text: updated.text }
+          });
+        }
+        return updated;
+      });
       if (!item) return res.status(404).json({ error: 'Quick queue item not found' });
       logInfo(requestLogMeta(req, {
         event: 'quick_queue.update',
@@ -151,3 +164,4 @@ function createQuickQueueRouter({
 module.exports = { createQuickQueueRouter };
 
 export {};
+

@@ -1,4 +1,4 @@
-import type { AiCommand, AiCommandPreview, ChecklistItem, CreateGoogleCalendarEventInput, CreateGoogleCalendarEventResponse, DeleteDefaultGoogleCalendarEventsResponse, GoogleCalendar, GoogleCalendarEvent, GoogleCalendarEventsResponse, GoogleCalendarsResponse, GoogleOAuthUrlRequest, GoogleOAuthUrlResponse, GoogleStatus, QuickQueueItem, SendGoogleDailyTaskEmailResponse, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
+import type { AiCommand, AiCommandPreview, ChecklistItem, CreateGoogleCalendarEventInput, CreateGoogleCalendarEventResponse, DeleteDefaultGoogleCalendarEventsResponse, GoogleCalendar, GoogleCalendarEvent, GoogleCalendarEventsResponse, GoogleCalendarsResponse, GoogleOAuthUrlRequest, GoogleOAuthUrlResponse, GoogleStatus, ProductivitySummary, QuickQueueItem, SendGoogleDailyTaskEmailResponse, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const DEFAULT_API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 60000);
@@ -349,7 +349,8 @@ export function requestTaskAdvisorCommands(action: string, options: { defaultCal
 export const getSchedulerRules = () => requestJson<SchedulerRule[]>('/scheduler/rules');
 export const createSchedulerRule = (text: string) => requestJson<SchedulerRule>('/scheduler/rules', { method: 'POST', body: JSON.stringify({ text }) });
 export const createSchedulerRulesFromText = (text: string) => requestJson<{ rules: SchedulerRule[] }>('/scheduler/rules/from-text', { method: 'POST', body: JSON.stringify({ text }) });
-export const updateSchedulerRule = (id: string, patch: Partial<Pick<SchedulerRule, 'enabled' | 'status' | 'text'>>) => requestJson<SchedulerRule>(`/scheduler/rules/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+export type SchedulerRuleUpdate = Partial<Pick<SchedulerRule, 'enabled' | 'status' | 'text'>> & { constraints?: Array<Pick<SchedulerRuleConstraint, 'type' | 'scope' | 'payload' | 'hard' | 'enabled'>> };
+export const updateSchedulerRule = (id: string, patch: SchedulerRuleUpdate) => requestJson<SchedulerRule>(`/scheduler/rules/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 export const reinterpretSchedulerRule = (id: string) => requestJson<SchedulerRule>(`/scheduler/rules/${id}/reinterpret`, { method: 'POST' });
 export const deleteSchedulerRule = (id: string) => requestJson<void>(`/scheduler/rules/${id}`, { method: 'DELETE' });
 
@@ -543,6 +544,8 @@ export const moveQuickQueueItem = (id: string, direction: 1 | -1) => requestJson
 export const reorderQuickQueueItems = (ids: string[]) => requestJson<QuickQueueItem[]>('/quick-queue/reorder', { method: 'POST', body: JSON.stringify({ ids }) });
 export const clearDoneQuickQueueItems = () => requestJson<QuickQueueItem[]>('/quick-queue/done', { method: 'DELETE' });
 
+export const getProductivitySummary = () => requestJson<ProductivitySummary>('/productivity/summary');
+
 export const getPeriodicTasks = () => requestJson<PeriodicTask[]>('/periodic-tasks');
 export const createPeriodicTask = (task: PeriodicTaskInput) => requestJson<PeriodicTask>('/periodic-tasks', { method: 'POST', body: JSON.stringify(task) });
 export const updatePeriodicTask = (id: string, patch: PeriodicTaskInput) => requestJson<PeriodicTask>(`/periodic-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
@@ -592,3 +595,4 @@ export const getGoogleCalendarEventsRange = (start: string, end: string, calenda
     `/google/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}${query ? `&${query}` : ''}`
   );
 };
+
