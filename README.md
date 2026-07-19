@@ -16,6 +16,24 @@ The goal is not to become a heavy project management platform. The goal is to be
 
 The app is desktop-first, but the backend is designed so other clients can be added later, for example an Android app.
 
+## Documentation Map
+
+Detailed project documentation is organized under [`docs/`](./docs/):
+
+- [Overview](./docs/00-overview.md)
+- [System Design](./docs/01-system-design.md)
+- [Data Model](./docs/02-data-model.md)
+- [Scheduling Model](./docs/03-scheduling-model.md)
+- [Google Calendar](./docs/04-google-calendar.md)
+- [AI Advisor](./docs/05-ai-advisor.md)
+- [Frontend Architecture](./docs/06-frontend-architecture.md)
+- [Backend API](./docs/07-backend-api.md)
+- [Development Workflow](./docs/08-development-workflow.md)
+- [Decisions](./docs/09-decisions.md)
+- [Diagnostic Flows](./docs/11-diagnostic-flows.md)
+- [Schema Reference](./docs/12-schema-reference.md)
+
+The README is the entry point and setup reference. Domain details should go in the matching `docs/` file.
 ## Product direction
 
 The long-term direction is for Task App to become a personal operating layer for daily work.
