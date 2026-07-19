@@ -34,6 +34,16 @@ const aiRateLimit = createMemoryRateLimit({
 	message: 'AI request rate limit exceeded'
 });
 
+function isActiveTaskCalendarEvent(event, now = new Date()) {
+	const end = Date.parse(event?.end || event?.endAt || '');
+	if (Number.isNaN(end)) return false;
+	return end >= now.getTime();
+}
+
+function hasActiveTaskCalendarEvent(events = [], now = new Date()) {
+	return events.some((event) => isActiveTaskCalendarEvent(event, now));
+}
+
 function previewChangedFields(preview) {
 	const changes = preview?.changes && typeof preview.changes === 'object' ? preview.changes : {};
 	const before = changes.before || {};
@@ -151,7 +161,7 @@ async function filterExistingGoogleCalendarCommandPairs({ commands = [], preview
 		if (preview.type !== 'create_calendar_event') return { command: commands[index], preview };
 		if (preview.taskId && dependencies.fetchTaskCalendarEvents) {
 			const linkedEvents = await dependencies.fetchTaskCalendarEvents(dependencies.pool, preview.taskId);
-			if (linkedEvents.length) return null;
+			if (hasActiveTaskCalendarEvent(linkedEvents)) return null;
 		}
 		const event = commands[index]?.event || preview.changes?.calendarEvent;
 		if (!event) return { command: commands[index], preview };
@@ -591,7 +601,7 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			: []
 	})));
 	const eligibleTasks = linkedResults
-		.filter(({ task, linkedEvents }) => isEligibleCalendarTask(task) && !linkedEvents.length)
+		.filter(({ task, linkedEvents }) => isEligibleCalendarTask(task) && !hasActiveTaskCalendarEvent(linkedEvents))
 		.map(({ task }) => task);
 	const periodicTasks = dependencies.fetchPeriodicTasks
 		? await dependencies.fetchPeriodicTasks(dependencies.pool, { activeOnly: true, includeOccurrences: true })
@@ -623,13 +633,7 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 		...event,
 		calendarSummary: calendarSummaryById.get(String(event.calendarId)) || String(event.calendarId || '')
 	}));
-	const reservedBusy = dependencies.fetchCommittedSchedulerReservedBlocks
-		? (await dependencies.fetchCommittedSchedulerReservedBlocks(dependencies.pool)).map((block) => ({
-			calendarId: 'scheduler-reserved',
-			start: block.start,
-			end: block.end
-		}))
-		: [];
+	const reservedBusy = [];
 	const schedulerRequest = {
 		now,
 		horizonEnd,
@@ -652,6 +656,25 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 	};
 	const scheduled = await requestSchedule(schedulerRequest);
 	const tasksById = new Map(schedulerCandidates.map((task) => [String(task.id), task]));
+	const reservedBlockCommands = (scheduled.reserved || []).map((block, index) => ({
+		id: `schedule_break_${index + 1}`,
+		type: 'create_calendar_event',
+		taskId: null,
+		periodicTaskId: null,
+		reason: block.reason === 'break_after_task'
+			? 'Pausa criada pela regra de descanso apos uma tarefa longa.'
+			: 'Pausa criada pela regra de descanso entre blocos de trabalho.',
+		event: {
+			summary: 'Pausa',
+			description: block.reason || 'scheduler break',
+			location: '',
+			start: block.start,
+			end: block.end,
+			timeZone: calendarTimeZone,
+			calendarId,
+			calendarSelectionReason: `default calendar: ${calendarSummary}`
+		}
+	}));
 	let commands = scheduled.scheduled.map((item) => {
 		const task = tasksById.get(String(item.taskId));
 		const fixed = combinedFixedConstraints.has(String(item.taskId));
@@ -686,13 +709,14 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			}
 		};
 	});
+	commands = [...commands, ...reservedBlockCommands];
 	const explanationModel = null;
 	const explanationSummary = '';
 	return {
 		commands,
 		explanationModel,
 		explanationSummary,
-		reservedBlocks: scheduled.reserved || [],
+		reservedBlocks: [],
 		debug: {
 			schedulerDebug: {
 				generatedAt: new Date().toISOString(),
@@ -1093,13 +1117,7 @@ function createAdvisorRouter({
 					tasks = updateTasksAfterCommand(tasks, commandResult);
 					if (!commandResult.task && prepared.type !== 'create_calendar_event') tasks = await fetchTasks(client);
 				}
-				const reservedBlocks = sanitizeReservedBlocks(req.body?.reservedBlocks);
-				if (reservedBlocks.length && createSchedulerScheduleBatch) {
-					await createSchedulerScheduleBatch(client, {
-						source: 'advisor',
-						reservedBlocks
-					});
-				}
+				// Breaks are now created as explicit Google Calendar events, not hidden local reservations.
 				return applied;
 			});
 			res.json({
@@ -1145,4 +1163,6 @@ async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedD
 		debug: scheduled.debug
 	});
 }
+
+
 

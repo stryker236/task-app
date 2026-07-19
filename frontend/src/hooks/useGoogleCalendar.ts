@@ -180,7 +180,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     }
   }
 
-  async function loadCalendarEvents(date = calendarDate, calendarIds = selectedCalendarIds) {
+  async function loadCalendarEvents(date = calendarDate, calendarIds = selectedCalendarIds, options: { forceRefresh?: boolean } = {}) {
     if (!googleStatus.connected) return;
     if (!calendarIds.length) {
       setCalendarEvents([]);
@@ -190,7 +190,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     setError?.('');
     try {
       clientLog('info', 'calendar.events.load.started', '', { mode: 'day', date, calendarIds });
-      const data = await getGoogleCalendarEvents(date, calendarIds);
+      const data = await getGoogleCalendarEvents(date, calendarIds, options);
       setCalendarEvents(data.events || []);
       setCalendarAccountEmail(data.accountEmail || null);
       clientLog('info', 'calendar.events.load.completed', '', { mode: 'day', date, calendarIds, eventCount: data.events?.length || 0 });
@@ -205,7 +205,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     }
   }
 
-  async function loadCalendarWeekEvents(start = calendarWeekStart, calendarIds = selectedCalendarIds) {
+  async function loadCalendarWeekEvents(start = calendarWeekStart, calendarIds = selectedCalendarIds, options: { forceRefresh?: boolean } = {}) {
     if (!googleStatus.connected) return;
     const normalizedStart = startOfWeekInputValue(start);
     const end = addDaysInputValue(normalizedStart, 6);
@@ -219,7 +219,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     setCalendarWeekStartState(normalizedStart);
     try {
       clientLog('info', 'calendar.events.load.started', '', { mode: 'week', start: normalizedStart, end, calendarIds });
-      const data = await getGoogleCalendarEventsRange(normalizedStart, end, calendarIds);
+      const data = await getGoogleCalendarEventsRange(normalizedStart, end, calendarIds, options);
       setWeeklyCalendarEvents(data.events || []);
       setCalendarAccountEmail(data.accountEmail || null);
       clientLog('info', 'calendar.events.load.completed', '', { mode: 'week', start: normalizedStart, end, calendarIds, eventCount: data.events?.length || 0 });
@@ -234,7 +234,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     }
   }
 
-  async function loadCalendarRangeEvents(start: string, end: string, calendarIds = selectedCalendarIds) {
+  async function loadCalendarRangeEvents(start: string, end: string, calendarIds = selectedCalendarIds, options: { forceRefresh?: boolean } = {}) {
     if (!googleStatus.connected) return;
     if (!calendarIds.length) {
       setCalendarWeekStartState(start);
@@ -246,7 +246,7 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     setCalendarWeekStartState(start);
     try {
       clientLog('info', 'calendar.events.load.started', '', { mode: 'range', start, end, calendarIds });
-      const data = await getGoogleCalendarEventsRange(start, end, calendarIds);
+      const data = await getGoogleCalendarEventsRange(start, end, calendarIds, options);
       setWeeklyCalendarEvents(data.events || []);
       setCalendarAccountEmail(data.accountEmail || null);
       clientLog('info', 'calendar.events.load.completed', '', { mode: 'range', start, end, calendarIds, eventCount: data.events?.length || 0 });
@@ -290,8 +290,8 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     setError?.('');
     try {
       const result = await deleteDefaultGoogleCalendarEvents(advisorDefaultCalendarId);
-      await loadCalendarWeekEvents(calendarWeekStart, selectedCalendarIds);
-      await loadCalendarEvents(calendarDate, selectedCalendarIds);
+      await loadCalendarWeekEvents(calendarWeekStart, selectedCalendarIds, { forceRefresh: true });
+      await loadCalendarEvents(calendarDate, selectedCalendarIds, { forceRefresh: true });
       return result;
     } catch (error) {
       setError?.(errorMessage(error));

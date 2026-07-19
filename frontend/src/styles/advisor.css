@@ -362,3 +362,45 @@
   .advisor-memory-grid.three { grid-template-columns: 1fr; }
   .learned-rule-actions { flex-direction: row; }
 }
+.advisor-day-commit-bar,
+.advisor-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.advisor-day-commit-bar span,
+.advisor-selection-bar span {
+  color: #667187;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.advisor-selection-bar label,
+.advisor-proposal-select {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  color: #526179;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.advisor-selection-bar input,
+.advisor-proposal-select input {
+  width: auto;
+  margin: 0;
+}
+
+.advisor-proposal.is-selected {
+  border-color: var(--break-border);
+  background: var(--break-surface);
+}
+
+.advisor-proposal-select {
+  margin-bottom: 6px;
+}

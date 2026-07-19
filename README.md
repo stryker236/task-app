@@ -33,8 +33,9 @@ The app organizes work through several views:
 - Probable follow-ups, for overdue, urgent, waiting, and no-deadline cards.
 - Quick Queue, for short-term reminders synchronized through the database.
 - Notes, for shared notes that can be reused across tasks.
-- Calendar, for Google Calendar visibility and Advisor-generated schedule previews.
+- Calendar, for Google Calendar visibility, Advisor-generated schedule previews, and committed scheduled events.
 - Rotinas, for reusable periodic tasks such as study, gym, and other recurring work.
+- A rever, for reviewing scheduled task events whose time has already passed.
 - Feedback AI, for reviewing and deleting advisor memory learned from feedback.
 - Agenda AI, for natural-language scheduler rules that affect calendar planning.
 - Archived, for closed work.
@@ -52,7 +53,8 @@ Each task can have:
 - shared notes;
 - archived state;
 - favorite flag;
-- optional estimate.
+- optional estimate;
+- linked calendar scheduling events, separate from due dates.
 
 The AI Advisor can currently suggest:
 
@@ -107,7 +109,7 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 
 ## Main features
 
-- Kanban, Queue, Quick Queue, Probable Follow-ups, Notes, Calendar, Rotinas, Feedback AI, Agenda AI, and Archived views
+- Kanban, Queue, Quick Queue, Probable Follow-ups, Notes, Calendar, Rotinas, A rever, Feedback AI, Agenda AI, and Archived views
 - Independent filters per view
 - Reusable tags, multi-tag filtering, and deactivation/reactivation of unused tags
 - Priorities, due dates, favorites, checklist, and optional estimate
@@ -118,13 +120,14 @@ Application with React/Vite frontend, Node.js/Express backend, and PostgreSQL pe
 - Archive/restore tasks and bulk archive `done`/`cancelled` tasks
 - Database-backed Quick Queue for short-term reminders shared between clients
 - Google Calendar weekly view with multiple calendars and calendar filters
-- OR-Tools calendar scheduling with draggable preview events
+- OR-Tools calendar scheduling with draggable preview events, custom proposal commits, and per-day commits
 - Periodic task routines with target frequency, hard windows/days, one-off constraints, and occurrence history
 - Natural-language scheduler rules with persisted derived constraints
-- Break preview blocks and exact-date scheduling constraints
+- Break proposals as explicit calendar events and exact-date scheduling constraints
 - Gmail daily task email for today's and overdue active tasks
 - AI Advisor with proposal buffer: accept/ignore individually or in bulk
 - Feedback AI advisor memory from structured feedback, with a dedicated management view
+- Scheduled task review for calendar events that ended before the task was completed
 
 ## Structure
 
@@ -454,6 +457,7 @@ The remote migration history has already been aligned with the existing migratio
 20260702110000_add_advisor_memory.sql
 20260710100000_add_scheduler_rules.sql
 20260711100000_add_scheduler_reserved_blocks.sql
+20260718120000_add_task_calendar_event_reviews.sql
 ```
 
 Login/link project:
@@ -570,6 +574,7 @@ Tags are soft-deactivated, not physically deleted. A tag can be deactivated when
 | `DELETE` | `/ai/advisor/memory/:id` | Delete a Feedback AI advisor memory rule |
 | `POST` | `/ai/commands/preview` | Validate/preview AI commands |
 | `POST` | `/ai/commands/apply` | Apply accepted AI commands |
+| `POST` | `/tasks/:id/calendar-events/:eventId/review` | Review a past scheduled task event as completed, missed, or skipped |
 | `GET` | `/scheduler/rules` | List natural-language scheduler rules and derived constraints |
 | `POST` | `/scheduler/rules/from-text` | Split and interpret one text message into persisted scheduler rules |
 | `POST` | `/scheduler/rules` | Create one scheduler rule from text |
@@ -596,11 +601,13 @@ For `priority_management`, the backend asks only for priority changes. It priori
 
 For `suggest_due_dates`, the backend asks only for due date changes. It prioritizes tasks without due dates, overdue tasks, higher priorities, and nearest due dates, and filters out proposals that try to change anything other than `dueDateTime`.
 
-For `schedule_calendar_events`, the backend sends eligible tasks to the Python scheduler service. Eligible tasks are active tasks with status `new` or `in_progress` that do not already have linked calendar events. Existing Google Calendar events, committed scheduler reserved blocks, due dates, user-moved preview constraints, and active scheduler rules are respected.
+For `schedule_calendar_events`, the backend sends eligible tasks to the Python scheduler service. Eligible tasks are active tasks with status `new` or `in_progress` that do not already have a future/current linked calendar event. Past linked events do not block scheduling; if a past scheduled event has not been reviewed and the task is still open, it appears in the scheduled review view instead of silently blocking future scheduling.
 
-Calendar event proposals are previews. Users can drag preview task events before accepting them; dragged tasks become fixed constraints for the next scheduling run. The calendar exposes `Limpar ajustes` when moved-task constraints exist.
+Calendar event proposals are previews. Users can drag preview task events before accepting them; dragged tasks become fixed constraints for the next scheduling run. The calendar exposes `Limpar ajustes` when moved-task constraints exist. Proposal commits can be done individually, as a selected custom set, by day, or as the full batch.
 
-Accepting one calendar proposal creates only that Google Calendar event and updates the linked task due date and estimated time. Accepting the full schedule batch can also persist calculated break blocks in `scheduler_reserved_blocks`.
+Accepting a calendar proposal creates a Google Calendar event and stores the task-event association in `task_calendar_events`. It does not update `dueDateTime`; due date remains the task deadline. Normal task events are created with a Google Calendar popup reminder 30 minutes before the event. Breaks are created as explicit `Pausa` calendar events and do not get reminders.
+
+Scheduled state is derived from linked calendar events. A task with a future/current linked event is shown as scheduled and is not eligible for new calendar proposals. When the event is in the past and the task is still open, the event can be reviewed as completed, missed, or skipped; missed/skipped reviews leave the task eligible for future scheduling.
 
 Scheduler rule constraints currently include:
 
@@ -708,10 +715,11 @@ Periodic tasks are reusable scheduling candidates, not duplicated normal tasks. 
 | `GET` | `/google/oauth/callback` | OAuth callback |
 | `DELETE` | `/google/connection` | Disconnect Google |
 | `GET` | `/google/calendars` | List accessible calendars |
-| `GET` | `/google/calendar/events` | List calendar events by day or date range |
+| `GET` | `/google/calendar/events` | List calendar events by day or date range, backed by a short TTL cache |
+| `POST` | `/google/calendar/events` | Create a linked task calendar event without changing the task due date |
 | `POST` | `/google/gmail/daily-tasks` | Email today's active task summary |
 
-`GET /google/calendar/events` accepts either `date=YYYY-MM-DD` or `start=YYYY-MM-DD&end=YYYY-MM-DD`. `calendarId` can be repeated to query multiple calendars.
+`GET /google/calendar/events` accepts either `date=YYYY-MM-DD` or `start=YYYY-MM-DD&end=YYYY-MM-DD`. `calendarId` can be repeated to query multiple calendars. Calendar event reads use a TTL cache; pressing `Atualizar` refreshes the cache from Google Calendar. Creating or deleting calendar events clears the relevant cache so new committed events are visible quickly.
 
 ## Main data model
 

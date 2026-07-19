@@ -1,4 +1,4 @@
-import type { AppSettings, AppSettingsUpdate, ProductivitySummary, QuickQueueItem, Task, TaskStatus } from '../../../shared/types';
+import type { AppSettings, AppSettingsUpdate, ProductivitySummary, QuickQueueItem, Task, TaskCalendarEvent, TaskCalendarEventReviewStatus, TaskStatus } from '../../../shared/types';
 import type { TaskFilters } from '../api';
 import type { ViewKey } from '../constants/tasks';
 import { useAdvisorContext } from '../context/AdvisorContext';
@@ -12,6 +12,7 @@ import QueueView from './QueueView';
 import type { QueueSort } from './QueueView';
 import QuickQueue from './QuickQueue';
 import SchedulerRulesView from './SchedulerRulesView';
+import ScheduledReviewView from './ScheduledReviewView';
 import SharedNotesView from './SharedNotesView';
 import SettingsView from './SettingsView';
 import TaskCard from './TaskCard';
@@ -50,6 +51,7 @@ type MainViewProps = {
   onOpenTask: (task: Task) => void;
   onError: (message: string) => void;
   onTasksChanged: () => Promise<void>;
+  onReviewScheduledEvent: (task: Task, event: TaskCalendarEvent, status: TaskCalendarEventReviewStatus, note: string, feedback: Record<string, unknown>) => Promise<Task | null>;
   focusedSharedNoteId: string;
 };
 
@@ -84,6 +86,7 @@ export default function MainView({
   onOpenTask,
   onError,
   onTasksChanged,
+  onReviewScheduledEvent,
   focusedSharedNoteId
 }: MainViewProps) {
   const advisor = useAdvisorContext();
@@ -115,6 +118,10 @@ export default function MainView({
 
   if (view === 'periodicTasks') {
     return <PeriodicTasksView onError={onError} />;
+  }
+
+  if (view === 'scheduledReview') {
+    return <ScheduledReviewView tasks={allTasks} loading={loading} onOpenTask={onOpenTask} onReview={onReviewScheduledEvent} />;
   }
 
   if (view === 'productivity') {

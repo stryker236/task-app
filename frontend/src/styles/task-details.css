@@ -1,4 +1,4 @@
-﻿.task-details-dialog { width: min(920px, calc(100vw - 56px)); }
+.task-details-dialog { width: min(920px, calc(100vw - 56px)); }
 .details-title-wrap { flex: 1; min-width: 0; }
 .details-title-input { width: 100%; border: 0; border-bottom: 1px solid transparent; border-radius: 0; padding: 1px 0; color: #283247; background: transparent; font-size: 19px; font-weight: 750; }
 .details-title-input:hover, .details-title-input:focus { border-bottom-color: #9aabe0; outline: 0; }
@@ -137,4 +137,28 @@
 .task-calendar-links span {
   color: #7b8495;
   font-size: 11px;
+}
+
+.scheduler-rule-links {
+  display: grid;
+  gap: 8px;
+}
+
+.scheduler-rule-links article {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid #d8dde8;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.scheduler-rule-links p,
+.scheduler-rule-links small {
+  margin: 0;
+  color: #667085;
+}
+
+.scheduler-rule-links small {
+  display: block;
 }

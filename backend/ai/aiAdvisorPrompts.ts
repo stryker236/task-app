@@ -19,12 +19,19 @@ function daySortValue(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function hasActiveCalendarEvent(task, now = Date.now()) {
+  return (task.calendarEvents || []).some((event) => {
+    if (event.reviewStatus) return false;
+    const end = Date.parse(event.end || event.endAt || '');
+    return !Number.isNaN(end) && end >= now;
+  });
+}
 function selectCommandContextTasks({ action, tasks, excludeTaskIds = [] }) {
   const active = tasks.filter((task) => !task.isArchived && ['new', 'in_progress', 'waiting'].includes(task.status));
   const excluded = new Set(excludeTaskIds.map(String));
   if (action === 'schedule_calendar_events') {
     return active
-      .filter((task) => !(task.calendarEvents || []).length && !excluded.has(task.id))
+      .filter((task) => !hasActiveCalendarEvent(task) && !excluded.has(task.id))
       .sort((a, b) => {
         const priorityDifference = Number(b.priority || 0) - Number(a.priority || 0);
         if (priorityDifference) return priorityDifference;

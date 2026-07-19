@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { GoogleCalendar, GoogleStatus, Task } from '../../../shared/types';
 import type { AdvisorAdvice, AdvisorFeedbackInput, AdvisorMemoryRule, AdvisorPreview } from '../api';
 import AdvisorAdviceGrid, { type AdvisorActionItem } from './advisor/AdvisorAdviceGrid';
@@ -49,6 +49,7 @@ type AdvisorPanelProps = {
   onRequestActions: (action: string) => void;
   onConnectGoogle: () => void;
   onApplyProposal: (commandId: string) => void;
+  onApplyProposals: (commandIds: string[]) => void;
   onIgnoreProposal: (commandId: string) => void;
   onApplyAllProposals: () => void;
   onIgnoreAllProposals: () => void;
@@ -120,12 +121,30 @@ function isCalendarEventProposal(proposal: AdvisorPreview['commands'][number]) {
   return proposal.type === 'create_calendar_event';
 }
 
+function proposalCalendarStart(proposal: AdvisorPreview['commands'][number]) {
+  const calendarEvent = (proposal.changes as ObjectRecord | undefined)?.calendarEvent as ObjectRecord | undefined;
+  return typeof calendarEvent?.start === 'string' ? calendarEvent.start : '';
+}
+
+function proposalDayKey(proposal: AdvisorPreview['commands'][number]) {
+  const start = proposalCalendarStart(proposal);
+  if (!start) return '';
+  const date = new Date(start);
+  if (Number.isNaN(date.getTime())) return start.slice(0, 10);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatProposalDay(day: string) {
+  const date = new Date(`${day}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return day;
+  return new Intl.DateTimeFormat('pt-PT', { weekday: 'short', day: '2-digit', month: 'short' }).format(date);
+}
 function taskTitleFromId(allTasks: Task[], id: string | null) {
   if (!id) return null;
   return allTasks.find((task) => task.id === id)?.title || id;
 }
 
-function AdvisorProposalFeedback({
+export function AdvisorProposalFeedback({
   proposal,
   saved,
   googleCalendars = [],
@@ -410,7 +429,7 @@ function AdvisorInteractionFeedback({
   );
 }
 
-function ProposalChanges({ proposal, allTasks = [] }: { proposal: AdvisorPreview['commands'][number]; allTasks?: Task[] }) {
+export function ProposalChanges({ proposal, allTasks = [] }: { proposal: AdvisorPreview['commands'][number]; allTasks?: Task[] }) {
   const changes = proposal.changes as ObjectRecord | undefined;
 
   if (proposal.type === 'create_calendar_event') {
@@ -688,6 +707,7 @@ export function AdvisorProposalBuffer({
   calendarWriteReady,
   onConnectGoogle,
   onApplyProposal,
+  onApplyProposals,
   onIgnoreProposal,
   onApplyAllProposals,
   onIgnoreAllProposals,
@@ -709,6 +729,7 @@ export function AdvisorProposalBuffer({
   calendarWriteReady: boolean;
   onConnectGoogle: () => void;
   onApplyProposal: (commandId: string) => void;
+  onApplyProposals: (commandIds: string[]) => void;
   onIgnoreProposal: (commandId: string) => void;
   onApplyAllProposals: () => void;
   onIgnoreAllProposals: () => void;
@@ -722,9 +743,41 @@ export function AdvisorProposalBuffer({
   if (!proposals) return null;
   const visibleCommands = commands.filter((command) => !proposalStatuses[command.id]);
   const pendingCount = visibleCommands.length;
+  const [selectedProposalIds, setSelectedProposalIds] = useState<string[]>([]);
+  const visibleIds = useMemo(() => new Set(visibleCommands.map((command) => command.id)), [visibleCommands]);
+  const selectedVisibleIds = selectedProposalIds.filter((id) => visibleIds.has(id));
+  const selectedCount = selectedVisibleIds.length;
   const hasCalendarProposal = commands.some((command) => command.type === 'create_calendar_event');
   const calendarPermissionBlocked = hasCalendarProposal && !calendarWriteReady;
   const schedulerDebug = proposals.debug?.schedulerDebug;
+  const calendarDayGroups = useMemo(() => {
+    const groups = new Map<string, AdvisorPreview['commands']>();
+    for (const command of visibleCommands) {
+      if (command.type !== 'create_calendar_event') continue;
+      const day = proposalDayKey(command);
+      if (!day) continue;
+      groups.set(day, [...(groups.get(day) || []), command]);
+    }
+    return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
+  }, [visibleCommands]);
+
+  function toggleSelectedProposal(commandId: string) {
+    setSelectedProposalIds((current) => current.includes(commandId) ? current.filter((id) => id !== commandId) : [...current, commandId]);
+  }
+
+  function setAllVisibleSelected(selected: boolean) {
+    setSelectedProposalIds(selected ? visibleCommands.map((command) => command.id) : []);
+  }
+
+  function applySelectedProposals() {
+    onApplyProposals(selectedVisibleIds);
+    setSelectedProposalIds([]);
+  }
+
+  function applyDayProposals(commandIds: string[]) {
+    onApplyProposals(commandIds);
+    setSelectedProposalIds((current) => current.filter((id) => !commandIds.includes(id)));
+  }
 
   return (
     <section className="advisor-buffer" aria-label="Propostas do assistente">
@@ -736,6 +789,9 @@ export function AdvisorProposalBuffer({
           <button type="button" className="button primary small" onClick={onApplyAllProposals} disabled={!pendingCount || applyingAllProposals || calendarPermissionBlocked}>
             {applyingAllProposals ? 'A aplicar...' : `Aceitar todos${pendingCount ? ` (${pendingCount})` : ''}`}
           </button>
+          <button type="button" className="button secondary small" onClick={applySelectedProposals} disabled={!selectedCount || applyingAllProposals || calendarPermissionBlocked}>
+            {`Aceitar selecionados${selectedCount ? ` (${selectedCount})` : ''}`}
+          </button>
           <button type="button" className="button secondary small" onClick={onIgnoreAllProposals} disabled={!pendingCount || applyingAllProposals}>
             Ignorar todos
           </button>
@@ -744,6 +800,23 @@ export function AdvisorProposalBuffer({
           </button>
         </div>
       </header>
+
+      {calendarDayGroups.length > 0 && (
+        <div className="advisor-day-commit-bar">
+          <span>Commit por dia</span>
+          {calendarDayGroups.map(([day, dayCommands]) => (
+            <button
+              type="button"
+              className="button ghost small"
+              key={day}
+              onClick={() => applyDayProposals(dayCommands.map((command) => command.id))}
+              disabled={applyingAllProposals || calendarPermissionBlocked}
+            >
+              {formatProposalDay(day)} ({dayCommands.length})
+            </button>
+          ))}
+        </div>
+      )}
 
       {calendarPermissionBlocked && (
         <div className="advisor-permission-warning">
@@ -761,7 +834,19 @@ export function AdvisorProposalBuffer({
       <AdvisorInteractionFeedback saved={interactionFeedbackSaved} action={action} onSave={onSaveInteractionFeedback} />
 
       {visibleCommands.length ? (
-        <div className="advisor-proposal-list">
+        <>
+          <div className="advisor-selection-bar">
+            <label>
+              <input
+                type="checkbox"
+                checked={pendingCount > 0 && selectedCount === pendingCount}
+                onChange={(event) => setAllVisibleSelected(event.target.checked)}
+              />
+              Selecionar visiveis
+            </label>
+            <span>{selectedCount} selecionadas</span>
+          </div>
+          <div className="advisor-proposal-list">
           {visibleCommands.map((proposal) => {
             const needsCalendarPermission = proposal.type === 'create_calendar_event' && !calendarWriteReady;
             const disabled = applyingProposalId === proposal.id || applyingAllProposals || needsCalendarPermission;
@@ -770,8 +855,12 @@ export function AdvisorProposalBuffer({
             const proposalCalendarId = String(calendarEvent?.calendarId || '');
 
             return (
-              <article className="advisor-proposal" key={proposal.id}>
+              <article className={`advisor-proposal ${selectedVisibleIds.includes(proposal.id) ? 'is-selected' : ''}`} key={proposal.id}>
                 <div className="advisor-proposal-main">
+                  <label className="advisor-proposal-select">
+                    <input type="checkbox" checked={selectedVisibleIds.includes(proposal.id)} onChange={() => toggleSelectedProposal(proposal.id)} />
+                    <span>Selecionar</span>
+                  </label>
                   <span className="advisor-command-type">{COMMAND_LABELS[proposal.type] || proposal.type}</span>
                   <div className="advisor-affected-card">
                     <span>{proposal.type === 'create_task' || proposal.type === 'create_calendar_event' ? 'Vai criar' : 'Afeta'}</span>
@@ -821,7 +910,8 @@ export function AdvisorProposalBuffer({
               </article>
             );
           })}
-        </div>
+          </div>
+        </>
       ) : (
         <p className="advisor-empty">O AI nao propos acoes aplicaveis.</p>
       )}
@@ -916,6 +1006,7 @@ export default function AdvisorPanel({
   onRequestActions,
   onConnectGoogle,
   onApplyProposal,
+  onApplyProposals,
   onIgnoreProposal,
   onApplyAllProposals,
   onIgnoreAllProposals,
@@ -965,6 +1056,7 @@ export default function AdvisorPanel({
         calendarWriteReady={calendarWriteReady}
         onConnectGoogle={onConnectGoogle}
         onApplyProposal={onApplyProposal}
+        onApplyProposals={onApplyProposals}
         onIgnoreProposal={onIgnoreProposal}
         onApplyAllProposals={onApplyAllProposals}
         onIgnoreAllProposals={onIgnoreAllProposals}
@@ -986,3 +1078,4 @@ export default function AdvisorPanel({
     </section>
   );
 }
+

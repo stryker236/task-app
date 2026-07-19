@@ -1,14 +1,23 @@
-import FullCalendar from '@fullcalendar/react';
+﻿import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin, { type EventResizeDoneArg } from '@fullcalendar/interaction';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import { useMemo, useRef, useState } from 'react';
 import type { DatesSetArg, EventClickArg, EventContentArg, EventDropArg, EventInput } from '@fullcalendar/core';
-import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
+import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus, Task } from '../../../shared/types';
+import type { AdvisorFeedbackInput, AdvisorPreview } from '../api';
 import type { AdvisorCalendarPreviewEvent, AdvisorReservedPreviewEvent } from '../utils/advisorCalendarPreviews';
+import { AdvisorProposalFeedback, ProposalChanges } from './AdvisorPanel';
 
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
 const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar';
+
+const CALENDAR_SNAP_DURATION = { minutes: 15 };
+const CALENDAR_LABEL_INTERVAL = { hours: 1 };
+const TIME_GRID_VIEW_OPTIONS = {
+  timeGridDay: { slotDuration: CALENDAR_SNAP_DURATION, snapDuration: CALENDAR_SNAP_DURATION },
+  timeGridWeek: { slotDuration: CALENDAR_SNAP_DURATION, snapDuration: CALENDAR_SNAP_DURATION }
+};
 
 type CalendarDisplayEvent = GoogleCalendarEvent | AdvisorCalendarPreviewEvent | AdvisorReservedPreviewEvent;
 
@@ -17,6 +26,7 @@ type CalendarViewMode = 'timeGridDay' | 'timeGridWeek' | 'dayGridMonth';
 type CalendarWeekViewProps = {
   status: GoogleStatus;
   loading: boolean;
+  allTasks: Task[];
   weekStart: string;
   weekEnd: string;
   events: GoogleCalendarEvent[];
@@ -32,8 +42,8 @@ type CalendarWeekViewProps = {
   onAdvisorDefaultCalendarChange: (calendarId: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
-  onLoadEvents: (date: string, calendarIds?: string[]) => void;
-  onLoadRangeEvents: (start: string, end: string, calendarIds?: string[]) => void;
+  onLoadEvents: (date: string, calendarIds?: string[], options?: { forceRefresh?: boolean }) => void;
+  onLoadRangeEvents: (start: string, end: string, calendarIds?: string[], options?: { forceRefresh?: boolean }) => void;
   onSendDailyTaskEmail: (date?: string) => Promise<{ to: string; date?: string; calendarSummary?: string; eventCount?: number; totalMinutes?: number; todayCount: number; overdueCount: number } | null>;
   onDeleteDefaultCalendarEvents: () => Promise<{ calendarSummary: string; deletedCount: number; unlinkedCount: number } | null>;
   advisorLoading: boolean;
@@ -43,6 +53,15 @@ type CalendarWeekViewProps = {
   onRequestAdvisorCalendarEvents: () => void;
   onMoveAdvisorPreviewEvent: (taskId: string, start: string, end: string) => void;
   onClearAdvisorScheduleConstraints: () => void;
+  advisorProposals: AdvisorPreview | null;
+  proposalFeedbackStatuses: Record<string, 'saved'>;
+  applyingProposalId: string | null;
+  applyingAllProposals: boolean;
+  calendarWriteReady: boolean;
+  onApplyProposal: (commandId: string) => void;
+  onIgnoreProposal: (commandId: string) => void;
+  onOpenTask: (taskId: string) => void;
+  onSaveProposalFeedback: (commandId: string, feedback: AdvisorFeedbackInput['feedback']) => Promise<void>;
 };
 
 function dateFromInputValue(value: string) {
@@ -100,6 +119,10 @@ function isAdvisorReservedPreviewEvent(event: CalendarDisplayEvent): event is Ad
   return 'advisorReservedPreview' in event && event.advisorReservedPreview;
 }
 
+function isBreakEvent(event: CalendarDisplayEvent) {
+  return isAdvisorReservedPreviewEvent(event) || String(event.summary || '').trim().toLocaleLowerCase() === 'pausa';
+}
+
 function advisorPreviewTaskId(event: AdvisorCalendarPreviewEvent) {
   return String((event as unknown as { taskId?: string }).taskId || event.advisorProposalId.replace(/^schedule_/, ''));
 }
@@ -116,6 +139,18 @@ function eventDurationMinutes(event: CalendarDisplayEvent) {
   return Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000));
 }
 
+
+const CALENDAR_SNAP_MINUTES = 15;
+
+function roundDateToSnap(date: Date) {
+  const snapMs = CALENDAR_SNAP_MINUTES * 60000;
+  return new Date(Math.round(date.getTime() / snapMs) * snapMs);
+}
+
+function ensureMinimumSnapEnd(start: Date, end: Date) {
+  if (end > start) return end;
+  return new Date(start.getTime() + CALENDAR_SNAP_MINUTES * 60000);
+}
 function toggleCalendarId(calendarIds: string[], calendarId: string) {
   return calendarIds.includes(calendarId)
     ? calendarIds.filter((id) => id !== calendarId)
@@ -125,14 +160,14 @@ function toggleCalendarId(calendarIds: string[], calendarId: string) {
 function eventClassNames(event: CalendarDisplayEvent) {
   return [
     isAdvisorPreviewEvent(event) ? 'is-advisor-preview' : '',
-    isAdvisorReservedPreviewEvent(event) ? 'is-advisor-break-preview' : ''
+    isBreakEvent(event) ? 'is-advisor-break-preview' : ''
   ].filter(Boolean);
 }
 
 function toFullCalendarEvent(event: CalendarDisplayEvent): EventInput {
   const isPreview = isAdvisorPreviewEvent(event);
-  const isBreak = isAdvisorReservedPreviewEvent(event);
-  const color = event.calendarColor || (isPreview ? '#6f48eb' : isBreak ? '#b7791f' : '#315efb');
+  const isBreak = isBreakEvent(event);
+  const color = isBreak ? '#0f8f7e' : event.calendarColor || (isPreview ? '#6f48eb' : '#315efb');
   return {
     id: event.id,
     title: eventTitle(event),
@@ -168,6 +203,7 @@ function renderEventContent(arg: EventContentArg) {
 export default function CalendarWeekView({
   status,
   loading,
+  allTasks,
   weekStart,
   weekEnd,
   events,
@@ -193,7 +229,16 @@ export default function CalendarWeekView({
   onScheduleStartDateChange,
   onRequestAdvisorCalendarEvents,
   onMoveAdvisorPreviewEvent,
-  onClearAdvisorScheduleConstraints
+  onClearAdvisorScheduleConstraints,
+  advisorProposals,
+  proposalFeedbackStatuses,
+  applyingProposalId,
+  applyingAllProposals,
+  calendarWriteReady,
+  onApplyProposal,
+  onIgnoreProposal,
+  onOpenTask,
+  onSaveProposalFeedback
 }: CalendarWeekViewProps) {
   const calendarRef = useRef<FullCalendar | null>(null);
   const [calendarMode, setCalendarMode] = useState<CalendarViewMode>('timeGridWeek');
@@ -217,17 +262,20 @@ export default function CalendarWeekView({
   const canSendEmail = status.scopes.includes(GMAIL_SEND_SCOPE);
   const canCreateCalendarEvents = status.connected && status.scopes.includes(CALENDAR_WRITE_SCOPE);
   const visibleEventCount = events.length + visibleAdvisorPreviewEvents.length + advisorReservedPreviewEvents.length;
+  const selectedPreviewProposal = selectedPreviewEvent
+    ? (advisorProposals?.commands || []).find((proposal) => proposal.id === selectedPreviewEvent.advisorProposalId) || null
+    : null;
 
   function calendarApi() {
     return calendarRef.current?.getApi();
   }
 
-  function loadVisibleRange(start: string, end: string, calendarIds = selectedCalendarIds) {
+  function loadVisibleRange(start: string, end: string, calendarIds = selectedCalendarIds, options: { forceRefresh?: boolean } = {}) {
     if (calendarMode === 'timeGridDay') {
-      onLoadEvents(start, calendarIds);
+      onLoadEvents(start, calendarIds, options);
       return;
     }
-    onLoadRangeEvents(start, end, calendarIds);
+    onLoadRangeEvents(start, end, calendarIds, options);
   }
 
   function handleDatesSet(arg: DatesSetArg) {
@@ -258,6 +306,14 @@ export default function CalendarWeekView({
     else api.next();
   }
 
+  function goToCurrentWeek() {
+    const api = calendarApi();
+    if (!api) return;
+    const today = inputValueFromDate(new Date());
+    setCalendarMode('timeGridWeek');
+    setSelectedDate(today);
+    api.changeView('timeGridWeek', today);
+  }
   function changeCalendarIds(calendarIds: string[]) {
     onCalendarFilterChange(calendarIds);
     loadVisibleRange(visibleStart, visibleEnd, calendarIds);
@@ -287,8 +343,10 @@ export default function CalendarWeekView({
       revert();
       return;
     }
-    const resolvedEnd = end || new Date(start.getTime() + eventDurationMinutes(event) * 60000);
-    onMoveAdvisorPreviewEvent(advisorPreviewTaskId(event), start.toISOString(), resolvedEnd.toISOString());
+    const roundedStart = roundDateToSnap(start);
+    const rawEnd = end || new Date(start.getTime() + eventDurationMinutes(event) * 60000);
+    const roundedEnd = ensureMinimumSnapEnd(roundedStart, roundDateToSnap(rawEnd));
+    onMoveAdvisorPreviewEvent(advisorPreviewTaskId(event), roundedStart.toISOString(), roundedEnd.toISOString());
   }
 
   function handleEventDrop(arg: EventDropArg) {
@@ -307,7 +365,7 @@ export default function CalendarWeekView({
           <h2>Calendario</h2>
           <p>
             {status.connected
-              ? `${formatDateRange(visibleStart, visibleEnd)} · ${busyCount} eventos Google · ${accountEmail || status.accountEmail || 'Google'}`
+              ? `${formatDateRange(visibleStart, visibleEnd)} Â· ${busyCount} eventos Google Â· ${accountEmail || status.accountEmail || 'Google'}`
               : loading
                 ? 'A verificar a ligacao Google guardada...'
                 : 'Liga o Google Calendar para consultar a tua agenda.'}
@@ -414,6 +472,9 @@ export default function CalendarWeekView({
             <button type="button" className="button secondary small" onClick={() => moveCalendar('prev')} disabled={loading}>
               Anterior
             </button>
+            <button type="button" className="button secondary small" onClick={goToCurrentWeek} disabled={loading}>
+              Semana atual
+            </button>
             <label>
               Data
               <input type="date" value={selectedDate} onChange={(event) => changeDate(event.target.value)} />
@@ -421,7 +482,7 @@ export default function CalendarWeekView({
             <button type="button" className="button secondary small" onClick={() => moveCalendar('next')} disabled={loading}>
               Seguinte
             </button>
-            <button type="button" className="button primary small" onClick={() => loadVisibleRange(visibleStart, visibleEnd)} disabled={loading}>
+            <button type="button" className="button primary small" onClick={() => loadVisibleRange(visibleStart, visibleEnd, selectedCalendarIds, { forceRefresh: true })} disabled={loading}>
               {loading ? 'A carregar...' : 'Atualizar'}
             </button>
             <strong className="calendar-current-range">{formatDateRange(visibleStart, visibleEnd)}</strong>
@@ -430,7 +491,7 @@ export default function CalendarWeekView({
           <div className="calendar-filter-bar" aria-label="Filtrar calendarios">
             <div>
               <strong>Calendarios</strong>
-              <span>{selectedCalendarIds.length} de {calendars.length} ativos · {visibleEventCount} eventos visiveis</span>
+              <span>{selectedCalendarIds.length} de {calendars.length} ativos Â· {visibleEventCount} eventos visiveis</span>
             </div>
             <div className="calendar-filter-options">
               <button
@@ -467,6 +528,7 @@ export default function CalendarWeekView({
             <FullCalendar
               ref={calendarRef}
               plugins={[dayGridPlugin, interactionPlugin, timeGridPlugin]}
+              views={TIME_GRID_VIEW_OPTIONS}
               initialView={calendarMode}
               initialDate={weekStart}
               headerToolbar={false}
@@ -477,6 +539,11 @@ export default function CalendarWeekView({
               allDaySlot
               dayMaxEvents
               editable
+              slotDuration={CALENDAR_SNAP_DURATION}
+              snapDuration={CALENDAR_SNAP_DURATION}
+              defaultTimedEventDuration={CALENDAR_SNAP_DURATION}
+              forceEventDuration
+              slotLabelInterval={CALENDAR_LABEL_INTERVAL}
               slotMinTime="00:00:00"
               slotMaxTime="24:00:00"
               events={fullCalendarEvents}
@@ -487,40 +554,89 @@ export default function CalendarWeekView({
               eventResize={handleEventResize}
             />
           </div>
-
           {selectedPreviewEvent && (
             <div className="dialog-backdrop" role="presentation" onMouseDown={() => setSelectedPreviewEvent(null)}>
-              <section className="dialog calendar-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="calendar-preview-title" onMouseDown={(event) => event.stopPropagation()}>
+              <section className="dialog calendar-preview-dialog advisor-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="calendar-preview-title" onMouseDown={(event) => event.stopPropagation()}>
                 <header>
-                  <h2 id="calendar-preview-title">Preview do advisor</h2>
-                  <button type="button" className="icon-button" onClick={() => setSelectedPreviewEvent(null)} aria-label="Fechar">×</button>
+                  <div>
+                    <span>Advisor preview</span>
+                    <h2 id="calendar-preview-title">{selectedPreviewProposal?.summary || eventTitle(selectedPreviewEvent)}</h2>
+                  </div>
+                  <button type="button" className="icon-button" onClick={() => setSelectedPreviewEvent(null)} aria-label="Fechar">x</button>
                 </header>
-                <dl>
-                  <div>
-                    <dt>Titulo</dt>
-                    <dd>{eventTitle(selectedPreviewEvent)}</dd>
-                  </div>
-                  <div>
-                    <dt>Horario</dt>
-                    <dd>{eventTimeRange(selectedPreviewEvent)}</dd>
-                  </div>
-                  <div>
-                    <dt>Calendario</dt>
-                    <dd>{selectedPreviewEvent.calendarSummary}</dd>
-                  </div>
-                  {selectedPreviewEvent.location && (
-                    <div>
-                      <dt>Local</dt>
-                      <dd>{selectedPreviewEvent.location}</dd>
+
+                {selectedPreviewProposal ? (
+                  <>
+                    <div className="advisor-preview-meta">
+                      <span>{eventTimeRange(selectedPreviewEvent)}</span>
+                      <span>{selectedPreviewEvent.calendarSummary}</span>
                     </div>
-                  )}
-                  {selectedPreviewEvent.description && (
-                    <div>
-                      <dt>Descricao</dt>
-                      <dd>{selectedPreviewEvent.description}</dd>
+                    <p className="advisor-preview-reason">{selectedPreviewProposal.reason}</p>
+                    <ProposalChanges proposal={selectedPreviewProposal} allTasks={allTasks} />
+                    <AdvisorProposalFeedback
+                      proposal={selectedPreviewProposal}
+                      saved={proposalFeedbackStatuses[selectedPreviewProposal.id] === 'saved'}
+                      googleCalendars={calendars}
+                      onSave={(feedback) => onSaveProposalFeedback(selectedPreviewProposal.id, feedback)}
+                    />
+                    <div className="advisor-preview-actions">
+                      {selectedPreviewProposal.taskId && (
+                        <button type="button" className="button ghost small" onClick={() => onOpenTask(selectedPreviewProposal.taskId as string)}>
+                          Abrir task
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="button primary small"
+                        onClick={() => {
+                          onApplyProposal(selectedPreviewProposal.id);
+                          setSelectedPreviewEvent(null);
+                        }}
+                        disabled={applyingAllProposals || applyingProposalId === selectedPreviewProposal.id || !calendarWriteReady}
+                      >
+                        {!calendarWriteReady ? 'Requer Google' : applyingProposalId === selectedPreviewProposal.id ? 'A aplicar...' : 'Aceitar'}
+                      </button>
+                      <button
+                        type="button"
+                        className="button secondary small"
+                        onClick={() => {
+                          onIgnoreProposal(selectedPreviewProposal.id);
+                          setSelectedPreviewEvent(null);
+                        }}
+                        disabled={applyingAllProposals || applyingProposalId === selectedPreviewProposal.id}
+                      >
+                        Ignorar
+                      </button>
                     </div>
-                  )}
-                </dl>
+                  </>
+                ) : (
+                  <dl>
+                    <div>
+                      <dt>Titulo</dt>
+                      <dd>{eventTitle(selectedPreviewEvent)}</dd>
+                    </div>
+                    <div>
+                      <dt>Horario</dt>
+                      <dd>{eventTimeRange(selectedPreviewEvent)}</dd>
+                    </div>
+                    <div>
+                      <dt>Calendario</dt>
+                      <dd>{selectedPreviewEvent.calendarSummary}</dd>
+                    </div>
+                    {selectedPreviewEvent.location && (
+                      <div>
+                        <dt>Local</dt>
+                        <dd>{selectedPreviewEvent.location}</dd>
+                      </div>
+                    )}
+                    {selectedPreviewEvent.description && (
+                      <div>
+                        <dt>Descricao</dt>
+                        <dd>{selectedPreviewEvent.description}</dd>
+                      </div>
+                    )}
+                  </dl>
+                )}
               </section>
             </div>
           )}
@@ -549,3 +665,10 @@ export default function CalendarWeekView({
     </section>
   );
 }
+
+
+
+
+
+
+

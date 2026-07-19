@@ -785,7 +785,16 @@
 
 .calendar-fullcalendar-shell .fc-event.is-advisor-break-preview {
   border-style: dashed;
-  opacity: .82;
+  background-color: var(--break-color) !important;
+  border-color: var(--break-border) !important;
+  color: var(--break-text);
+  opacity: .9;
+}
+
+.calendar-fullcalendar-shell .fc-event.is-advisor-break-preview .calendar-fc-event-content span,
+.calendar-fullcalendar-shell .fc-event.is-advisor-break-preview .calendar-fc-event-content em {
+  color: var(--break-text-soft);
+  opacity: .95;
 }
 
 .calendar-fullcalendar-shell .fc-event.is-task-due-date {
@@ -852,4 +861,55 @@
   font-size: 13px;
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+
+
+.advisor-preview-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+
+.advisor-preview-dialog > header span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.advisor-preview-dialog > header h2 {
+  margin: 2px 0 0;
+}
+
+.advisor-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.advisor-preview-meta span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.advisor-preview-reason {
+  margin: 0 0 10px;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.advisor-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }

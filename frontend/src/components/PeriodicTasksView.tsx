@@ -6,8 +6,8 @@ import {
   deletePeriodicTaskConstraint,
   getPeriodicTasks,
   updatePeriodicTask,
-  updatePeriodicTaskOccurrence,
   type PeriodicTask,
+  type PeriodicTaskConstraint,
   type PeriodicTaskInput
 } from '../api';
 
@@ -37,6 +37,15 @@ const EMPTY_FORM = {
   maxOnePerDay: false
 };
 
+const EMPTY_CONSTRAINT_DRAFT = {
+  type: 'allowed_window' as PeriodicTaskConstraint['type'],
+  date: '',
+  start: '',
+  end: '',
+  count: 1,
+  hard: true
+};
+
 type PeriodicTasksViewProps = {
   onError: (message: string) => void;
 };
@@ -45,20 +54,25 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('pt-PT', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).format(date);
-}
-
 function dayLabels(days: number[] = []) {
   return days.map((day) => DAY_OPTIONS.find(([value]) => value === day)?.[1] || String(day)).join(', ');
+}
+
+function formatPeriod(period: PeriodicTask['period']) {
+  return period === 'week' ? 'semana' : 'mes';
+}
+
+function formatDate(value: unknown) {
+  if (typeof value !== 'string' || !value) return '';
+  const date = new Date(value.includes('T') ? value : `${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
+}
+
+function formatTimeRange(start?: unknown, end?: unknown) {
+  const startText = typeof start === 'string' ? start.slice(0, 5) : '';
+  const endText = typeof end === 'string' ? end.slice(0, 5) : '';
+  return startText && endText ? `${startText}-${endText}` : 'sem hora';
 }
 
 function formFromTask(task: PeriodicTask) {
@@ -100,60 +114,112 @@ function taskInputFromForm(form: typeof EMPTY_FORM): PeriodicTaskInput {
   };
 }
 
+function describeConstraint(constraint: PeriodicTaskConstraint) {
+  const scope = constraint.scope || {};
+  const payload = constraint.payload || {};
+  if (constraint.type === 'fixed_occurrence') {
+    return {
+      title: 'Ocorrencia fixa',
+      detail: `${formatDate(payload.start)} ${formatTimeRange(payload.start, payload.end)}`,
+      meta: 'Obrigatoria'
+    };
+  }
+  if (constraint.type === 'allowed_window') {
+    return {
+      title: 'Janela permitida',
+      detail: `${formatDate(payload.date || scope.date)} ${formatTimeRange(payload.startTime, payload.endTime)}`,
+      meta: constraint.hard ? 'Obrigatoria' : 'Preferida'
+    };
+  }
+  return {
+    title: 'Minimo no periodo',
+    detail: `${Number(payload.count || 1)} ocorrencia(s)${scope.weekStart ? ` na semana de ${formatDate(scope.weekStart)}` : ''}${scope.month ? ` em ${scope.month}` : ''}`,
+    meta: constraint.hard ? 'Obrigatorio' : 'Preferido'
+  };
+}
+
 function ConstraintComposer({
   task,
   onCreate
 }: {
   task: PeriodicTask;
-  onCreate: (taskId: string, value: Record<string, unknown>) => void;
+  onCreate: (taskId: string, value: Partial<PeriodicTaskConstraint>) => Promise<void>;
 }) {
-  const [type, setType] = useState<'fixed_occurrence' | 'allowed_window' | 'minimum_count'>('fixed_occurrence');
-  const [date, setDate] = useState('');
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
-  const [count, setCount] = useState(1);
+  const [draft, setDraft] = useState(EMPTY_CONSTRAINT_DRAFT);
 
-  function submit() {
-    if (type === 'minimum_count') {
-      onCreate(task.id, {
-        type,
-        scope: task.period === 'month' ? { month: date.slice(0, 7) } : { weekStart: date },
-        payload: { count },
-        hard: true,
+  function update(patch: Partial<typeof EMPTY_CONSTRAINT_DRAFT>) {
+    setDraft((current) => ({ ...current, ...patch }));
+  }
+
+  async function submit() {
+    if (draft.type === 'minimum_count') {
+      if (!draft.date) return;
+      await onCreate(task.id, {
+        type: draft.type,
+        scope: task.period === 'month' ? { month: draft.date.slice(0, 7) } : { weekStart: draft.date },
+        payload: { count: draft.count },
+        hard: draft.hard,
         active: true
       });
+      setDraft(EMPTY_CONSTRAINT_DRAFT);
       return;
     }
-    if (!date || !start || !end) return;
-    onCreate(task.id, {
-      type,
-      scope: { date },
-      payload: type === 'fixed_occurrence'
-        ? { start: `${date}T${start}:00`, end: `${date}T${end}:00` }
-        : { date, startTime: start, endTime: end },
-      hard: true,
+    if (!draft.date || !draft.start || !draft.end) return;
+    await onCreate(task.id, {
+      type: draft.type,
+      scope: { date: draft.date },
+      payload: draft.type === 'fixed_occurrence'
+        ? { start: `${draft.date}T${draft.start}:00`, end: `${draft.date}T${draft.end}:00` }
+        : { date: draft.date, startTime: draft.start, endTime: draft.end },
+      hard: draft.hard,
       active: true
     });
+    setDraft(EMPTY_CONSTRAINT_DRAFT);
   }
 
   return (
-    <div className="periodic-constraint-composer">
-      <select value={type} onChange={(event) => setType(event.target.value as typeof type)}>
-        <option value="fixed_occurrence">Fixo</option>
-        <option value="allowed_window">Janela</option>
-        <option value="minimum_count">Minimo</option>
-      </select>
-      <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-      {type === 'minimum_count' ? (
-        <input type="number" min="1" max="31" value={count} onChange={(event) => setCount(Number(event.target.value))} />
-      ) : (
-        <>
-          <input type="time" value={start} onChange={(event) => setStart(event.target.value)} />
-          <input type="time" value={end} onChange={(event) => setEnd(event.target.value)} />
-        </>
-      )}
-      <button type="button" className="button secondary small" onClick={submit}>Adicionar regra</button>
-    </div>
+    <section className="periodic-rule-editor">
+      <div className="periodic-rule-editor-header">
+        <strong>Restricoes adicionais</strong>
+        <span>Excecoes ou regras especificas desta rotina.</span>
+      </div>
+      <div className="periodic-rule-grid">
+        <label>
+          Tipo
+          <select value={draft.type} onChange={(event) => update({ type: event.target.value as PeriodicTaskConstraint['type'] })}>
+            <option value="allowed_window">Janela permitida</option>
+            <option value="fixed_occurrence">Ocorrencia fixa</option>
+            <option value="minimum_count">Minimo no periodo</option>
+          </select>
+        </label>
+        <label>
+          {draft.type === 'minimum_count' && task.period === 'month' ? 'Mes de referencia' : 'Data'}
+          <input type="date" value={draft.date} onChange={(event) => update({ date: event.target.value })} />
+        </label>
+        {draft.type === 'minimum_count' ? (
+          <label>
+            Minimo
+            <input type="number" min="1" max="31" value={draft.count} onChange={(event) => update({ count: Number(event.target.value) })} />
+          </label>
+        ) : (
+          <>
+            <label>
+              Inicio
+              <input type="time" value={draft.start} onChange={(event) => update({ start: event.target.value })} />
+            </label>
+            <label>
+              Fim
+              <input type="time" value={draft.end} onChange={(event) => update({ end: event.target.value })} />
+            </label>
+          </>
+        )}
+        <label className="periodic-toggle">
+          <input type="checkbox" checked={draft.hard} onChange={(event) => update({ hard: event.target.checked })} />
+          Obrigatoria
+        </label>
+        <button type="button" className="button secondary small" onClick={submit}>Adicionar</button>
+      </div>
+    </section>
   );
 }
 
@@ -225,7 +291,7 @@ export default function PeriodicTasksView({ onError }: PeriodicTasksViewProps) {
     }
   }
 
-  async function addConstraint(taskId: string, value: Record<string, unknown>) {
+  async function addConstraint(taskId: string, value: Partial<PeriodicTaskConstraint>) {
     try {
       await createPeriodicTaskConstraint(taskId, value);
       await refresh();
@@ -237,15 +303,6 @@ export default function PeriodicTasksView({ onError }: PeriodicTasksViewProps) {
   async function removeConstraint(id: string) {
     try {
       await deletePeriodicTaskConstraint(id);
-      await refresh();
-    } catch (error) {
-      onError(errorMessage(error));
-    }
-  }
-
-  async function setOccurrenceStatus(id: string, status: 'scheduled' | 'completed' | 'skipped' | 'cancelled') {
-    try {
-      await updatePeriodicTaskOccurrence(id, status);
       await refresh();
     } catch (error) {
       onError(errorMessage(error));
@@ -266,30 +323,48 @@ export default function PeriodicTasksView({ onError }: PeriodicTasksViewProps) {
       </header>
 
       <section className="periodic-editor">
-        <h3>{editingTask ? `Editar ${editingTask.title}` : 'Nova rotina'}</h3>
-        <div className="periodic-form-grid">
-          <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Titulo" />
-          <input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="tags, separadas, por virgula" />
-          <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Notas" rows={2} />
-          <label>Prioridade<input type="number" min="1" max="4" value={form.priority} onChange={(event) => setForm({ ...form, priority: Number(event.target.value) })} /></label>
-          <label>Duracao<input type="number" min="15" max="480" step="15" value={form.estimatedMinutes} onChange={(event) => setForm({ ...form, estimatedMinutes: Number(event.target.value) })} /></label>
-          <label>Periodo<select value={form.period} onChange={(event) => setForm({ ...form, period: event.target.value as 'week' | 'month' })}><option value="week">Semana</option><option value="month">Mes</option></select></label>
-          <label>Alvo<input type="number" min="1" max="31" value={form.targetCount} onChange={(event) => setForm({ ...form, targetCount: Number(event.target.value) })} /></label>
-          <label>Espacamento minimo<input type="number" min="0" max="168" value={form.minSpacingHours} onChange={(event) => setForm({ ...form, minSpacingHours: Number(event.target.value) })} /></label>
-          <label>Inicio janela<input type="time" value={form.windowStart} onChange={(event) => setForm({ ...form, windowStart: event.target.value })} /></label>
-          <label>Fim janela<input type="time" value={form.windowEnd} onChange={(event) => setForm({ ...form, windowEnd: event.target.value })} /></label>
+        <div className="periodic-editor-title">
+          <h3>{editingTask ? `Editar ${editingTask.title}` : 'Nova rotina'}</h3>
+          <label className="periodic-toggle"><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /> Ativa</label>
         </div>
-        <div className="periodic-days">
-          {DAY_OPTIONS.map(([day, label]) => (
-            <button key={day} type="button" className={form.allowedDays.includes(day) ? 'active' : ''} onClick={() => toggleDay(day)}>
-              {label}
-            </button>
-          ))}
+
+        <div className="periodic-editor-section">
+          <strong>Base</strong>
+          <div className="periodic-form-grid">
+            <label>Titulo<input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+            <label>Tags<input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="coding, saude" /></label>
+            <label className="periodic-notes-field">Notas<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={2} /></label>
+            <label>Prioridade<input type="number" min="1" max="4" value={form.priority} onChange={(event) => setForm({ ...form, priority: Number(event.target.value) })} /></label>
+            <label>Duracao<input type="number" min="15" max="480" step="15" value={form.estimatedMinutes} onChange={(event) => setForm({ ...form, estimatedMinutes: Number(event.target.value) })} /></label>
+            <label>Periodo<select value={form.period} onChange={(event) => setForm({ ...form, period: event.target.value as 'week' | 'month' })}><option value="week">Semana</option><option value="month">Mes</option></select></label>
+            <label>Alvo<input type="number" min="1" max="31" value={form.targetCount} onChange={(event) => setForm({ ...form, targetCount: Number(event.target.value) })} /></label>
+          </div>
         </div>
-        <div className="periodic-option-row">
-          <label className="periodic-active"><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} /> Ativa</label>
-          <label className="periodic-active"><input type="checkbox" checked={form.maxOnePerDay} onChange={(event) => setForm({ ...form, maxOnePerDay: event.target.checked })} /> Max. 1 ocorrencia por dia</label>
+
+        <div className="periodic-editor-section">
+          <strong>Janela obrigatoria</strong>
+          <div className="periodic-days" aria-label="Dias permitidos">
+            {DAY_OPTIONS.map(([day, label]) => (
+              <button key={day} type="button" className={form.allowedDays.includes(day) ? 'active' : ''} onClick={() => toggleDay(day)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="periodic-window-grid">
+            <label>Inicio<input type="time" value={form.windowStart} onChange={(event) => setForm({ ...form, windowStart: event.target.value })} /></label>
+            <label>Fim<input type="time" value={form.windowEnd} onChange={(event) => setForm({ ...form, windowEnd: event.target.value })} /></label>
+            <button type="button" className="button ghost small" onClick={() => setForm({ ...form, windowStart: '', windowEnd: '' })}>Limpar janela</button>
+          </div>
         </div>
+
+        <div className="periodic-editor-section">
+          <strong>Distribuicao</strong>
+          <div className="periodic-window-grid">
+            <label>Espacamento minimo<input type="number" min="0" max="168" value={form.minSpacingHours} onChange={(event) => setForm({ ...form, minSpacingHours: Number(event.target.value) })} /></label>
+            <label className="periodic-toggle"><input type="checkbox" checked={form.maxOnePerDay} onChange={(event) => setForm({ ...form, maxOnePerDay: event.target.checked })} /> Max. 1 ocorrencia por dia</label>
+          </div>
+        </div>
+
         <div className="periodic-editor-actions">
           <button type="button" className="button primary" onClick={save} disabled={!form.title.trim()}>Guardar rotina</button>
           {editingId && <button type="button" className="button secondary" onClick={() => { setEditingId(''); setForm(EMPTY_FORM); }}>Cancelar</button>}
@@ -304,7 +379,7 @@ export default function PeriodicTasksView({ onError }: PeriodicTasksViewProps) {
                 <div>
                   <span>{task.active ? 'Ativa' : 'Pausada'}</span>
                   <h3>{task.title}</h3>
-                  <p>{task.targetCount}x por {task.period === 'week' ? 'semana' : 'mes'} · {task.estimatedMinutes} min · P{task.priority}</p>
+                  <p>{task.targetCount}x por {formatPeriod(task.period)} - {task.estimatedMinutes} min - P{task.priority}</p>
                 </div>
                 <div className="periodic-card-actions">
                   <button type="button" className="button ghost small" onClick={() => { setEditingId(task.id); setForm(formFromTask(task)); }}>Editar</button>
@@ -312,39 +387,33 @@ export default function PeriodicTasksView({ onError }: PeriodicTasksViewProps) {
                   <button type="button" className="button ghost small" onClick={() => removeTask(task)}>Apagar</button>
                 </div>
               </header>
+
               <div className="periodic-summary">
                 <span>Dias: {dayLabels(task.hardConstraints.allowedDays || []) || 'qualquer'}</span>
                 <span>Janela: {task.hardConstraints.allowedWindows?.[0] ? `${task.hardConstraints.allowedWindows[0].startTime}-${task.hardConstraints.allowedWindows[0].endTime}` : 'sem janela'}</span>
                 <span>Espaco: {task.hardConstraints.minSpacingHours || 0}h</span>
                 <span>Limite diario: {Number(task.hardConstraints.maxOccurrencesPerDay || 0) === 1 ? 'max. 1' : 'sem limite'}</span>
               </div>
+
               <ConstraintComposer task={task} onCreate={addConstraint} />
+
               {task.constraints.length ? (
                 <ul className="periodic-constraints">
-                  {task.constraints.map((constraint) => (
-                    <li key={constraint.id}>
-                      <span>{constraint.type}</span>
-                      <code>{JSON.stringify({ scope: constraint.scope, payload: constraint.payload })}</code>
-                      <button type="button" onClick={() => removeConstraint(constraint.id)}>Remover</button>
-                    </li>
-                  ))}
+                  {task.constraints.map((constraint) => {
+                    const description = describeConstraint(constraint);
+                    return (
+                      <li key={constraint.id}>
+                        <div>
+                          <span>{description.title}</span>
+                          <p>{description.detail}</p>
+                        </div>
+                        <small>{description.meta}</small>
+                        <button type="button" onClick={() => removeConstraint(constraint.id)}>Remover</button>
+                      </li>
+                    );
+                  })}
                 </ul>
-              ) : null}
-              <div className="periodic-occurrences">
-                <strong>Historico</strong>
-                {task.occurrences.slice(0, 6).map((occurrence) => (
-                  <div key={occurrence.id}>
-                    <span>{formatDateTime(occurrence.scheduledStart)} - {formatDateTime(occurrence.scheduledEnd)}</span>
-                    <select value={occurrence.status} onChange={(event) => setOccurrenceStatus(occurrence.id, event.target.value as any)}>
-                      <option value="scheduled">scheduled</option>
-                      <option value="completed">completed</option>
-                      <option value="skipped">skipped</option>
-                      <option value="cancelled">cancelled</option>
-                    </select>
-                  </div>
-                ))}
-                {!task.occurrences.length && <p>Sem ocorrencias agendadas.</p>}
-              </div>
+              ) : <p className="periodic-empty-note">Sem restricoes adicionais.</p>}
             </article>
           ))}
           {!tasks.length && <p className="empty-message">Ainda nao existem rotinas.</p>}

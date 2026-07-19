@@ -96,6 +96,34 @@ class SchedulerTests(unittest.TestCase):
 
         self.assertEqual(result["scheduled"][0]["start"], "2026-07-08T09:00:00Z")
 
+    def test_hard_allowed_window_task_is_ordered_before_flexible_task(self):
+        result = solve_schedule({
+            "now": "2026-07-16T00:00:00Z",
+            "horizonEnd": "2026-07-17T22:00:00Z",
+            "timeZone": "Europe/Lisbon",
+            "busy": [
+                {"start": "2026-07-16T07:00:00Z", "end": "2026-07-16T17:00:00Z"},
+            ],
+            "taskConstraints": {
+                "gym": [
+                    {
+                        "id": "gym-window",
+                        "type": "allowed_window",
+                        "payload": {"days": [4], "startTime": "18:00", "endTime": "22:00"},
+                        "hard": True,
+                    }
+                ]
+            },
+            "tasks": [
+                {"id": "flex", "title": "Flexible", "durationMinutes": 30},
+                {"id": "gym", "title": "Gym", "durationMinutes": 90, "periodicTaskId": "routine-gym"},
+            ],
+        })
+
+        by_id = {item["taskId"]: item for item in result["scheduled"]}
+        self.assertEqual(by_id["gym"]["start"], "2026-07-16T17:00:00Z")
+        self.assertEqual(by_id["flex"]["start"], "2026-07-16T18:30:00Z")
+
     def test_priority_boost_places_matching_task_first(self):
         result = solve_schedule({
             "now": "2026-07-08T08:00:00Z",

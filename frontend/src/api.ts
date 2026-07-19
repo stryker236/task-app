@@ -1,4 +1,4 @@
-import type { AiCommand, AiCommandPreview, AppSettings, AppSettingsUpdate, ChecklistItem, CreateGoogleCalendarEventInput, CreateGoogleCalendarEventResponse, DeleteDefaultGoogleCalendarEventsResponse, GoogleCalendar, GoogleCalendarEvent, GoogleCalendarEventsResponse, GoogleCalendarsResponse, GoogleOAuthUrlRequest, GoogleOAuthUrlResponse, GoogleStatus, ProductivitySummary, QuickQueueItem, SendGoogleDailyTaskEmailResponse, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
+import type { AiCommand, AiCommandPreview, AppSettings, AppSettingsUpdate, ChecklistItem, CreateGoogleCalendarEventInput, CreateGoogleCalendarEventResponse, ReviewTaskCalendarEventInput, DeleteDefaultGoogleCalendarEventsResponse, GoogleCalendar, GoogleCalendarEvent, GoogleCalendarEventsResponse, GoogleCalendarsResponse, GoogleOAuthUrlRequest, GoogleOAuthUrlResponse, GoogleStatus, ProductivitySummary, QuickQueueItem, SendGoogleDailyTaskEmailResponse, SharedNote, SharedNoteInput, Tag, Task, TaskInput, TaskStatus } from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const DEFAULT_API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 60000);
@@ -553,6 +553,7 @@ export const detachSharedNoteFromTask = (taskId: string, noteId: string) => requ
 
 export const createTask = (task: TaskMutationPayload) => requestJson<Task>('/tasks', { method: 'POST', body: JSON.stringify(task) });
 export const updateTask = (id: string, task: TaskMutationPayload) => requestJson<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(task) });
+export const reviewTaskCalendarEvent = (taskId: string, eventId: string, review: ReviewTaskCalendarEventInput) => requestJson<Task>(`/tasks/${taskId}/calendar-events/${eventId}/review`, { method: 'POST', body: JSON.stringify(review) });
 export const deleteTask = (id: string) => requestJson<void>(`/tasks/${id}`, { method: 'DELETE' });
 export const duplicateTask = (id: string) => requestJson<Task>(`/tasks/${id}/duplicate`, { method: 'POST' });
 export const archiveTask = (id: string) => requestJson<Task>(`/tasks/${id}/archive`, { method: 'POST' });
@@ -603,21 +604,22 @@ export const deleteDefaultGoogleCalendarEvents = (calendarId = '') => requestJso
   body: JSON.stringify({ calendarId, confirmation: 'DELETE_DEFAULT_CALENDAR_EVENTS' })
 });
 
-function calendarIdsQuery(calendarIds: string[] = []) {
+function calendarIdsQuery(calendarIds: string[] = [], forceRefresh = false) {
   const params = new URLSearchParams();
   calendarIds.forEach((calendarId) => params.append('calendarId', calendarId));
+  if (forceRefresh) params.set('refresh', '1');
   return params.toString();
 }
 
-export const getGoogleCalendarEvents = (date: string, calendarIds: string[] = []) => {
-  const query = calendarIdsQuery(calendarIds);
+export const getGoogleCalendarEvents = (date: string, calendarIds: string[] = [], options: { forceRefresh?: boolean } = {}) => {
+  const query = calendarIdsQuery(calendarIds, Boolean(options.forceRefresh));
   return requestJson<GoogleCalendarEventsResponse>(
     `/google/calendar/events?date=${encodeURIComponent(date)}${query ? `&${query}` : ''}`
   );
 };
 
-export const getGoogleCalendarEventsRange = (start: string, end: string, calendarIds: string[] = []) => {
-  const query = calendarIdsQuery(calendarIds);
+export const getGoogleCalendarEventsRange = (start: string, end: string, calendarIds: string[] = [], options: { forceRefresh?: boolean } = {}) => {
+  const query = calendarIdsQuery(calendarIds, Boolean(options.forceRefresh));
   return requestJson<GoogleCalendarEventsResponse>(
     `/google/calendar/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}${query ? `&${query}` : ''}`
   );

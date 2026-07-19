@@ -5,7 +5,7 @@ const { logger } = require('../logger');
 const { mergeAdvisorMemoryRulePayload } = require('../ai/advisorMemory');
 
 import type { PoolClient, Pool as PgPool } from 'pg';
-import type { AppSettings, AppSettingsUpdate, ProductivityEvent, ProductivitySummary, TaskCalendarEvent } from '../../shared/types';
+import type { AppSettings, AppSettingsUpdate, ProductivityEvent, ProductivitySummary, TaskCalendarEvent, TaskCalendarEventReviewStatus } from '../../shared/types';
 
 type Queryable = PgPool | PoolClient;
 type QueryPatch = Record<string, unknown>;
@@ -36,6 +36,14 @@ type TaskCalendarEventInput = {
 	start: string;
 	end: string;
 	htmlLink?: string | null;
+};
+
+type TaskCalendarEventReviewInput = {
+	reviewStatus: TaskCalendarEventReviewStatus;
+	reviewedAt: string;
+	reviewNote?: string | null;
+	reviewFeedback?: Record<string, unknown>;
+	xpDelta?: number | null;
 };
 
 type SchedulerConstraintInput = {
@@ -127,7 +135,13 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
 		weekdaysOnly: true
 	},
 	ui: {
-		compactMode: false
+		compactMode: false,
+		accentColor: '#315efb',
+		breakColor: '#0f8f7e',
+		surfaceColor: '#ffffff',
+		calendarEventColor: '#315efb',
+		calendarPreviewColor: '#6f48eb',
+		calendarDueDateColor: '#447276'
 	}
 };
 
@@ -150,6 +164,11 @@ function enumValue<T extends string>(value: unknown, allowed: readonly T[], fall
 	return allowed.includes(String(value) as T) ? String(value) as T : fallback;
 }
 
+function colorValue(value: unknown, fallback: string) {
+	const text = String(value || '').trim();
+	return /^#[0-9a-fA-F]{6}$/.test(text) ? text : fallback;
+}
+
 function normalizeAppSettings(value: unknown): AppSettings {
 	const source = value && typeof value === 'object' ? value as Partial<AppSettings> : {};
 	return {
@@ -170,7 +189,13 @@ function normalizeAppSettings(value: unknown): AppSettings {
 			weekdaysOnly: boolValue(source.calendar?.weekdaysOnly, DEFAULT_APP_SETTINGS.calendar.weekdaysOnly)
 		},
 		ui: {
-			compactMode: boolValue(source.ui?.compactMode, DEFAULT_APP_SETTINGS.ui.compactMode)
+			compactMode: boolValue(source.ui?.compactMode, DEFAULT_APP_SETTINGS.ui.compactMode),
+			accentColor: colorValue(source.ui?.accentColor, DEFAULT_APP_SETTINGS.ui.accentColor),
+			breakColor: colorValue(source.ui?.breakColor, DEFAULT_APP_SETTINGS.ui.breakColor),
+			surfaceColor: colorValue(source.ui?.surfaceColor, DEFAULT_APP_SETTINGS.ui.surfaceColor),
+			calendarEventColor: colorValue(source.ui?.calendarEventColor, DEFAULT_APP_SETTINGS.ui.calendarEventColor),
+			calendarPreviewColor: colorValue(source.ui?.calendarPreviewColor, DEFAULT_APP_SETTINGS.ui.calendarPreviewColor),
+			calendarDueDateColor: colorValue(source.ui?.calendarDueDateColor, DEFAULT_APP_SETTINGS.ui.calendarDueDateColor)
 		}
 	};
 }
@@ -279,6 +304,11 @@ function mapTaskCalendarEvent(row: DbRow): TaskCalendarEvent {
 		start: iso(row.start_at),
 		end: iso(row.end_at),
 		htmlLink: row.html_link || null,
+		reviewStatus: row.review_status || null,
+		reviewedAt: iso(row.reviewed_at),
+		reviewNote: row.review_note || null,
+		reviewFeedback: row.review_feedback || {},
+		xpDelta: row.xp_delta == null ? null : Number(row.xp_delta),
 		createdAt: iso(row.created_at),
 		updatedAt: iso(row.updated_at)
 	};
@@ -1120,6 +1150,28 @@ async function insertTaskCalendarEvent(db: Queryable, event: TaskCalendarEventIn
 	return mapTaskCalendarEvent(result.rows[0]);
 }
 
+async function updateTaskCalendarEventReview(db: Queryable, eventId: string, review: TaskCalendarEventReviewInput): Promise<TaskCalendarEvent | null> {
+	const result = await db.query(
+		`UPDATE task_calendar_events
+		 SET review_status = $2,
+		     reviewed_at = $3,
+		     review_note = $4,
+		     review_feedback = $5::jsonb,
+		     xp_delta = $6,
+		     updated_at = now()
+		 WHERE id = $1
+		 RETURNING *`,
+		[
+			eventId,
+			review.reviewStatus,
+			review.reviewedAt,
+			review.reviewNote || null,
+			JSON.stringify(review.reviewFeedback || {}),
+			review.xpDelta == null ? null : review.xpDelta
+		]
+	);
+	return result.rows[0] ? mapTaskCalendarEvent(result.rows[0]) : null;
+}
 async function deleteTaskCalendarEventsByCalendarId(db: Queryable, calendarId: string) {
 	const result = await db.query('DELETE FROM task_calendar_events WHERE calendar_id = $1', [calendarId]);
 	return result.rowCount || 0;
@@ -1715,6 +1767,7 @@ module.exports = {
 	deleteGoogleConnection,
 	fetchTaskCalendarEvents,
 	insertTaskCalendarEvent,
+	updateTaskCalendarEventReview,
 	deleteTaskCalendarEventsByCalendarId,
 	createProductivityEvent,
 	fetchProductivitySummary,
@@ -1751,4 +1804,6 @@ module.exports = {
 };
 
 export {};
+
+
 

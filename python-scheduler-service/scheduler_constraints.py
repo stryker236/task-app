@@ -160,13 +160,32 @@ def priority_boost_weight(payload: dict[str, Any]) -> int:
     return 100
 
 
+def temporal_payload_weight(payload: dict[str, Any]) -> int:
+    has_day_filter = bool(payload.get("_daysSet") or payload.get("_daysOfMonthSet") or payload.get("date"))
+    has_time_filter = isinstance(payload.get("_startMinutes"), int) and isinstance(payload.get("_endMinutes"), int)
+    if has_day_filter and has_time_filter:
+        return 30000
+    if has_day_filter or has_time_filter:
+        return 20000
+    return 10000
+
+
 def task_priority_bias(constraints: list[dict[str, Any]]) -> int:
     bias = 0
     for constraint in constraints:
-        if str(constraint.get("type") or "") != "priority_boost":
-            continue
+        kind = str(constraint.get("type") or "")
         payload = constraint.get("payload") if isinstance(constraint.get("payload"), dict) else {}
-        bias -= priority_boost_weight(payload)
+        hard = constraint.get("hard") is not False
+        if kind == "priority_boost":
+            bias -= priority_boost_weight(payload)
+        elif kind == "preferred_window":
+            bias -= int(payload.get("weight") or 100)
+        elif hard and kind == "allowed_date":
+            bias -= 50000
+        elif hard and kind == "allowed_window":
+            bias -= temporal_payload_weight(payload)
+        elif hard and kind == "daily_limit":
+            bias -= 5000
     return bias
 
 

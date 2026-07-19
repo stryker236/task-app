@@ -35,6 +35,7 @@ export default function AdvisorPanelContainer({ allTasks, proposalSurface = 'tas
       onRequestActions={(action) => advisor.requestAdvisorActions(action, { defaultCalendarId: googleCalendar.advisorDefaultCalendarId })}
       onConnectGoogle={googleCalendar.connectGoogle}
       onApplyProposal={advisor.applyAdvisorProposal}
+      onApplyProposals={advisor.applyAdvisorProposals}
       onIgnoreProposal={advisor.ignoreAdvisorProposal}
       onApplyAllProposals={advisor.applyAllAdvisorProposals}
       onIgnoreAllProposals={advisor.ignoreAllAdvisorProposals}
@@ -49,3 +50,4 @@ export default function AdvisorPanelContainer({ allTasks, proposalSurface = 'tas
     />
   );
 }
+

@@ -131,11 +131,27 @@ function calendarEventDuplicateFingerprint(event) {
   ].join('|');
 }
 
+
+function isBreakCalendarEvent(event) {
+  return normalizeCalendarEventIdentityText(event?.summary) === 'pausa';
+}
+
+function calendarEventReminderSettings(event) {
+  if (isBreakCalendarEvent(event)) return { useDefault: false, overrides: [] };
+  return { useDefault: false, overrides: [{ method: 'popup', minutes: 30 }] };
+}
 function calendarEventStartsInPast(event, now = Date.now()) {
   const startTime = Date.parse(event?.start || '');
   return !Number.isNaN(startTime) && startTime < now;
 }
 
+function hasActiveTaskCalendarEvent(events = [], now = Date.now()) {
+  return events.some((event) => {
+    if (event?.reviewStatus) return false;
+    const end = Date.parse(event?.end || event?.endAt || '');
+    return !Number.isNaN(end) && end >= now;
+  });
+}
 function calendarEventDurationMinutes(event, fallbackMinutes = 30) {
   const startTime = Date.parse(event?.start || '');
   const endTime = Date.parse(event?.end || '');
@@ -364,8 +380,8 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
       linkedCache?.set(prepared.taskId, linkedEvents);
     }
   }
-  if (linkedEvents.length) {
-    const linkedEvent = linkedEvents[0];
+  if (hasActiveTaskCalendarEvent(linkedEvents)) {
+    const linkedEvent = linkedEvents.find((item) => !item.reviewStatus && Date.parse(item.end || item.endAt || '') >= Date.now()) || linkedEvents[0];
     return {
       id: linkedEvent.googleEventId,
       summary: linkedEvent.summary,
@@ -407,7 +423,8 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
       end: {
         dateTime: event.end,
         ...(event.timeZone ? { timeZone: event.timeZone } : {})
-      }
+      },
+      reminders: calendarEventReminderSettings(event)
     }
   });
   if (prepared.taskId && insertTaskCalendarEvent) {
@@ -477,30 +494,27 @@ async function applyPreparedAiCommand(client, prepared, allTasks, now, dependenc
     let task = null;
     if (prepared.taskId) {
       const previous = allTasks.find((item) => item.id === prepared.taskId);
-      const patch = calendarEventTaskPatch(prepared.calendarEvent);
-      if (previous && patch) {
-        const updated = applyTaskStatusTimestamps({ ...previous, ...patch, updatedAt: now }, previous.status, now);
-        await updateTaskRecord(client, updated);
-        await insertActivity(client, updated.id, {
+      if (previous) {
+        await insertActivity(client, previous.id, {
           id: randomUUID(),
           type: 'note',
-          message: `AI Advisor: scheduled calendar event for ${patch.dueDateTime} (${patch.estimatedMinutes} min)`,
+          message: `AI Advisor: scheduled calendar event for ${prepared.calendarEvent.start} - ${prepared.calendarEvent.end}`,
           createdAt: now
         });
         if (dependencies.createProductivityEvent) {
           await dependencies.createProductivityEvent(client, {
             eventType: 'task_scheduled',
             xp: 15,
-            taskId: updated.id,
+            taskId: previous.id,
             metadata: {
-              title: updated.title,
+              title: previous.title,
               start: prepared.calendarEvent.start,
               end: prepared.calendarEvent.end,
               alreadyExists: Boolean(event.alreadyExists)
             }
           });
         }
-        task = await findTaskById(client, updated.id);
+        task = await findTaskById(client, previous.id);
       }
     }
     return {

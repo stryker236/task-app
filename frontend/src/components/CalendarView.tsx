@@ -57,6 +57,7 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
       <CalendarWeekView
         status={googleCalendar.googleStatus}
         loading={googleCalendar.googleLoading}
+        allTasks={allTasks}
         weekStart={googleCalendar.calendarWeekStart}
         weekEnd={googleCalendar.calendarWeekEnd}
         events={googleCalendar.weeklyCalendarEvents}
@@ -83,6 +84,15 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
         onRequestAdvisorCalendarEvents={() => advisor.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId, schedulerConstraints, scheduleStartFrom: scheduleStartIso(scheduleStartDate) })}
         onMoveAdvisorPreviewEvent={moveAdvisorPreviewEvent}
         onClearAdvisorScheduleConstraints={clearAdvisorScheduleConstraints}
+        advisorProposals={calendarProposals}
+        proposalFeedbackStatuses={advisor.proposalFeedbackStatuses}
+        applyingProposalId={advisor.applyingProposalId}
+        applyingAllProposals={advisor.applyingAllProposals}
+        calendarWriteReady={calendarWriteReady}
+        onApplyProposal={advisor.applyAdvisorProposal}
+        onIgnoreProposal={advisor.ignoreAdvisorProposal}
+        onOpenTask={advisor.openAdvisorRecommendedTask}
+        onSaveProposalFeedback={advisor.saveAdvisorProposalFeedback}
       />
       {showAdvisorBuffer && (
         <AdvisorProposalBuffer
@@ -98,6 +108,7 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
           calendarWriteReady={calendarWriteReady}
           onConnectGoogle={googleCalendar.connectGoogle}
           onApplyProposal={advisor.applyAdvisorProposal}
+          onApplyProposals={advisor.applyAdvisorProposals}
           onIgnoreProposal={advisor.ignoreAdvisorProposal}
           onApplyAllProposals={advisor.applyAllAdvisorProposals}
           onIgnoreAllProposals={advisor.ignoreAllAdvisorProposals}
@@ -111,3 +122,8 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
     </>
   );
 }
+
+
+
+
+

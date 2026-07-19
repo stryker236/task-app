@@ -1,6 +1,7 @@
 import type { DragEvent, FormEvent, KeyboardEvent, MouseEvent } from 'react';
 import { useState } from 'react';
 import type { Task, TaskPriority } from '../../../shared/types';
+import { nextScheduledEvent } from '../utils/taskScheduling';
 
 const PRIORITIES: Record<TaskPriority, string> = { 1: 'Baixa', 2: 'Media', 3: 'Alta', 4: 'Urgente' };
 
@@ -82,6 +83,7 @@ export default function TaskCard({
   const progressEntries = (task.activityLog || []).filter((entry) => entry.type === 'note');
   const latestProgress = progressEntries.at(-1);
   const timing = dateState(task);
+  const scheduledEvent = nextScheduledEvent(task);
 
   function openFromCard(event: MouseEvent<HTMLElement>) {
     if (isInteractiveTarget(event.target)) return;
@@ -119,6 +121,7 @@ export default function TaskCard({
         <span className={`priority-badge p${task.priority}`}>{PRIORITIES[task.priority]}</span>
         {timing === 'overdue' && <span className="timing-badge overdue">Atrasada</span>}
         {timing === 'today' && <span className="timing-badge today">Hoje</span>}
+        {scheduledEvent && <span className="timing-badge scheduled">Scheduled</span>}
         {blockingItemCount > 0 && <span className="blocked-count-badge">{blockingItemCount} bloqueio{blockingItemCount === 1 ? '' : 's'}</span>}
         {isBlocking && (
           <span className="blocking-badge" title={`A bloquear: ${blockedDependents.map((item) => item.title).join(', ')}`}>
@@ -147,6 +150,7 @@ export default function TaskCard({
       <div className="task-meta">
         <span>{task.dueDateTime ? new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(task.dueDateTime)) : 'Sem prazo'}</span>
         {task.estimatedMinutes != null && <span>{task.estimatedMinutes} min</span>}
+        {scheduledEvent && <span>Agendada: {new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(scheduledEvent.start))}</span>}
       </div>
       {(task.checklistItems || []).length > 0 && (
         <div className="card-checklist">
@@ -217,7 +221,7 @@ export default function TaskCard({
         ) : (<>
           {timing === 'overdue' && <button type="button" className="postpone-action" onClick={() => onPostpone(task)}>Adiar</button>}
           {!['done', 'cancelled'].includes(task.status) && <button type="button" onClick={() => onAddBlocker(task)}>+ Bloqueio</button>}
-          {!(task.calendarEvents || []).length && <button type="button" onClick={() => onCreateCalendarEvent(task)}>Criar evento</button>}
+          {!scheduledEvent && <button type="button" onClick={() => onCreateCalendarEvent(task)}>Criar evento</button>}
           <button type="button" onClick={() => onDuplicate(task)}>Duplicar</button>
           <button type="button" onClick={() => onArchive(task)}>Arquivar</button>
         </>)}

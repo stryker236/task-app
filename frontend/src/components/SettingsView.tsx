@@ -11,6 +11,10 @@ type SettingsViewProps = {
 
 type SettingsSection = keyof AppSettings;
 
+function isHexColor(value: string) {
+  return /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
 function NumberField({ label, value, min, max, step = 1, onChange }: { label: string; value: number; min: number; max: number; step?: number; onChange: (value: number) => void }) {
   return (
     <label>
@@ -25,6 +29,17 @@ function ToggleField({ label, checked, onChange }: { label: string; checked: boo
     <label className="settings-toggle-row">
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
       <span>{label}</span>
+    </label>
+  );
+}
+function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="settings-color-field">
+      <span>{label}</span>
+      <div>
+        <input type="color" value={isHexColor(value) ? value : '#000000'} onChange={(event) => onChange(event.target.value)} />
+        <input type="text" value={value} onChange={(event) => onChange(event.target.value)} maxLength={7} spellCheck={false} />
+      </div>
     </label>
   );
 }
@@ -133,9 +148,15 @@ export default function SettingsView({ settings, loading, saving, onSave, onRefr
           </header>
           <div className="settings-fields">
             <ToggleField label="Modo compacto" checked={draft.ui.compactMode} onChange={(value) => updateSection('ui', { compactMode: value })} />
+            <ColorField label="Cor principal" value={draft.ui.accentColor} onChange={(value) => updateSection('ui', { accentColor: value })} />
+            <ColorField label="Cor das pausas" value={draft.ui.breakColor} onChange={(value) => updateSection('ui', { breakColor: value })} />
+            <ColorField label="Fundo principal" value={draft.ui.surfaceColor} onChange={(value) => updateSection('ui', { surfaceColor: value })} />
           </div>
         </article>
       </div>
     </section>
   );
 }
+
+
+

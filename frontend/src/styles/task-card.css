@@ -1,4 +1,4 @@
-﻿.task-card { position: relative; background: white; border: 1px solid #dce1ea; border-left: 4px solid #97a0b1; border-radius: 9px; padding: 12px; box-shadow: 0 2px 5px rgba(31, 42, 68, .04); overflow: hidden; cursor: pointer; }
+.task-card { position: relative; background: white; border: 1px solid #dce1ea; border-left: 4px solid #97a0b1; border-radius: 9px; padding: 12px; box-shadow: 0 2px 5px rgba(31, 42, 68, .04); overflow: hidden; cursor: pointer; }
 .task-card:focus-visible { outline: 3px solid rgba(49, 94, 251, .3); outline-offset: 2px; }
 .task-card.priority-2 { border-left-color: #4f7bdd; }
 .task-card.priority-3 { border-left-color: #ec9b35; }
@@ -62,3 +62,8 @@
 .card-checklist-items p { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .card-checklist-items .done { color: #7e897f; }
 .card-checklist-items .done p { text-decoration: line-through; }
+
+.timing-badge.scheduled {
+  background: color-mix(in srgb, var(--accent-color, #315efb) 14%, transparent);
+  color: var(--accent-color, #315efb);
+}

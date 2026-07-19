@@ -1,37 +1,50 @@
 .periodic-view { display: grid; gap: 14px; }
-.periodic-header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; border: 1px solid var(--line); border-radius: 11px; padding: 16px; background: var(--surface); box-shadow: 0 2px 8px rgba(25, 35, 55, .025); }
+.periodic-header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--surface); box-shadow: 0 2px 8px rgba(25, 35, 55, .025); }
 .periodic-header span { display: block; color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .periodic-header h2 { margin: 2px 0 4px; color: var(--text-strong); font-size: 20px; }
 .periodic-header p { margin: 0; color: var(--text-soft); font-size: 13px; }
-.periodic-editor { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--surface); }
+.periodic-editor { display: grid; gap: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: var(--surface); }
+.periodic-editor-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .periodic-editor h3 { margin: 0; color: var(--text-strong); font-size: 15px; }
-.periodic-form-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; }
-.periodic-form-grid textarea { grid-column: span 2; min-height: 42px; }
-.periodic-form-grid label { display: grid; gap: 4px; color: var(--text-soft); font-size: 11px; font-weight: 750; }
+.periodic-editor-section { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.periodic-editor-section > strong, .periodic-rule-editor-header strong { color: var(--text-strong); font-size: 12px; font-weight: 850; }
+.periodic-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; min-width: 0; }
+.periodic-form-grid label, .periodic-window-grid label, .periodic-rule-grid label { display: grid; gap: 4px; min-width: 0; color: var(--text-soft); font-size: 11px; font-weight: 750; }
+.periodic-notes-field { grid-column: span 2; }
+.periodic-form-grid textarea { min-height: 42px; }
 .periodic-days { display: flex; flex-wrap: wrap; gap: 6px; }
 .periodic-days button { border: 1px solid var(--field-border); border-radius: 7px; padding: 6px 10px; background: var(--surface); color: var(--text-soft); font-size: 12px; font-weight: 800; }
-.periodic-days button.active { background: #eaf0ff; border-color: #9cb1ff; color: #315efb; }
-.periodic-option-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
-.periodic-active { display: inline-flex; align-items: center; gap: 7px; width: fit-content; color: var(--text-soft); font-size: 12px; font-weight: 750; }
-.periodic-active input { width: auto; }
+.periodic-days button.active { background: var(--accent-soft); border-color: var(--accent-color); color: var(--accent-color); }
+.periodic-window-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; min-width: 0; }
+.periodic-toggle { display: inline-flex !important; grid-auto-flow: column; justify-content: start; align-items: center; gap: 7px !important; width: fit-content; color: var(--text-soft); font-size: 12px; font-weight: 750; }
+.periodic-toggle input { width: auto; }
+.periodic-form-grid input, .periodic-form-grid select, .periodic-form-grid textarea, .periodic-window-grid input, .periodic-rule-grid input, .periodic-rule-grid select { min-width: 0; }
 .periodic-editor-actions { display: flex; gap: 8px; }
-.periodic-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
-.periodic-card { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--surface); }
-.periodic-card > header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.periodic-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 12px; min-width: 0; }
+.periodic-card { display: grid; gap: 12px; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: var(--surface); }
+.periodic-card > header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: flex-start; }
 .periodic-card header span { color: var(--muted); font-size: 10px; font-weight: 850; text-transform: uppercase; }
-.periodic-card h3 { margin: 2px 0 4px; color: var(--text-strong); font-size: 16px; }
-.periodic-card p { margin: 0; color: var(--text-soft); font-size: 12px; }
-.periodic-card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
-.periodic-summary { display: flex; flex-wrap: wrap; gap: 6px; }
-.periodic-summary span { border-radius: 999px; padding: 4px 8px; background: var(--surface-soft); color: var(--text-soft); font-size: 11px; font-weight: 750; }
-.periodic-constraint-composer { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 7px; align-items: center; }
-.periodic-constraints { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.periodic-constraints li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 7px; background: var(--surface-soft); }
-.periodic-constraints span { color: var(--text-strong); font-size: 11px; font-weight: 850; }
-.periodic-constraints code { overflow: hidden; text-overflow: ellipsis; color: var(--text-soft); font-size: 11px; white-space: nowrap; }
+.periodic-card h3 { margin: 2px 0 4px; color: var(--text-strong); font-size: 16px; overflow-wrap: anywhere; }
+.periodic-card p { margin: 0; color: var(--text-soft); font-size: 12px; overflow-wrap: anywhere; }
+.periodic-card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 180px; }
+.periodic-summary { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.periodic-summary span { min-width: 0; border-radius: 999px; padding: 4px 8px; background: var(--surface-soft); color: var(--text-soft); font-size: 11px; font-weight: 750; overflow-wrap: anywhere; }
+.periodic-rule-editor { display: grid; gap: 9px; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--surface-soft); }
+.periodic-rule-editor-header { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.periodic-rule-editor-header span { color: var(--muted); font-size: 11px; }
+.periodic-rule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 8px; align-items: end; min-width: 0; }
+.periodic-constraints { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.periodic-constraints li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: var(--surface-soft); }
+.periodic-constraints span { display: block; color: var(--text-strong); font-size: 12px; font-weight: 850; }
+.periodic-constraints p { margin-top: 2px; color: var(--text-soft); font-size: 12px; }
+.periodic-constraints small { color: var(--muted); font-size: 11px; font-weight: 800; }
 .periodic-constraints button { border: 0; background: transparent; color: var(--danger); font-size: 11px; font-weight: 800; }
-.periodic-occurrences { display: grid; gap: 6px; }
-.periodic-occurrences strong { color: var(--text-strong); font-size: 12px; }
-.periodic-occurrences div { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 8px; align-items: center; color: var(--text-soft); font-size: 12px; }
-.periodic-occurrences select { padding: 5px 7px; font-size: 12px; }
-.periodic-occurrences p { color: var(--text-soft); font-size: 12px; }
+.periodic-empty-note { color: var(--text-soft); font-size: 12px; }
+@media (max-width: 760px) {
+  .periodic-header, .periodic-editor-title, .periodic-rule-editor-header { align-items: stretch; flex-direction: column; }
+  .periodic-card > header { grid-template-columns: 1fr; }
+  .periodic-form-grid, .periodic-window-grid, .periodic-rule-grid, .periodic-list { grid-template-columns: 1fr; }
+  .periodic-notes-field { grid-column: auto; }
+  .periodic-card-actions { justify-content: flex-start; max-width: none; }
+}
+

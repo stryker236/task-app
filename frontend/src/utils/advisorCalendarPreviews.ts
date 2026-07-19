@@ -44,7 +44,7 @@ export function advisorCalendarPreviewEvents(
         advisorProposalId: proposal.id,
         calendarId,
         calendarSummary,
-        calendarColor: calendar?.backgroundColor || '#6f48eb',
+        calendarColor: (stringValue(event.summary) || proposal.summary || '').trim().toLocaleLowerCase() === 'pausa' ? '#0f8f7e' : calendar?.backgroundColor || '#6f48eb',
         summary: stringValue(event.summary) || proposal.summary || 'Novo evento',
         description: stringValue(event.description),
         location: stringValue(event.location),

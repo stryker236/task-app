@@ -10,6 +10,7 @@ const TABS = [
   ['sharedNotes', 'Notas'],
   ['calendar', 'Calendario'],
   ['periodicTasks', 'Rotinas'],
+  ['scheduledReview', 'A rever'],
   ['learnedRules', 'Feedback AI'],
   ['schedulerRules', 'Agenda AI'],
   ['logs', 'Logs'],

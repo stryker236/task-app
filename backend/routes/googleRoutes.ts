@@ -27,6 +27,7 @@ import type {
 
 const GOOGLE_CONNECTION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const GOOGLE_TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000;
+const GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS = Number(process.env.GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS || 60_000);
 
 type Queryable = Pool | PoolClient;
 
@@ -51,6 +52,11 @@ type EncodedOAuthStateInput = OAuthStatePayload & {
 type AuthorizedGoogleClient = {
   connection: GoogleConnection;
   authClient: OAuth2Client;
+};
+
+type CalendarEventsCacheEntry = {
+  expiresAt: number;
+  data: Record<string, unknown>;
 };
 
 type GoogleRouteDependencies = {
@@ -148,7 +154,7 @@ function toCalendarEvent(event: calendar_v3.Schema$Event, sourceCalendar: Google
     calendarId: sourceCalendar.id,
     calendarSummary: sourceCalendar.summary,
     calendarColor: sourceCalendar.backgroundColor,
-    summary: event.summary || '(Sem tÃ­tulo)',
+    summary: event.summary || '(Sem tÃƒÂ­tulo)',
     description: event.description || '',
     location: event.location || '',
     status: event.status,
@@ -196,7 +202,7 @@ function formatTaskLine(task) {
     : 'Sem hora';
   const priority = ['Baixa', 'Normal', 'Alta', 'Urgente'][Math.max(0, Number(task.priority || 1) - 1)] || `P${task.priority}`;
   const tags = task.tags?.length ? ` [${task.tags.join(', ')}]` : '';
-  return `- ${due} Â· ${task.title} Â· ${priority} Â· ${task.status}${tags}`;
+  return `- ${due} Ã‚Â· ${task.title} Ã‚Â· ${priority} Ã‚Â· ${task.status}${tags}`;
 }
 
 function buildDailyTasksEmail(tasks) {
@@ -381,6 +387,22 @@ async function deleteAllCalendarEvents(calendar: calendar_v3.Calendar, calendarI
   return deletedCount;
 }
 
+function isBreakCalendarSummary(summary: string) {
+  return String(summary || '').trim().toLocaleLowerCase().replace(/\s+/g, ' ') === 'pausa';
+}
+
+function calendarEventReminderSettings(summary: string) {
+  if (isBreakCalendarSummary(summary)) return { useDefault: false, overrides: [] };
+  return { useDefault: false, overrides: [{ method: 'popup', minutes: 30 }] };
+}
+
+function hasActiveTaskCalendarEvent(events = [], now = Date.now()) {
+  return events.some((event) => {
+    if (event?.reviewStatus) return false;
+    const end = Date.parse(event?.end || event?.endAt || '');
+    return !Number.isNaN(end) && end >= now;
+  });
+}
 function createGoogleRouter({
   pool,
   withTransaction,
@@ -396,6 +418,40 @@ function createGoogleRouter({
   createProductivityEvent
 }: GoogleRouteDependencies) {
   const router = express.Router();
+  const calendarEventsCache = new Map<string, CalendarEventsCacheEntry>();
+
+  function clearCalendarEventsCache(reason: string) {
+    const size = calendarEventsCache.size;
+    calendarEventsCache.clear();
+    logger.info('calendar.events.cache.cleared', { metadata: { reason, size } });
+  }
+
+  function calendarEventsCacheKey({ accountEmail, rangeStart, rangeEnd, calendarIds }: { accountEmail: string | null; rangeStart: string; rangeEnd: string; calendarIds: string[] }) {
+    return JSON.stringify({
+      accountEmail: accountEmail || '',
+      rangeStart,
+      rangeEnd,
+      calendarIds: [...calendarIds].sort()
+    });
+  }
+
+  function readCalendarEventsCache(key: string) {
+    const entry = calendarEventsCache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      calendarEventsCache.delete(key);
+      return null;
+    }
+    return entry;
+  }
+
+  function writeCalendarEventsCache(key: string, data: Record<string, unknown>) {
+    if (GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS <= 0) return;
+    calendarEventsCache.set(key, {
+      data,
+      expiresAt: Date.now() + GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS
+    });
+  }
   // Get 
   async function getAuthorizedClient(): Promise<AuthorizedGoogleClient> {
     const connection = await fetchGoogleConnection();
@@ -544,6 +600,7 @@ function createGoogleRouter({
   router.delete('/google/connection', async (req, res, next) => {
     try {
       await deleteGoogleConnection(pool);
+      clearCalendarEventsCache('google_disconnect');
       res.status(204).end();
     } catch (error) {
       next(error);
@@ -654,8 +711,26 @@ function createGoogleRouter({
       const requestedCalendarIds = Array.isArray(req.query.calendarId)
         ? req.query.calendarId.map(String).filter(Boolean)
         : req.query.calendarId ? [String(req.query.calendarId)] : ['primary'];
+      const forceRefresh = ['1', 'true', 'yes'].includes(String(req.query.refresh || req.query.forceRefresh || '').toLowerCase());
+      const cacheKey = calendarEventsCacheKey({
+        accountEmail: connection.accountEmail,
+        rangeStart,
+        rangeEnd,
+        calendarIds: requestedCalendarIds
+      });
+      const cached = forceRefresh ? null : readCalendarEventsCache(cacheKey);
+      if (cached) {
+        (req as any).log?.('info', 'calendar.events.cache.hit', {
+          durationMs: Date.now() - startedAt,
+          metadata: { rangeStart, rangeEnd, requestedCalendarIds, ttlRemainingMs: Math.max(0, cached.expiresAt - Date.now()) }
+        });
+        return res.json({
+          ...cached.data,
+          cache: { hit: true, ttlMs: GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS, expiresAt: new Date(cached.expiresAt).toISOString() }
+        });
+      }
       (req as any).log?.('info', 'calendar.events.fetch.started', {
-        metadata: { rangeStart, rangeEnd, requestedCalendarIds }
+        metadata: { rangeStart, rangeEnd, requestedCalendarIds, forceRefresh, cacheTtlMs: GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS }
       });
       const calendarListResult = await calendar.calendarList.list({
         minAccessRole: 'reader',
@@ -679,17 +754,22 @@ function createGoogleRouter({
       }));
       const events = eventResults.flat().sort((left, right) => String(left.start || '').localeCompare(String(right.start || '')));
 
-      res.json({
+      const responsePayload = {
         date: start && end ? undefined : date,
         start: rangeStart,
         end: rangeEnd,
         accountEmail: connection.accountEmail,
         calendars: requestedCalendars,
         events
+      };
+      writeCalendarEventsCache(cacheKey, responsePayload);
+      res.json({
+        ...responsePayload,
+        cache: { hit: false, refreshed: forceRefresh, ttlMs: GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS }
       });
       (req as any).log?.('info', 'calendar.events.fetch.completed', {
         durationMs: Date.now() - startedAt,
-        metadata: { rangeStart, rangeEnd, calendarCount: requestedCalendars.length, eventCount: events.length }
+        metadata: { rangeStart, rangeEnd, calendarCount: requestedCalendars.length, eventCount: events.length, cacheStored: GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS > 0 }
       });
     } catch (error) {
       next(error);
@@ -729,6 +809,7 @@ function createGoogleRouter({
       const unlinkedCount = deleteTaskCalendarEventsByCalendarId
         ? await deleteTaskCalendarEventsByCalendarId(pool, defaultCalendar.id)
         : 0;
+      clearCalendarEventsCache('delete_default_calendar_events');
       (req as any).log?.('info', 'calendar.events.delete_all.completed', {
         metadata: { calendarId: defaultCalendar.id, deletedCount, unlinkedCount }
       });
@@ -772,8 +853,9 @@ function createGoogleRouter({
       (req as any).log?.('info', 'calendar.event.duplicate_check', {
         metadata: { taskId, linkedEventCount: linkedEvents.length, calendarId }
       });
-      if (linkedEvents.length) {
-        return res.status(409).json({ error: 'Task already has a linked calendar event', event: linkedEvents[0] });
+      if (hasActiveTaskCalendarEvent(linkedEvents)) {
+        const activeEvent = linkedEvents.find((event) => !event.reviewStatus && Date.parse(event.end || '') >= Date.now()) || linkedEvents[0];
+        return res.status(409).json({ error: 'Task already has a linked calendar event', event: activeEvent });
       }
 
       const { connection, authClient } = await getAuthorizedClient();
@@ -800,7 +882,8 @@ function createGoogleRouter({
           end: {
             dateTime: end,
             ...(timeZone ? { timeZone } : {})
-          }
+          },
+          reminders: calendarEventReminderSettings(task.title)
         }
       });
       if (!result.data.id) {
@@ -817,6 +900,7 @@ function createGoogleRouter({
         end: result.data.end?.dateTime || end,
         htmlLink: result.data.htmlLink || null
       });
+      clearCalendarEventsCache('calendar_event_created');
       if (createProductivityEvent) {
         await createProductivityEvent(pool, {
           eventType: 'task_scheduled',

@@ -1,8 +1,8 @@
 import type { TaskFilters } from '../api';
 
-export type ViewKey = 'kanban' | 'queue' | 'quickQueue' | 'collections' | 'sharedNotes' | 'calendar' | 'periodicTasks' | 'productivity' | 'settings' | 'learnedRules' | 'schedulerRules' | 'logs' | 'archived';
+export type ViewKey = 'kanban' | 'queue' | 'quickQueue' | 'collections' | 'sharedNotes' | 'calendar' | 'periodicTasks' | 'scheduledReview' | 'productivity' | 'settings' | 'learnedRules' | 'schedulerRules' | 'logs' | 'archived';
 
-export const VIEW_KEYS = ['kanban', 'queue', 'quickQueue', 'collections', 'sharedNotes', 'calendar', 'periodicTasks', 'productivity', 'settings', 'learnedRules', 'schedulerRules', 'logs', 'archived'] as const satisfies readonly ViewKey[];
+export const VIEW_KEYS = ['kanban', 'queue', 'quickQueue', 'collections', 'sharedNotes', 'calendar', 'periodicTasks', 'scheduledReview', 'productivity', 'settings', 'learnedRules', 'schedulerRules', 'logs', 'archived'] as const satisfies readonly ViewKey[];
 
 export const EMPTY_FILTERS: TaskFilters = {
   search: '',
@@ -27,6 +27,7 @@ export const createViewFilters = (): Record<ViewKey, TaskFilters> => ({
   sharedNotes: { ...EMPTY_FILTERS, tags: [] },
   calendar: { ...EMPTY_FILTERS, tags: [] },
   periodicTasks: { ...EMPTY_FILTERS, tags: [] },
+  scheduledReview: { ...EMPTY_FILTERS, tags: [] },
   productivity: { ...EMPTY_FILTERS, tags: [] },
   settings: { ...EMPTY_FILTERS, tags: [] },
   learnedRules: { ...EMPTY_FILTERS, tags: [] },

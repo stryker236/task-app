@@ -47,6 +47,8 @@ export interface GoogleCalendarsResponse {
   calendars: GoogleCalendar[];
 }
 
+export type TaskCalendarEventReviewStatus = 'completed' | 'missed' | 'skipped';
+
 export interface TaskCalendarEvent {
   id: string;
   taskId: string;
@@ -56,8 +58,19 @@ export interface TaskCalendarEvent {
   start: string;
   end: string;
   htmlLink: string | null;
+  reviewStatus: TaskCalendarEventReviewStatus | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  reviewFeedback: Record<string, unknown>;
+  xpDelta: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ReviewTaskCalendarEventInput {
+  status: TaskCalendarEventReviewStatus;
+  note?: string;
+  feedback?: Record<string, unknown>;
 }
 
 export interface CreateGoogleCalendarEventInput {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { getAppSettings, updateAppSettings, type AppSettings, type AppSettingsUpdate } from '../api';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -19,7 +19,13 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     weekdaysOnly: true
   },
   ui: {
-    compactMode: false
+    compactMode: false,
+    accentColor: '#315efb',
+    breakColor: '#0f8f7e',
+    surfaceColor: '#ffffff',
+    calendarEventColor: '#315efb',
+    calendarPreviewColor: '#6f48eb',
+    calendarDueDateColor: '#447276'
   }
 };
 
@@ -60,3 +66,4 @@ export default function useAppSettings({ setError }: { setError: (message: strin
 
   return { settings, settingsLoading, settingsSaving, refreshSettings, saveSettings };
 }
+

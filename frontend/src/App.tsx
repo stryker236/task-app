@@ -78,6 +78,15 @@ export default function App() {
 
   const googleCalendar = useGoogleCalendar({ setError });
   const { settings, settingsLoading, settingsSaving, refreshSettings, saveSettings } = useAppSettings({ setError });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--blue', settings.ui.accentColor);
+    root.style.setProperty('--accent-color', settings.ui.accentColor);
+    root.style.setProperty('--break-color', settings.ui.breakColor);
+    root.style.setProperty('--surface', settings.ui.surfaceColor);
+  }, [settings.ui.accentColor, settings.ui.breakColor, settings.ui.surfaceColor]);
+
   const { productivitySummary, productivityLoading, refreshProductivitySummary } = useProductivitySummary({ setError });
 
   const {
@@ -230,7 +239,7 @@ export default function App() {
 
         <ViewTabs view={view} />
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'scheduledReview' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <GoogleDailyPanel
             status={googleCalendar.googleStatus}
             loading={googleCalendar.googleLoading}
@@ -245,21 +254,21 @@ export default function App() {
           />
         )}
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'scheduledReview' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <AdvisorPanelContainer
             allTasks={allTasks}
           />
         )}
 
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'scheduledReview' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <BulkArchiveActions
             onArchiveDone={() => taskActions.archiveTasksWithStatus('done')}
             onArchiveCancelled={() => taskActions.archiveTasksWithStatus('cancelled')}
           />
         )}
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'scheduledReview' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
           <Filters
             filters={filters}
             tags={availableTags}
@@ -310,6 +319,7 @@ export default function App() {
           onOpenTask={openTaskDetails}
           onError={setError}
           onTasksChanged={() => fetchDashboardData(filters)}
+          onReviewScheduledEvent={taskActions.reviewScheduledTaskEvent}
           focusedSharedNoteId={focusedSharedNoteId}
         />
       </main>
@@ -359,5 +369,7 @@ export default function App() {
     </GoogleCalendarProvider>
   );
 }
+
+
 
 

@@ -1,4 +1,4 @@
-﻿.queue-toolbar { display: flex; justify-content: flex-end; align-items: end; gap: 8px; margin-bottom: 13px; }
+.queue-toolbar { display: flex; justify-content: flex-end; align-items: end; gap: 8px; margin-bottom: 13px; }
 .queue-toolbar label { font-size: 12px; font-weight: 650; color: #5f687a; }
 .queue-toolbar select { margin-top: 4px; min-width: 160px; }
 .queue-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(285px, 1fr)); gap: 12px; }
@@ -6,3 +6,11 @@
 .collections-view { display: flex; flex-direction: column; gap: 18px; }
 .collection-section { background: #e9edf4; border-radius: 11px; padding: 12px; }
 .collection-section > header { border-bottom: 1px solid #d7dce6; margin-bottom: 11px; }
+
+.scheduled-review-view { display: grid; gap: 16px; }
+.scheduled-review-list { display: grid; gap: 12px; }
+.scheduled-review-item { display: grid; gap: 12px; padding: 14px; border: 1px solid #d8dde8; border-radius: 8px; background: var(--surface, #fff); }
+.scheduled-review-item > div:first-child { display: grid; gap: 4px; }
+.scheduled-review-item p, .scheduled-review-item small { margin: 0; color: #667085; }
+.scheduled-review-item textarea { width: 100%; resize: vertical; }
+.scheduled-review-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { ChecklistItem, Task, TaskPriority, TaskStatus } from '../../../shared/types';
+import type { ChecklistItem, Task, TaskCalendarEvent, TaskCalendarEventReviewStatus, TaskPriority, TaskStatus } from '../../../shared/types';
 import {
   addTaskProgressEntry,
   attachSharedNoteToTask,
@@ -12,6 +12,7 @@ import {
   duplicateTask,
   editTaskProgressEntry,
   restoreTask,
+  reviewTaskCalendarEvent,
   toggleChecklistItem,
   updateTask,
   type TaskFilters
@@ -204,6 +205,17 @@ export default function useTaskActions({
     }
   }
 
+  async function reviewScheduledTaskEvent(task: Task, event: TaskCalendarEvent, status: TaskCalendarEventReviewStatus, note: string, feedback: Record<string, unknown> = {}) {
+    try {
+      const updated = await reviewTaskCalendarEvent(task.id, event.id, { status, note, feedback });
+      setViewingTask((current) => current?.id === updated.id ? updated : current);
+      await fetchDashboardData(filters);
+      return updated;
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+      return null;
+    }
+  }
   async function postponeTaskDueDate(task: Task, dueDateTime: string) {
     setPostponing(true);
     setError('');
@@ -237,6 +249,7 @@ export default function useTaskActions({
     createTaskLinkedSharedNote,
     detachTaskSharedNote,
     updateTaskFromDetails,
+    reviewScheduledTaskEvent,
     postponeTaskDueDate
   };
 }

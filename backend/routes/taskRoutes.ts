@@ -11,12 +11,32 @@ const {
   applyTaskStatusTimestamps
 } = require('../tasks/taskValidation');
 
+const CALENDAR_EVENT_REVIEW_STATUSES = new Set(['completed', 'missed', 'skipped']);
+
+function normalizeReviewFeedback(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function taskCanBeCompleted(task, tasks) {
+  const tasksById = new Map(tasks.map((item) => [item.id, item]));
+  const unfinished = (task.blockedByTaskIds || []).map((id) => tasksById.get(id)).filter((dependency) => dependency && dependency.status !== 'done');
+  const unfinishedChecklist = (task.checklistItems || []).filter((item) => !item.isDone);
+  if (!unfinished.length && !unfinishedChecklist.length) return;
+  const error = new Error('Blocked tasks cannot be completed');
+  (error as any).status = 409;
+  (error as any).details = [
+    ...unfinished.map((dependency) => `Complete dependency: ${dependency.title}`),
+    ...unfinishedChecklist.map((item) => `Complete checklist item: ${item.title}`)
+  ];
+  throw error;
+}
 function createTaskRouter({
   pool,
   withTransaction,
   fetchTasks,
   insertTask,
   updateTaskRecord,
+  updateTaskCalendarEventReview,
   insertActivity,
   createProductivityEvent = async (_db: unknown, _event: unknown) => null,
   syncInverseRelationships,
@@ -196,6 +216,88 @@ function createTaskRouter({
     } catch (error) { next(error); }
   });
 
+  router.post('/tasks/:id/calendar-events/:eventId/review', async (req, res, next) => {
+    try {
+      if (!updateTaskCalendarEventReview) return res.status(501).json({ error: 'Calendar event review is not configured' });
+      const reviewStatus = String(req.body?.status || '').trim();
+      if (!CALENDAR_EVENT_REVIEW_STATUSES.has(reviewStatus)) {
+        return res.status(400).json({ error: 'status must be completed, missed, or skipped' });
+      }
+      const note = normalizeString(req.body?.note || '');
+      const feedback = normalizeReviewFeedback(req.body?.feedback);
+      const resultTask = await withTransaction(async (client) => {
+        const tasks = await fetchTasks(client);
+        const current = tasks.find((item) => item.id === req.params.id);
+        if (!current) return null;
+        const event = (current.calendarEvents || []).find((item) => item.id === req.params.eventId);
+        if (!event) {
+          const error = new Error('Task calendar event not found');
+          (error as any).status = 404;
+          throw error;
+        }
+        if (event.reviewStatus) return findTaskById(client, current.id);
+        const now = new Date().toISOString();
+        const xpDelta = reviewStatus === 'completed' ? 50 : reviewStatus === 'missed' ? -10 : 0;
+        let taskForResponse = current;
+        if (reviewStatus === 'completed' && current.status !== 'done') {
+          taskCanBeCompleted(current, tasks);
+          const updated = applyTaskStatusTimestamps({ ...current, status: 'done', updatedAt: now }, current.status, now);
+          await updateTaskRecord(client, updated);
+          await insertActivity(client, updated.id, {
+            id: randomUUID(),
+            type: 'status',
+            message: `Scheduled review completed: ${event.summary}`,
+            fromStatus: current.status,
+            toStatus: 'done',
+            createdAt: now
+          });
+          taskForResponse = updated;
+        }
+        await updateTaskCalendarEventReview(client, event.id, {
+          reviewStatus,
+          reviewedAt: now,
+          reviewNote: note || null,
+          reviewFeedback: feedback,
+          xpDelta
+        });
+        await insertActivity(client, current.id, {
+          id: randomUUID(),
+          type: 'note',
+          message: note
+            ? `Scheduled review ${reviewStatus}: ${note}`
+            : `Scheduled review ${reviewStatus}`,
+          createdAt: now
+        });
+        if (createProductivityEvent) {
+          await createProductivityEvent(client, {
+            eventType: reviewStatus === 'completed' ? 'scheduled_task_completed' : reviewStatus === 'missed' ? 'scheduled_task_missed' : 'scheduled_task_skipped',
+            xp: xpDelta,
+            taskId: current.id,
+            calendarEventId: event.id,
+            metadata: {
+              title: current.title,
+              eventSummary: event.summary,
+              start: event.start,
+              end: event.end,
+              reviewStatus,
+              feedback
+            }
+          });
+        }
+        return findTaskById(client, taskForResponse.id);
+      });
+      if (!resultTask) return res.status(404).json({ error: 'Task not found' });
+      logInfo(requestLogMeta(req, {
+        event: 'task.calendar_event.review',
+        entity: 'task',
+        entityId: resultTask.id,
+        taskId: resultTask.id,
+        calendarEventId: req.params.eventId,
+        reviewStatus
+      }), 'task calendar event reviewed');
+      return res.json(resultTask);
+    } catch (error) { return next(error); }
+  });
   router.delete('/tasks/:id', async (req, res, next) => {
     try {
       const deleted = await withTransaction(async (client) => {

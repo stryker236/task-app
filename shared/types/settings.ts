@@ -1,4 +1,4 @@
-export type FeedbackMemoryStrength = 'low' | 'normal' | 'strong';
+﻿export type FeedbackMemoryStrength = 'low' | 'normal' | 'strong';
 
 export interface AppSettings {
   productivity: {
@@ -19,6 +19,12 @@ export interface AppSettings {
   };
   ui: {
     compactMode: boolean;
+    accentColor: string;
+    breakColor: string;
+    surfaceColor: string;
+    calendarEventColor: string;
+    calendarPreviewColor: string;
+    calendarDueDateColor: string;
   };
 }
 
@@ -28,3 +34,4 @@ export type AppSettingsUpdate = Partial<{
   calendar: Partial<AppSettings['calendar']>;
   ui: Partial<AppSettings['ui']>;
 }>;
+

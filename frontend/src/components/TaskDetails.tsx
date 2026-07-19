@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, MouseEvent } from 'react';
 import type { ActivityLogEntry, ChecklistItem, SharedNote, Tag, Task, TaskInput, TaskPriority, TaskRelation, TaskStatus } from '../../../shared/types';
-import { getSharedNotes } from '../api';
+import { getSchedulerRules, getSharedNotes, type SchedulerRule } from '../api';
+import { activeCalendarEvents, nextScheduledEvent, reviewedCalendarEvents } from '../utils/taskScheduling';
 import DependencyPicker from './DependencyPicker';
 import RelationPicker, { RELATION_LABELS } from './RelationPicker';
 import TagPicker from './TagPicker';
@@ -73,6 +74,35 @@ function stopDialogMouseDown(event: MouseEvent<HTMLElement>) {
   event.stopPropagation();
 }
 
+function arrayValue(value: unknown) {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+function constraintAppliesToTask(constraint: { scope?: Record<string, unknown> }, task: Task) {
+  const scope = constraint.scope || {};
+  const keys = Object.keys(scope).filter((key) => {
+    const value = scope[key];
+    return !(Array.isArray(value) && value.length === 0) && value !== false && value != null;
+  });
+  if (!keys.length || scope.allTasks === true) return true;
+  const tags = arrayValue(scope.tags);
+  if (tags.length && !tags.some((tag) => task.tags.includes(tag))) return false;
+  const titleIncludes = arrayValue(scope.titleIncludes).map((item) => item.toLocaleLowerCase());
+  if (titleIncludes.length && !titleIncludes.some((item) => task.title.toLocaleLowerCase().includes(item))) return false;
+  const taskIds = arrayValue(scope.taskIds);
+  if (taskIds.length && !taskIds.includes(task.id)) return false;
+  const statuses = arrayValue(scope.statuses);
+  if (statuses.length && !statuses.includes(task.status)) return false;
+  const priorities = Array.isArray(scope.priorities) ? scope.priorities.map(Number) : [];
+  if (priorities.length && !priorities.includes(task.priority)) return false;
+  return true;
+}
+
+function formatConstraintPayload(payload?: Record<string, unknown>) {
+  const entries = Object.entries(payload || {});
+  if (!entries.length) return 'Sem parametros';
+  return entries.map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`).join('; ');
+}
 function activityText(entry: ActivityLogEntry) {
   if (entry.type === 'status') {
     return `Status changed from ${entry.fromStatus || ''} to ${entry.toStatus || ''}`;
@@ -104,6 +134,7 @@ export default function TaskDetails({
   const [dueTime, setDueTime] = useState(() => localDeadline(task.dueDateTime).time);
   const [newChecklistTitle, setNewChecklistTitle] = useState('');
   const [availableSharedNotes, setAvailableSharedNotes] = useState<SharedNote[]>([]);
+  const [schedulerRules, setSchedulerRules] = useState<SchedulerRule[]>([]);
   const [sharedNoteSearch, setSharedNoteSearch] = useState('');
   const [newSharedNoteTitle, setNewSharedNoteTitle] = useState('');
   const [newSharedNoteBody, setNewSharedNoteBody] = useState('');
@@ -120,6 +151,13 @@ export default function TaskDetails({
   const genericRelations = (draft.relations || []).filter((relation) => relation.type in RELATION_LABELS) as Array<TaskRelation & { type: keyof typeof RELATION_LABELS }>;
   const activity = [...(draft.activityLog || [])].reverse();
   const linkedSharedNotes = draft.sharedNotes || [];
+  const scheduledEvent = nextScheduledEvent(draft);
+  const activeEvents = activeCalendarEvents(draft);
+  const reviewedEvents = reviewedCalendarEvents(draft);
+  const applicableRules = schedulerRules.map((rule) => ({
+    ...rule,
+    constraints: rule.constraints.filter((constraint) => constraint.enabled && constraintAppliesToTask(constraint, draft as Task))
+  })).filter((rule) => rule.constraints.length);
   const attachableSharedNotes = availableSharedNotes.filter((note) => !linkedSharedNotes.some((linked) => linked.id === note.id));
   const visibleAttachableSharedNotes = attachableSharedNotes.filter((note) => {
     const term = sharedNoteSearch.trim().toLocaleLowerCase();
@@ -152,6 +190,19 @@ export default function TaskDetails({
       })
       .catch(() => {
         if (!ignore) setAvailableSharedNotes([]);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [task.id]);
+  useEffect(() => {
+    let ignore = false;
+    getSchedulerRules()
+      .then((rules) => {
+        if (!ignore) setSchedulerRules(rules.filter((rule) => rule.enabled && rule.status === 'active'));
+      })
+      .catch(() => {
+        if (!ignore) setSchedulerRules([]);
       });
     return () => {
       ignore = true;
@@ -281,24 +332,53 @@ export default function TaskDetails({
           </section>
 
           <section className="details-section details-calendar-events">
-            <h3>Calendario <span>{(draft.calendarEvents || []).length}</span></h3>
-            {(draft.calendarEvents || []).length ? (
+            <h3>Scheduling <span>{activeEvents.length ? 'scheduled' : 'not scheduled'}</span></h3>
+            {scheduledEvent ? (
               <div className="task-calendar-links">
-                {(draft.calendarEvents || []).map((event) => (
-                  <a href={event.htmlLink || undefined} target={event.htmlLink ? '_blank' : undefined} rel={event.htmlLink ? 'noreferrer' : undefined} key={event.id}>
-                    <strong>{event.summary}</strong>
-                    <span>{formatDate(event.start)} - {formatDate(event.end)}</span>
-                  </a>
-                ))}
+                <a href={scheduledEvent.htmlLink || undefined} target={scheduledEvent.htmlLink ? '_blank' : undefined} rel={scheduledEvent.htmlLink ? 'noreferrer' : undefined}>
+                  <strong>{scheduledEvent.summary}</strong>
+                  <span>{formatDate(scheduledEvent.start)} - {formatDate(scheduledEvent.end)}</span>
+                  <small>{scheduledEvent.calendarId}</small>
+                </a>
               </div>
-            ) : <p className="details-empty">Sem evento ligado.</p>}
-            {!task.isArchived && !(draft.calendarEvents || []).length && (
+            ) : <p className="details-empty">Sem evento ativo ligado.</p>}
+            {reviewedEvents.length > 0 && (
+              <details className="task-calendar-history">
+                <summary>Historico de eventos ({reviewedEvents.length})</summary>
+                <div className="task-calendar-links">
+                  {reviewedEvents.map((event) => (
+                    <a href={event.htmlLink || undefined} target={event.htmlLink ? '_blank' : undefined} rel={event.htmlLink ? 'noreferrer' : undefined} key={event.id}>
+                      <strong>{event.summary}</strong>
+                      <span>{formatDate(event.start)} - {formatDate(event.end)}</span>
+                      <small>{event.reviewStatus}{event.reviewNote ? ` - ${event.reviewNote}` : ''}</small>
+                    </a>
+                  ))}
+                </div>
+              </details>
+            )}
+            {!task.isArchived && !scheduledEvent && (
               <button type="button" className="button secondary small" onClick={() => onCreateCalendarEvent(task)}>
                 Criar evento
               </button>
             )}
           </section>
 
+          <section className="details-section details-scheduler-rules">
+            <h3>Regras de scheduling <span>{applicableRules.length}</span></h3>
+            {applicableRules.length ? (
+              <div className="scheduler-rule-links">
+                {applicableRules.map((rule) => (
+                  <article key={rule.id}>
+                    <strong>{rule.text}</strong>
+                    <p>{rule.interpretation || 'Sem interpretacao.'}</p>
+                    {rule.constraints.map((constraint) => (
+                      <small key={constraint.id}>{constraint.type} - {constraint.hard ? 'hard' : 'soft'} - {formatConstraintPayload(constraint.payload)}</small>
+                    ))}
+                  </article>
+                ))}
+              </div>
+            ) : <p className="details-empty">Sem regras aplicaveis.</p>}
+          </section>
           <section className="details-section">
             <h3>Notas</h3>
             {task.isArchived

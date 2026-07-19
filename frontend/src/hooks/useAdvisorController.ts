@@ -179,6 +179,33 @@ export default function useAdvisorController({
     clientLog('info', 'advisor.proposal.ignored', '', { commandId });
   }
 
+  
+  async function applyAdvisorProposals(commandIds: string[]) {
+    const wanted = new Set(commandIds);
+    const commands = proposalBatch?.commands || [];
+    const rawCommands = proposalBatch?.rawCommands || [];
+    const pending = commands
+      .map((command, index) => ({ command, rawCommand: rawCommands[index] }))
+      .filter((item): item is { command: AiCommandPreview; rawCommand: AiCommand } => Boolean(item.rawCommand) && wanted.has(item.command.id) && !proposalStatuses[item.command.id]);
+
+    if (!pending.length) return;
+
+    try {
+      setApplyingAllProposals(true);
+      clientLog('info', 'advisor.proposals.accepted_selection', '', { count: pending.length, commandIds: pending.map(({ command }) => command.id) });
+      await applyAiCommands(pending.map(({ rawCommand }) => rawCommand));
+      setProposalStatuses((current) => ({
+        ...current,
+        ...Object.fromEntries(pending.map(({ command }) => [command.id, 'accepted' as const]))
+      }));
+      await fetchDashboardData(filters);
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    } finally {
+      setApplyingAllProposals(false);
+    }
+  }
+
   async function applyAllAdvisorProposals() {
     const commands = proposalBatch?.commands || [];
     const rawCommands = proposalBatch?.rawCommands || [];
@@ -191,12 +218,7 @@ export default function useAdvisorController({
     try {
       setApplyingAllProposals(true);
       clientLog('info', 'advisor.proposals.accepted_all', '', { count: pending.length });
-      const committingFullScheduleBatch = lastAdvisorAction === 'schedule_calendar_events'
-        && pending.length === commands.length
-        && commands.every((command) => command.type === 'create_calendar_event');
-      await applyAiCommands(pending.map(({ rawCommand }) => rawCommand), {
-        reservedBlocks: committingFullScheduleBatch ? proposalBatch?.reservedBlocks || [] : []
-      });
+      await applyAiCommands(pending.map(({ rawCommand }) => rawCommand));
       setProposalStatuses((current) => ({
         ...current,
         ...Object.fromEntries(pending.map(({ command }) => [command.id, 'accepted' as const]))
@@ -334,6 +356,7 @@ export default function useAdvisorController({
     forgetAdvisorMemoryRule,
     saveAdvisorMemoryRule,
     applyAdvisorProposal,
+    applyAdvisorProposals,
     ignoreAdvisorProposal,
     applyAllAdvisorProposals,
     ignoreAllAdvisorProposals,
@@ -344,3 +367,4 @@ export default function useAdvisorController({
     openAdvisorRecommendedTask
   };
 }
+
