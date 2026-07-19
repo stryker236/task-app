@@ -30,8 +30,10 @@ Detailed project documentation is organized under [`docs/`](./docs/):
 - [Backend API](./docs/07-backend-api.md)
 - [Development Workflow](./docs/08-development-workflow.md)
 - [Decisions](./docs/09-decisions.md)
+- [Python Scheduler Service](./docs/10-python-scheduler-service.md)
 - [Diagnostic Flows](./docs/11-diagnostic-flows.md)
 - [Schema Reference](./docs/12-schema-reference.md)
+- [Full Schema ERD](./docs/diagrams/full-schema-erd.md)
 
 The README is the entry point and setup reference. Domain details should go in the matching `docs/` file.
 ## Product direction

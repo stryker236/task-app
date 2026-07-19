@@ -15,8 +15,10 @@ The core product rule is approval first: the Advisor and scheduler can propose c
 - [Backend API](./07-backend-api.md): API surfaces grouped by domain.
 - [Development Workflow](./08-development-workflow.md): setup, validation, migrations, and local running.
 - [Decisions](./09-decisions.md): accepted architecture/product decisions.
+- [Python Scheduler Service](./10-python-scheduler-service.md): payload contract and deterministic scheduling internals.
 - [Diagnostic Flows](./11-diagnostic-flows.md): non-happy-path diagrams for debugging.
 - [Schema Reference](./12-schema-reference.md): literal table/column reference.
+- [Full Schema ERD](./diagrams/full-schema-erd.md): complete Mermaid diagram of app tables and relationships.
 
 ## Current Main Views
 
