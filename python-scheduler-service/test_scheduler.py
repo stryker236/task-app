@@ -96,6 +96,50 @@ class SchedulerTests(unittest.TestCase):
 
         self.assertEqual(result["scheduled"][0]["start"], "2026-07-08T09:00:00Z")
 
+    def test_blocked_window_can_target_exact_date(self):
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-10T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "taskConstraints": {
+                "task": [
+                    {
+                        "id": "blocked-exact-date",
+                        "type": "blocked_window",
+                        "payload": {"date": "2026-07-08", "startTime": "08:00", "endTime": "22:00"},
+                        "hard": True,
+                    }
+                ]
+            },
+            "tasks": [{"id": "task", "title": "Task", "durationMinutes": 30}],
+        })
+
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-09T08:00:00Z")
+
+    def test_allowed_window_can_target_exact_dates_list(self):
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-12T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [
+                {"start": "2026-07-09T08:00:00Z", "end": "2026-07-09T10:00:00Z"},
+            ],
+            "taskConstraints": {
+                "task": [
+                    {
+                        "id": "allowed-exact-dates",
+                        "type": "allowed_window",
+                        "payload": {"dates": ["2026-07-09", "2026-07-10"], "startTime": "08:00", "endTime": "10:00"},
+                        "hard": True,
+                    }
+                ]
+            },
+            "tasks": [{"id": "task", "title": "Task", "durationMinutes": 30}],
+        })
+
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-10T08:00:00Z")
+
     def test_hard_allowed_window_task_is_ordered_before_flexible_task(self):
         result = solve_schedule({
             "now": "2026-07-16T00:00:00Z",

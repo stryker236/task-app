@@ -23,7 +23,7 @@ type ConstraintDraft = {
     statuses: string[];
     priorities: number[];
   };
-  payload: Record<string, string | number | number[]>;
+  payload: Record<string, string | number | number[] | string[]>;
 };
 
 const STATUS_OPTIONS = ['new', 'in_progress', 'waiting', 'done', 'cancelled'];
@@ -78,6 +78,10 @@ function numericList(value: unknown) {
   return Array.isArray(value) ? value.map(Number).filter(Number.isFinite) : [];
 }
 
+function dateList(value: unknown) {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
 function draftFromConstraint(constraint: SchedulerRuleConstraint): ConstraintDraft {
   return {
     type: constraint.type,
@@ -97,6 +101,10 @@ function draftFromConstraint(constraint: SchedulerRuleConstraint): ConstraintDra
 
 function splitList(value: string) {
   return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
+function splitDateList(value: unknown) {
+  return [...new Set(String(Array.isArray(value) ? value.join(', ') : value || '').split(',').map((item) => item.trim()).filter(Boolean))];
 }
 
 function numberValue(value: unknown) {
@@ -176,25 +184,44 @@ function validateTimeRange(payload: Record<string, unknown>, errors: string[]) {
   if (startTime && endTime && endTime <= startTime) errors.push('A hora final tem de ser depois da inicial.');
 }
 
+function isValidDateText(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+}
+
+function validateDateFilters(payload: Record<string, unknown>, errors: string[], required = false) {
+  const date = String(payload.date || '').trim();
+  const dates = splitDateList(payload.dates);
+  if (date && !isValidDateText(date)) errors.push('Data tem de usar YYYY-MM-DD.');
+  for (const item of dates) {
+    if (!isValidDateText(item)) errors.push(`Data invalida: ${item}`);
+  }
+  if (required && !date && !dates.length) errors.push('Escolhe uma data ou lista de datas.');
+}
+
 function validateDraft(draft: ConstraintDraft) {
   const errors: string[] = [];
   const payload = draft.payload;
-  if (['blocked_window', 'allowed_window', 'preferred_window'].includes(draft.type)) validateTimeRange(payload, errors);
+  if (['blocked_window', 'allowed_window', 'preferred_window'].includes(draft.type)) {
+    validateTimeRange(payload, errors);
+    validateDateFilters(payload, errors);
+  }
   if (draft.type === 'avoid_day' && !numericList(payload.days).length) errors.push('Escolhe pelo menos um dia.');
   if (['min_duration', 'max_duration'].includes(draft.type) && numberValue(payload.minutes) <= 0) errors.push('Minutos tem de ser maior que zero.');
   if (draft.type === 'daily_limit' && numberValue(payload.max) <= 0) errors.push('Limite tem de ser maior que zero.');
+  if (draft.type === 'daily_limit') validateDateFilters(payload, errors);
   if (draft.type === 'break_after_task' && numberValue(payload.breakMinutes) <= 0) errors.push('Pausa tem de ser maior que zero.');
   if (draft.type === 'break_after_work_block') {
     if (numberValue(payload.workMinutes) <= 0) errors.push('Bloco de trabalho tem de ser maior que zero.');
     if (numberValue(payload.breakMinutes) <= 0) errors.push('Pausa tem de ser maior que zero.');
   }
   if (draft.type === 'allowed_date') {
-    if (!String(payload.date || '')) errors.push('Escolhe uma data.');
+    validateDateFilters(payload, errors, true);
     const hasStart = Boolean(payload.startTime);
     const hasEnd = Boolean(payload.endTime);
     if (hasStart || hasEnd) validateTimeRange(payload, errors);
   }
   if (draft.type === 'priority_boost') {
+    validateDateFilters(payload, errors);
     const hasStart = Boolean(payload.startTime);
     const hasEnd = Boolean(payload.endTime);
     if (hasStart || hasEnd) validateTimeRange(payload, errors);
@@ -205,13 +232,28 @@ function validateDraft(draft: ConstraintDraft) {
 
 function cleanPayload(draft: ConstraintDraft) {
   const payload = draft.payload;
+  const dates = splitDateList(payload.dates);
+  const dateFilter = {
+    ...(payload.date ? { date: String(payload.date) } : {}),
+    ...(dates.length ? { dates } : {})
+  };
   if (['blocked_window', 'allowed_window', 'preferred_window'].includes(draft.type)) {
-    return { startTime: String(payload.startTime || ''), endTime: String(payload.endTime || '') };
+    return {
+      startTime: String(payload.startTime || ''),
+      endTime: String(payload.endTime || ''),
+      ...(numericList(payload.days).length ? { days: numericList(payload.days) } : {}),
+      ...dateFilter
+    };
   }
   if (draft.type === 'avoid_day') return { days: numericList(payload.days) };
   if (['min_duration', 'max_duration'].includes(draft.type)) return { minutes: numberValue(payload.minutes) };
   if (draft.type === 'daily_limit') {
-    return { max: numberValue(payload.max), ...(numericList(payload.days).length ? { days: numericList(payload.days) } : {}) };
+    return {
+      max: numberValue(payload.max),
+      ...(numericList(payload.days).length ? { days: numericList(payload.days) } : {}),
+      ...dateFilter,
+      ...(payload.startTime && payload.endTime ? { startTime: String(payload.startTime), endTime: String(payload.endTime) } : {})
+    };
   }
   if (draft.type === 'break_after_task') {
     return {
@@ -222,13 +264,14 @@ function cleanPayload(draft: ConstraintDraft) {
   if (draft.type === 'break_after_work_block') return { workMinutes: numberValue(payload.workMinutes), breakMinutes: numberValue(payload.breakMinutes) };
   if (draft.type === 'allowed_date') {
     return {
-      date: String(payload.date || ''),
+      ...dateFilter,
       ...(payload.startTime && payload.endTime ? { startTime: String(payload.startTime), endTime: String(payload.endTime) } : {})
     };
   }
   if (draft.type === 'priority_boost') {
     return {
       ...(numericList(payload.days).length ? { days: numericList(payload.days) } : {}),
+      ...dateFilter,
       ...(payload.startTime && payload.endTime ? { startTime: String(payload.startTime), endTime: String(payload.endTime) } : {}),
       ...(numberValue(payload.weight) > 0 ? { weight: numberValue(payload.weight) } : {})
     };
@@ -269,14 +312,30 @@ function WeekdayPicker({ value, onChange }: { value: number[]; onChange: (value:
   );
 }
 
+function DateFilterFields({ payload, setPayload, includeSingle = true }: { payload: ConstraintDraft['payload']; setPayload: (patch: Record<string, string | number | number[] | string[]>) => void; includeSingle?: boolean }) {
+  return (
+    <>
+      {includeSingle && <label><span>Data concreta opcional</span><input type="date" value={String(payload.date || '')} onChange={(event) => setPayload({ date: event.target.value })} /></label>}
+      <label><span>Lista de datas opcionais</span><input value={dateList(payload.dates).join(', ')} placeholder="2026-07-22, 2026-07-25" onChange={(event) => setPayload({ dates: splitDateList(event.target.value) })} /></label>
+    </>
+  );
+}
+
 function PayloadFields({ draft, onChange }: { draft: ConstraintDraft; onChange: (draft: ConstraintDraft) => void }) {
   const payload = draft.payload;
-  const setPayload = (patch: Record<string, string | number | number[]>) => onChange({ ...draft, payload: { ...payload, ...patch } });
+  const setPayload = (patch: Record<string, string | number | number[] | string[]>) => onChange({ ...draft, payload: { ...payload, ...patch } });
   if (['blocked_window', 'allowed_window', 'preferred_window'].includes(draft.type)) {
     return (
-      <div className="scheduler-editor-grid two">
-        <label><span>Inicio</span><input type="time" value={String(payload.startTime || '')} onChange={(event) => setPayload({ startTime: event.target.value })} /></label>
-        <label><span>Fim</span><input type="time" value={String(payload.endTime || '')} onChange={(event) => setPayload({ endTime: event.target.value })} /></label>
+      <div className="scheduler-editor-stack">
+        <div className="scheduler-editor-grid two">
+          <label><span>Inicio</span><input type="time" value={String(payload.startTime || '')} onChange={(event) => setPayload({ startTime: event.target.value })} /></label>
+          <label><span>Fim</span><input type="time" value={String(payload.endTime || '')} onChange={(event) => setPayload({ endTime: event.target.value })} /></label>
+        </div>
+        <span className="scheduler-editor-label">Dias da semana opcionais</span>
+        <WeekdayPicker value={numericList(payload.days)} onChange={(days) => setPayload({ days })} />
+        <div className="scheduler-editor-grid two">
+          <DateFilterFields payload={payload} setPayload={setPayload} />
+        </div>
       </div>
     );
   }
@@ -288,8 +347,15 @@ function PayloadFields({ draft, onChange }: { draft: ConstraintDraft; onChange: 
     return (
       <div className="scheduler-editor-stack">
         <label><span>Maximo por dia</span><input type="number" min="1" max="50" value={String(payload.max || '')} onChange={(event) => setPayload({ max: event.target.value })} /></label>
-        <span className="scheduler-editor-label">Dias opcionais</span>
+        <span className="scheduler-editor-label">Dias da semana opcionais</span>
         <WeekdayPicker value={numericList(payload.days)} onChange={(days) => setPayload({ days })} />
+        <div className="scheduler-editor-grid two">
+          <DateFilterFields payload={payload} setPayload={setPayload} />
+        </div>
+        <div className="scheduler-editor-grid two">
+          <label><span>Inicio opcional</span><input type="time" value={String(payload.startTime || '')} onChange={(event) => setPayload({ startTime: event.target.value })} /></label>
+          <label><span>Fim opcional</span><input type="time" value={String(payload.endTime || '')} onChange={(event) => setPayload({ endTime: event.target.value })} /></label>
+        </div>
       </div>
     );
   }
@@ -311,17 +377,24 @@ function PayloadFields({ draft, onChange }: { draft: ConstraintDraft; onChange: 
   }
   if (draft.type === 'allowed_date') {
     return (
-      <div className="scheduler-editor-grid three">
-        <label><span>Data</span><input type="date" value={String(payload.date || '')} onChange={(event) => setPayload({ date: event.target.value })} /></label>
-        <label><span>Inicio opcional</span><input type="time" value={String(payload.startTime || '')} onChange={(event) => setPayload({ startTime: event.target.value })} /></label>
-        <label><span>Fim opcional</span><input type="time" value={String(payload.endTime || '')} onChange={(event) => setPayload({ endTime: event.target.value })} /></label>
+      <div className="scheduler-editor-stack">
+        <div className="scheduler-editor-grid two">
+          <DateFilterFields payload={payload} setPayload={setPayload} includeSingle />
+        </div>
+        <div className="scheduler-editor-grid two">
+          <label><span>Inicio opcional</span><input type="time" value={String(payload.startTime || '')} onChange={(event) => setPayload({ startTime: event.target.value })} /></label>
+          <label><span>Fim opcional</span><input type="time" value={String(payload.endTime || '')} onChange={(event) => setPayload({ endTime: event.target.value })} /></label>
+        </div>
       </div>
     );
   }
   return (
     <div className="scheduler-editor-stack">
-      <span className="scheduler-editor-label">Dias opcionais</span>
+      <span className="scheduler-editor-label">Dias da semana opcionais</span>
       <WeekdayPicker value={numericList(payload.days)} onChange={(days) => setPayload({ days })} />
+      <div className="scheduler-editor-grid two">
+        <DateFilterFields payload={payload} setPayload={setPayload} />
+      </div>
       <div className="scheduler-editor-grid three">
         <label><span>Inicio opcional</span><input type="time" value={String(payload.startTime || '')} onChange={(event) => setPayload({ startTime: event.target.value })} /></label>
         <label><span>Fim opcional</span><input type="time" value={String(payload.endTime || '')} onChange={(event) => setPayload({ endTime: event.target.value })} /></label>

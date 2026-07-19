@@ -84,19 +84,19 @@ Working hours are `08:00` to `22:00` in the supplied timezone. Candidate slots u
 
 ## Supported Constraints
 
-- `blocked_window`: rejects candidate slots overlapping `startTime`/`endTime`.
-- `allowed_window`: only allows slots inside `startTime`/`endTime`.
-- `allowed_date`: only allows slots on an exact `YYYY-MM-DD`, optionally inside `startTime`/`endTime`.
-- `preferred_window`: gives matching slots a better score.
+- `blocked_window`: rejects candidate slots overlapping `startTime`/`endTime`, optionally limited by `days`, `date`, or `dates`.
+- `allowed_window`: only allows slots inside `startTime`/`endTime`, optionally limited by `days`, `date`, or `dates`.
+- `allowed_date`: only allows slots on one exact `date` or a list of `dates`, optionally inside `startTime`/`endTime`.
+- `preferred_window`: gives matching slots a better score, optionally limited by `days`, `date`, or `dates`.
 - `avoid_day`: rejects ISO weekdays listed in `days`.
-- `priority_boost`: moves matching tasks/slots earlier by score.
-- `daily_limit`: caps matching tasks per day.
+- `priority_boost`: moves matching tasks/slots earlier by score, optionally limited by `days`, `date`, or `dates`.
+- `daily_limit`: caps matching tasks per day, optionally limited by `days`, `date`, or `dates`.
 - `break_after_task`: reserves a break after a scheduled task.
 - `break_after_work_block`: reserves a break after a continuous work threshold.
 - `min_duration`: rejects tasks shorter than `minutes`.
 - `max_duration`: rejects tasks longer than `minutes`.
 
-Time payloads use `HH:mm`. Weekdays use ISO numbers: Monday is `1`, Sunday is `7`.
+Time payloads use `HH:mm`. Weekdays use ISO numbers: Monday is `1`, Sunday is `7`. Exact calendar dates use `date: "YYYY-MM-DD"` or `dates: ["YYYY-MM-DD"]`.
 
 ## Breaks
 

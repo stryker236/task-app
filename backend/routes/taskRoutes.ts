@@ -17,6 +17,12 @@ function normalizeReviewFeedback(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function normalizeCompletedMinutes(value) {
+  if (value == null || value === '') return null;
+  const minutes = Math.round(Number(value));
+  return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
+}
+
 function taskCanBeCompleted(task, tasks) {
   const tasksById = new Map(tasks.map((item) => [item.id, item]));
   const unfinished = (task.blockedByTaskIds || []).map((id) => tasksById.get(id)).filter((dependency) => dependency && dependency.status !== 'done');
@@ -37,6 +43,7 @@ function createTaskRouter({
   insertTask,
   updateTaskRecord,
   updateTaskCalendarEventReview,
+  updateTaskWorkSessionForCalendarEvent,
   insertActivity,
   createProductivityEvent = async (_db: unknown, _event: unknown) => null,
   syncInverseRelationships,
@@ -225,6 +232,7 @@ function createTaskRouter({
       }
       const note = normalizeString(req.body?.note || '');
       const feedback = normalizeReviewFeedback(req.body?.feedback);
+      const requestedCompletedMinutes = normalizeCompletedMinutes(req.body?.completedMinutes);
       const resultTask = await withTransaction(async (client) => {
         const tasks = await fetchTasks(client);
         const current = tasks.find((item) => item.id === req.params.id);
@@ -238,8 +246,20 @@ function createTaskRouter({
         if (event.reviewStatus) return findTaskById(client, current.id);
         const now = new Date().toISOString();
         const xpDelta = reviewStatus === 'completed' ? 50 : reviewStatus === 'missed' ? -10 : 0;
+        const workSession = (current.workSessions || []).find((session) => session.taskCalendarEventId === event.id);
+        const plannedMinutes = workSession?.plannedMinutes || Math.max(1, Math.round((Date.parse(event.end) - Date.parse(event.start)) / 60000));
+        const completedMinutes = reviewStatus === 'completed'
+          ? Math.min(plannedMinutes, requestedCompletedMinutes == null ? plannedMinutes : requestedCompletedMinutes)
+          : reviewStatus === 'missed'
+            ? 0
+            : workSession?.completedMinutes || 0;
+        const workSessionStatus = reviewStatus === 'completed'
+          ? (completedMinutes > 0 && completedMinutes < plannedMinutes ? 'partially_completed' : 'completed')
+          : reviewStatus === 'missed'
+            ? 'missed'
+            : 'cancelled';
         let taskForResponse = current;
-        if (reviewStatus === 'completed' && current.status !== 'done') {
+        if (reviewStatus === 'completed' && completedMinutes >= plannedMinutes && current.status !== 'done') {
           taskCanBeCompleted(current, tasks);
           const updated = applyTaskStatusTimestamps({ ...current, status: 'done', updatedAt: now }, current.status, now);
           await updateTaskRecord(client, updated);
@@ -253,12 +273,21 @@ function createTaskRouter({
           });
           taskForResponse = updated;
         }
+        if (updateTaskWorkSessionForCalendarEvent) {
+          await updateTaskWorkSessionForCalendarEvent(client, event.id, {
+            status: workSessionStatus,
+            completedMinutes,
+            note: note || null,
+            feedback
+          });
+        }
         await updateTaskCalendarEventReview(client, event.id, {
           reviewStatus,
           reviewedAt: now,
           reviewNote: note || null,
           reviewFeedback: feedback,
-          xpDelta
+          xpDelta,
+          completedMinutes
         });
         await insertActivity(client, current.id, {
           id: randomUUID(),

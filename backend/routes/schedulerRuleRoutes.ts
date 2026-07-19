@@ -55,9 +55,28 @@ function cleanDate(value, field, errors) {
   return text;
 }
 
+function cleanDateList(value, field, errors: string[], maxItems = 20) {
+  const items = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+  const dates: string[] = [];
+  for (const item of items) {
+    const text = normalizeString(item);
+    if (!text) continue;
+    const date = cleanDate(text, field, errors);
+    if (date && !dates.includes(date)) dates.push(date);
+  }
+  return dates.slice(0, maxItems);
+}
+
 function applyOptionalDays(payload: Record<string, any>, source: Record<string, any>) {
   const days = cleanIntegerList(source.days, 1, 7, 7);
   if (days.length) payload.days = days;
+}
+
+function applyOptionalDates(payload: Record<string, any>, source: Record<string, any>, errors: string[]) {
+  const date = source.date != null && String(source.date).trim() !== '' ? cleanDate(source.date, 'date', errors) : '';
+  const dates = cleanDateList(source.dates, 'dates', errors);
+  if (date) payload.date = date;
+  if (dates.length) payload.dates = dates;
 }
 
 function applyOptionalTimeWindow(payload: Record<string, any>, source: Record<string, any>, errors: string[]) {
@@ -101,6 +120,8 @@ function sanitizeManualPayload(type, value, errors: string[]) {
     payload.startTime = cleanTime(source.startTime, 'startTime', errors);
     payload.endTime = cleanTime(source.endTime, 'endTime', errors);
     if (payload.startTime && payload.endTime && payload.endTime <= payload.startTime) errors.push('endTime must be after startTime');
+    applyOptionalDays(payload, source);
+    applyOptionalDates(payload, source, errors);
     return payload;
   }
   if (type === 'avoid_day') {
@@ -115,6 +136,8 @@ function sanitizeManualPayload(type, value, errors: string[]) {
   if (type === 'daily_limit') {
     payload.max = cleanPositiveInteger(source.max, 'max', errors, { min: 1, max: 50 });
     applyOptionalDays(payload, source);
+    applyOptionalDates(payload, source, errors);
+    applyOptionalTimeWindow(payload, source, errors);
     return payload;
   }
   if (type === 'break_after_task') {
@@ -130,12 +153,14 @@ function sanitizeManualPayload(type, value, errors: string[]) {
     return payload;
   }
   if (type === 'allowed_date') {
-    payload.date = cleanDate(source.date, 'date', errors);
+    applyOptionalDates(payload, source, errors);
+    if (!payload.date && !payload.dates?.length) errors.push('date or dates must include at least one YYYY-MM-DD value');
     applyOptionalTimeWindow(payload, source, errors);
     return payload;
   }
   if (type === 'priority_boost') {
     applyOptionalDays(payload, source);
+    applyOptionalDates(payload, source, errors);
     applyOptionalTimeWindow(payload, source, errors);
     if (source.weight != null && String(source.weight).trim() !== '') {
       payload.weight = cleanPositiveInteger(source.weight, 'weight', errors, { min: 1, max: 10 });

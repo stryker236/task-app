@@ -5,7 +5,7 @@ const { logger } = require('../logger');
 const { mergeAdvisorMemoryRulePayload } = require('../ai/advisorMemory');
 
 import type { PoolClient, Pool as PgPool } from 'pg';
-import type { AppSettings, AppSettingsUpdate, ProductivityEvent, ProductivitySummary, TaskCalendarEvent, TaskCalendarEventReviewStatus } from '../../shared/types';
+import type { AppSettings, AppSettingsUpdate, ProductivityEvent, ProductivitySummary, TaskCalendarEvent, TaskCalendarEventReviewStatus, TaskWorkSession, TaskWorkSessionStatus } from '../../shared/types';
 
 type Queryable = PgPool | PoolClient;
 type QueryPatch = Record<string, unknown>;
@@ -44,6 +44,26 @@ type TaskCalendarEventReviewInput = {
 	reviewNote?: string | null;
 	reviewFeedback?: Record<string, unknown>;
 	xpDelta?: number | null;
+	completedMinutes?: number | null;
+};
+
+type TaskWorkSessionInput = {
+	taskId: string;
+	taskCalendarEventId?: string | null;
+	status?: TaskWorkSessionStatus;
+	plannedStartAt: string;
+	plannedEndAt: string;
+	plannedMinutes: number;
+	completedMinutes?: number;
+	note?: string | null;
+	feedback?: Record<string, unknown>;
+};
+
+type TaskWorkSessionPatch = {
+	status?: TaskWorkSessionStatus;
+	completedMinutes?: number;
+	note?: string | null;
+	feedback?: Record<string, unknown>;
 };
 
 type SchedulerConstraintInput = {
@@ -314,6 +334,35 @@ function mapTaskCalendarEvent(row: DbRow): TaskCalendarEvent {
 	};
 }
 
+function mapTaskWorkSession(row: DbRow): TaskWorkSession {
+	return {
+		id: String(row.id),
+		taskId: String(row.task_id),
+		taskCalendarEventId: row.task_calendar_event_id ? String(row.task_calendar_event_id) : null,
+		status: row.status,
+		plannedStartAt: iso(row.planned_start_at),
+		plannedEndAt: iso(row.planned_end_at),
+		plannedMinutes: Number(row.planned_minutes || 0),
+		completedMinutes: Number(row.completed_minutes || 0),
+		note: row.note || null,
+		feedback: row.feedback || {},
+		createdAt: iso(row.created_at),
+		updatedAt: iso(row.updated_at)
+	};
+}
+
+function taskWorkSessionMetrics(task: { estimatedMinutes?: number | null }, workSessions: TaskWorkSession[], now = Date.now()) {
+	const completedWorkMinutes = workSessions
+		.filter((session) => session.status === 'completed' || session.status === 'partially_completed')
+		.reduce((total, session) => total + session.completedMinutes, 0);
+	const plannedFutureWorkMinutes = workSessions
+		.filter((session) => session.status === 'planned' && Date.parse(session.plannedEndAt || '') >= now)
+		.reduce((total, session) => total + session.plannedMinutes, 0);
+	const estimatedMinutes = task.estimatedMinutes == null ? null : Number(task.estimatedMinutes);
+	const remainingWorkMinutes = estimatedMinutes == null ? null : Math.max(0, estimatedMinutes - completedWorkMinutes);
+	return { completedWorkMinutes, plannedFutureWorkMinutes, remainingWorkMinutes };
+}
+
 function mapProductivityEvent(row: DbRow): ProductivityEvent {
 	return {
 		id: String(row.id),
@@ -529,6 +578,7 @@ async function fetchTasks(db: Queryable = pool) {
      ORDER BY shared_notes.updated_at DESC, shared_notes.created_at DESC`
 	)).rows;
 	const calendarEventRows = (await db.query('SELECT * FROM task_calendar_events ORDER BY start_at')).rows;
+	const workSessionRows = (await db.query('SELECT * FROM task_work_sessions ORDER BY planned_start_at')).rows;
 
 	const relations = new Map();
 	const checklists = new Map();
@@ -537,6 +587,7 @@ async function fetchTasks(db: Queryable = pool) {
 	const revisions = new Map();
 	const sharedNotes = new Map();
 	const calendarEvents = new Map();
+	const workSessions = new Map();
 
 	for (const row of relationRows) {
 		const id = String(row.task_id);
@@ -591,10 +642,16 @@ async function fetchTasks(db: Queryable = pool) {
 		const taskId = String(row.task_id);
 		calendarEvents.set(taskId, [...(calendarEvents.get(taskId) || []), mapTaskCalendarEvent(row)]);
 	}
+	for (const row of workSessionRows) {
+		const taskId = String(row.task_id);
+		workSessions.set(taskId, [...(workSessions.get(taskId) || []), mapTaskWorkSession(row)]);
+	}
 
 	return taskRows.map((row) => {
 		const id = String(row.id);
 		const taskRelations = relations.get(id) || [];
+		const taskWorkSessions = workSessions.get(id) || [];
+		const workMetrics = taskWorkSessionMetrics({ estimatedMinutes: row.estimated_minutes }, taskWorkSessions);
 		return {
 			id,
 			title: row.title,
@@ -621,7 +678,9 @@ async function fetchTasks(db: Queryable = pool) {
 			isArchived: Boolean(row.archived_at),
 			activityLog: activities.get(id) || [],
 			sharedNotes: sharedNotes.get(id) || [],
-			calendarEvents: calendarEvents.get(id) || []
+			calendarEvents: calendarEvents.get(id) || [],
+			workSessions: taskWorkSessions,
+			...workMetrics
 		};
 	});
 }
@@ -1124,6 +1183,73 @@ async function fetchTaskCalendarEvents(db: Queryable, taskId: string): Promise<T
 	return result.rows.map(mapTaskCalendarEvent);
 }
 
+function eventDurationMinutes(start: string, end: string) {
+	const startMs = Date.parse(start);
+	const endMs = Date.parse(end);
+	if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+	return Math.max(1, Math.round((endMs - startMs) / 60000));
+}
+
+async function fetchTaskWorkSessions(db: Queryable, taskId: string): Promise<TaskWorkSession[]> {
+	const result = await db.query('SELECT * FROM task_work_sessions WHERE task_id = $1 ORDER BY planned_start_at', [taskId]);
+	return result.rows.map(mapTaskWorkSession);
+}
+
+async function insertTaskWorkSession(db: Queryable, session: TaskWorkSessionInput): Promise<TaskWorkSession> {
+	const result = await db.query(
+		`INSERT INTO task_work_sessions (
+		   task_id, task_calendar_event_id, status, planned_start_at, planned_end_at,
+		   planned_minutes, completed_minutes, note, feedback
+		 )
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+		 ON CONFLICT (task_calendar_event_id)
+		 DO UPDATE SET
+		   task_id = EXCLUDED.task_id,
+		   status = EXCLUDED.status,
+		   planned_start_at = EXCLUDED.planned_start_at,
+		   planned_end_at = EXCLUDED.planned_end_at,
+		   planned_minutes = EXCLUDED.planned_minutes,
+		   updated_at = now()
+		 RETURNING *`,
+		[
+			session.taskId,
+			session.taskCalendarEventId || null,
+			session.status || 'planned',
+			session.plannedStartAt,
+			session.plannedEndAt,
+			session.plannedMinutes,
+			session.completedMinutes || 0,
+			session.note || null,
+			JSON.stringify(session.feedback || {})
+		]
+	);
+	return mapTaskWorkSession(result.rows[0]);
+}
+
+async function updateTaskWorkSessionForCalendarEvent(db: Queryable, calendarEventId: string, patch: TaskWorkSessionPatch): Promise<TaskWorkSession | null> {
+	const current = await db.query('SELECT * FROM task_work_sessions WHERE task_calendar_event_id = $1 ORDER BY created_at DESC LIMIT 1', [calendarEventId]);
+	if (!current.rows[0]) return null;
+	const existing = mapTaskWorkSession(current.rows[0]);
+	const result = await db.query(
+		`UPDATE task_work_sessions
+		 SET status = $2,
+		     completed_minutes = $3,
+		     note = $4,
+		     feedback = $5::jsonb,
+		     updated_at = now()
+		 WHERE id = $1
+		 RETURNING *`,
+		[
+			existing.id,
+			patch.status || existing.status,
+			patch.completedMinutes == null ? existing.completedMinutes : patch.completedMinutes,
+			patch.note == null ? existing.note : patch.note,
+			JSON.stringify(patch.feedback || existing.feedback || {})
+		]
+	);
+	return result.rows[0] ? mapTaskWorkSession(result.rows[0]) : null;
+}
+
 async function insertTaskCalendarEvent(db: Queryable, event: TaskCalendarEventInput): Promise<TaskCalendarEvent> {
 	const result = await db.query(
 		`INSERT INTO task_calendar_events (task_id, google_event_id, calendar_id, summary, start_at, end_at, html_link)
@@ -1147,7 +1273,20 @@ async function insertTaskCalendarEvent(db: Queryable, event: TaskCalendarEventIn
 			event.htmlLink || null
 		]
 	);
-	return mapTaskCalendarEvent(result.rows[0]);
+	const linkedEvent = mapTaskCalendarEvent(result.rows[0]);
+	const plannedMinutes = eventDurationMinutes(linkedEvent.start, linkedEvent.end);
+	if (plannedMinutes > 0) {
+		await insertTaskWorkSession(db, {
+			taskId: linkedEvent.taskId,
+			taskCalendarEventId: linkedEvent.id,
+			status: 'planned',
+			plannedStartAt: linkedEvent.start,
+			plannedEndAt: linkedEvent.end,
+			plannedMinutes,
+			completedMinutes: 0
+		});
+	}
+	return linkedEvent;
 }
 
 async function updateTaskCalendarEventReview(db: Queryable, eventId: string, review: TaskCalendarEventReviewInput): Promise<TaskCalendarEvent | null> {
@@ -1768,6 +1907,9 @@ module.exports = {
 	fetchTaskCalendarEvents,
 	insertTaskCalendarEvent,
 	updateTaskCalendarEventReview,
+	fetchTaskWorkSessions,
+	insertTaskWorkSession,
+	updateTaskWorkSessionForCalendarEvent,
 	deleteTaskCalendarEventsByCalendarId,
 	createProductivityEvent,
 	fetchProductivitySummary,

@@ -39,11 +39,22 @@ def integer_set(values: Any) -> set[int]:
     return {int(value) for value in values if str(value).isdigit()}
 
 
+def date_set(payload: dict[str, Any]) -> set[str]:
+    dates: set[str] = set()
+    date = payload.get("date")
+    if isinstance(date, str) and date:
+        dates.add(date)
+    if isinstance(payload.get("dates"), list):
+        dates.update(str(value) for value in payload.get("dates") if isinstance(value, str) and value)
+    return dates
+
+
 def normalized_constraint(constraint: dict[str, Any]) -> dict[str, Any]:
     payload = constraint.get("payload") if isinstance(constraint.get("payload"), dict) else {}
     normalized_payload = dict(payload)
     normalized_payload["_daysSet"] = integer_set(payload.get("days"))
     normalized_payload["_daysOfMonthSet"] = integer_set(payload.get("daysOfMonth"))
+    normalized_payload["_datesSet"] = date_set(payload)
     normalized_payload["_startMinutes"] = parse_hhmm(payload.get("startTime"))
     normalized_payload["_endMinutes"] = parse_hhmm(payload.get("endTime"))
     return {**constraint, "payload": normalized_payload}
@@ -60,10 +71,16 @@ def candidate_overlaps_busy(candidate: Candidate, busy: list[tuple]) -> bool:
 def day_matches(candidate: Candidate, payload: dict[str, Any]) -> bool:
     days = payload.get("_daysSet")
     days_of_month = payload.get("_daysOfMonthSet")
+    dates = payload.get("_datesSet")
     if not isinstance(days, set):
         days = integer_set(payload.get("days"))
     if not isinstance(days_of_month, set):
         days_of_month = integer_set(payload.get("daysOfMonth"))
+    if not isinstance(dates, set):
+        dates = date_set(payload)
+    if dates:
+        if candidate.start.date().isoformat() not in dates:
+            return False
     if days:
         if candidate.start.isoweekday() not in days:
             return False
@@ -117,10 +134,12 @@ def candidate_matches_temporal_payload(candidate: Candidate, payload: dict[str, 
 
 
 def candidate_inside_allowed_date(candidate: Candidate, payload: dict[str, Any]) -> bool:
-    date = payload.get("date")
-    if not isinstance(date, str):
+    dates = payload.get("_datesSet")
+    if not isinstance(dates, set):
+        dates = date_set(payload)
+    if not dates:
         return False
-    if candidate.start.date().isoformat() != date:
+    if candidate.start.date().isoformat() not in dates:
         return False
     start, end = window_payload(payload)
     if start is None and end is None:
@@ -155,13 +174,13 @@ def scheduled_count_for_candidate(candidate: Candidate, constraint: dict[str, An
 def priority_boost_weight(payload: dict[str, Any]) -> int:
     if payload.get("weight") is not None:
         return int(payload.get("weight") or 100)
-    if payload.get("daysOfMonth") or payload.get("days"):
+    if payload.get("daysOfMonth") or payload.get("days") or payload.get("date") or payload.get("dates"):
         return 10000
     return 100
 
 
 def temporal_payload_weight(payload: dict[str, Any]) -> int:
-    has_day_filter = bool(payload.get("_daysSet") or payload.get("_daysOfMonthSet") or payload.get("date"))
+    has_day_filter = bool(payload.get("_daysSet") or payload.get("_daysOfMonthSet") or payload.get("_datesSet") or payload.get("date") or payload.get("dates"))
     has_time_filter = isinstance(payload.get("_startMinutes"), int) and isinstance(payload.get("_endMinutes"), int)
     if has_day_filter and has_time_filter:
         return 30000

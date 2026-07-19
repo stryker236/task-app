@@ -64,6 +64,10 @@ export interface Task {
   blockedReason?: string;
   sharedNotes?: import('./sharedNotes').SharedNote[];
   calendarEvents?: import('./google').TaskCalendarEvent[];
+  workSessions?: import('./google').TaskWorkSession[];
+  completedWorkMinutes?: number;
+  plannedFutureWorkMinutes?: number;
+  remainingWorkMinutes?: number | null;
 }
 
 export type TaskInput = Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'completedAt' | 'cancelledAt' | 'activityLog'> &

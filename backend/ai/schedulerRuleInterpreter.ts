@@ -16,17 +16,17 @@ type SchedulerConstraintType = {
 };
 
 const FALLBACK_CONSTRAINT_TYPES: SchedulerConstraintType[] = [
-  { type: 'blocked_window', description: 'Prevents matching tasks from being scheduled inside a time window.', payloadSchema: { required: ['startTime', 'endTime'] }, defaultHard: true },
-  { type: 'allowed_window', description: 'Restricts matching tasks to a time window.', payloadSchema: { required: ['startTime', 'endTime'] }, defaultHard: true },
-  { type: 'preferred_window', description: 'Prioritizes matching tasks inside a time window when possible.', payloadSchema: { required: ['startTime', 'endTime'] }, defaultHard: false },
+  { type: 'blocked_window', description: 'Prevents matching tasks from being scheduled inside a time window. Payload may include days, date, or dates to target recurring weekdays or exact calendar dates.', payloadSchema: { required: ['startTime', 'endTime'], properties: { days: {}, date: {}, dates: {}, startTime: {}, endTime: {} } }, defaultHard: true },
+  { type: 'allowed_window', description: 'Restricts matching tasks to a time window. Payload may include days, date, or dates to target recurring weekdays or exact calendar dates.', payloadSchema: { required: ['startTime', 'endTime'], properties: { days: {}, date: {}, dates: {}, startTime: {}, endTime: {} } }, defaultHard: true },
+  { type: 'preferred_window', description: 'Prioritizes matching tasks inside a time window when possible. Payload may include days, date, or dates to target recurring weekdays or exact calendar dates.', payloadSchema: { required: ['startTime', 'endTime'], properties: { days: {}, date: {}, dates: {}, startTime: {}, endTime: {}, weight: {} } }, defaultHard: false },
   { type: 'avoid_day', description: 'Avoids scheduling matching tasks on specific weekdays.', payloadSchema: { required: ['days'] }, defaultHard: true },
   { type: 'min_duration', description: 'Applies only to matching tasks at or above a minimum duration.', payloadSchema: { required: ['minutes'] }, defaultHard: true },
   { type: 'max_duration', description: 'Applies only to matching tasks at or below a maximum duration.', payloadSchema: { required: ['minutes'] }, defaultHard: true },
-  { type: 'priority_boost', description: 'Moves matching tasks earlier when possible.', payloadSchema: { required: [] }, defaultHard: false },
-  { type: 'daily_limit', description: 'Limits how many matching tasks can be scheduled in a matching day/window.', payloadSchema: { required: ['max'] }, defaultHard: true },
+  { type: 'priority_boost', description: 'Moves matching tasks earlier when possible.', payloadSchema: { required: [], properties: { days: {}, date: {}, dates: {}, startTime: {}, endTime: {}, weight: {} } }, defaultHard: false },
+  { type: 'daily_limit', description: 'Limits how many matching tasks can be scheduled in a matching day/window.', payloadSchema: { required: ['max'], properties: { max: {}, days: {}, date: {}, dates: {}, startTime: {}, endTime: {} } }, defaultHard: true },
   { type: 'break_after_task', description: 'Reserves a calculated break after each matching scheduled task.', payloadSchema: { required: ['breakMinutes'] }, defaultHard: false },
   { type: 'break_after_work_block', description: 'Reserves a calculated break after a continuous block of scheduled work.', payloadSchema: { required: ['workMinutes', 'breakMinutes'] }, defaultHard: true },
-  { type: 'allowed_date', description: 'Restricts matching tasks to one exact calendar date, optionally inside a time range.', payloadSchema: { required: ['date'] }, defaultHard: true }
+  { type: 'allowed_date', description: 'Restricts matching tasks to one or more exact calendar dates, optionally inside a time range.', payloadSchema: { required: [], properties: { date: {}, dates: {}, startTime: {}, endTime: {} } }, defaultHard: true }
 ];
 
 function constraintCatalog(constraintTypes: SchedulerConstraintType[] = []) {
@@ -97,6 +97,11 @@ function hasTimeWindow(payload: Record<string, any>) {
   return typeof payload.startTime === 'string' && typeof payload.endTime === 'string';
 }
 
+function hasDateFilter(payload: Record<string, any>) {
+  return (typeof payload.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(payload.date))
+    || (Array.isArray(payload.dates) && payload.dates.some((date) => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)));
+}
+
 function hasPositiveMinutes(payload: Record<string, any>) {
   const minutes = Number(payload.minutes);
   return Number.isFinite(minutes) && minutes > 0;
@@ -119,7 +124,7 @@ function isSupportedConstraintPayload(type: string, payload: Record<string, any>
   if (type === 'daily_limit') return hasPositiveMax(payload);
   if (type === 'break_after_task') return Number(payload.breakMinutes) > 0;
   if (type === 'break_after_work_block') return Number(payload.workMinutes) > 0 && Number(payload.breakMinutes) > 0;
-  if (type === 'allowed_date') return typeof payload.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(payload.date);
+  if (type === 'allowed_date') return hasDateFilter(payload);
   if (type === 'priority_boost') return true;
   if (type === 'avoid_day') return Array.isArray(payload.days) && payload.days.length > 0;
   return false;
@@ -168,13 +173,15 @@ function buildSchedulerRulePrompt({ text, tasks = [], constraintTypes = [] }: { 
           'Each constraint must include type, scope, payload, hard, enabled.',
           'Scope may include allTasks, taskIds, tags, titleIncludes, statuses, priorities.',
           'Priority mapping: important/high priority/urgent should use scope.priorities [3,4]; critical/very urgent should use [4]; low priority should use [1].',
-          'Payload uses days as ISO weekday numbers 1-7, startTime/endTime as HH:mm, minutes for duration rules.',
-          'Use priority_boost for rules like "prioritize/prefer these tags during this day/time"; payload may include days, startTime, endTime, weight.',
-          'Use daily_limit for rules like "only X tasks with these tags on this day"; payload must include max and may include days.',
+          'Payload uses days as ISO weekday numbers 1-7, date as YYYY-MM-DD, dates as YYYY-MM-DD[], startTime/endTime as HH:mm, minutes for duration rules.',
+          'Use days for recurring weekdays. Use date/dates for exact calendar dates, never for weekdays or days of the month.',
+          'blocked_window, allowed_window, preferred_window, priority_boost, and daily_limit may include days, date, or dates.',
+          'Use priority_boost for rules like "prioritize/prefer these tags during this day/time"; payload may include days, date, dates, startTime, endTime, weight.',
+          'Use daily_limit for rules like "only X tasks with these tags on this day"; payload must include max and may include days/date/dates.',
           'Use break_after_task for rules like "15 minute break after tasks"; payload must include breakMinutes and may include minDurationMinutes for rules like "after tasks of 1 hour or more".',
           'Use break_after_work_block for rules like "15 minute break after 90 minutes of work"; payload must include workMinutes and breakMinutes. Do not use minTaskDurationMinutes.',
           'Payload may include daysOfMonth only for priority_boost or daily_limit.',
-          'Use allowed_date for exact calendar dates like "on July 18, 2026"; payload must include date as YYYY-MM-DD and may include startTime/endTime.',
+          'Use allowed_date for exact calendar dates like "on July 18, 2026"; payload must include date or dates and may include startTime/endTime.',
           'priority_boost is soft by default. daily_limit is hard by default.',
           'Do not convert unsupported concepts such as grouping tasks into blocks, energy level, or balancing workload; mark ambiguous true instead.',
           'Mark ambiguous true when the rule cannot be safely converted.'
@@ -209,13 +216,15 @@ function buildSchedulerRuleBreakdownPrompt({ text, tasks = [], constraintTypes =
           'Each constraint must include type, scope, payload, hard, enabled.',
           'Scope may include allTasks, taskIds, tags, titleIncludes, statuses, priorities.',
           'Priority mapping: important/high priority/urgent should use scope.priorities [3,4]; critical/very urgent should use [4]; low priority should use [1].',
-          'Payload uses days as ISO weekday numbers 1-7, startTime/endTime as HH:mm, minutes for duration rules.',
-          'Use priority_boost for rules like "prioritize/prefer these tags during this day/time"; payload may include days, startTime, endTime, weight.',
-          'Use daily_limit for rules like "only X tasks with these tags on this day"; payload must include max and may include days.',
+          'Payload uses days as ISO weekday numbers 1-7, date as YYYY-MM-DD, dates as YYYY-MM-DD[], startTime/endTime as HH:mm, minutes for duration rules.',
+          'Use days for recurring weekdays. Use date/dates for exact calendar dates, never for weekdays or days of the month.',
+          'blocked_window, allowed_window, preferred_window, priority_boost, and daily_limit may include days, date, or dates.',
+          'Use priority_boost for rules like "prioritize/prefer these tags during this day/time"; payload may include days, date, dates, startTime, endTime, weight.',
+          'Use daily_limit for rules like "only X tasks with these tags on this day"; payload must include max and may include days/date/dates.',
           'Use break_after_task for rules like "15 minute break after tasks"; payload must include breakMinutes and may include minDurationMinutes for rules like "after tasks of 1 hour or more".',
           'Use break_after_work_block for rules like "15 minute break after 90 minutes of work"; payload must include workMinutes and breakMinutes. Do not use minTaskDurationMinutes.',
           'Payload may include daysOfMonth only for priority_boost or daily_limit.',
-          'Use allowed_date for exact calendar dates like "on July 18, 2026"; payload must include date as YYYY-MM-DD and may include startTime/endTime.',
+          'Use allowed_date for exact calendar dates like "on July 18, 2026"; payload must include date or dates and may include startTime/endTime.',
           'priority_boost is soft by default. daily_limit is hard by default.',
           'Do not convert unsupported concepts such as grouping tasks into blocks, energy level, or balancing workload; mark ambiguous true instead.',
           'Mark ambiguous true for any rule that cannot be safely converted.'

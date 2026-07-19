@@ -49,6 +49,23 @@ export interface GoogleCalendarsResponse {
 
 export type TaskCalendarEventReviewStatus = 'completed' | 'missed' | 'skipped';
 
+export type TaskWorkSessionStatus = 'planned' | 'completed' | 'partially_completed' | 'missed' | 'cancelled';
+
+export interface TaskWorkSession {
+  id: string;
+  taskId: string;
+  taskCalendarEventId: string | null;
+  status: TaskWorkSessionStatus;
+  plannedStartAt: string;
+  plannedEndAt: string;
+  plannedMinutes: number;
+  completedMinutes: number;
+  note: string | null;
+  feedback: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TaskCalendarEvent {
   id: string;
   taskId: string;
@@ -71,6 +88,7 @@ export interface ReviewTaskCalendarEventInput {
   status: TaskCalendarEventReviewStatus;
   note?: string;
   feedback?: Record<string, unknown>;
+  completedMinutes?: number;
 }
 
 export interface CreateGoogleCalendarEventInput {

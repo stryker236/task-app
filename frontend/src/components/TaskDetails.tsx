@@ -103,6 +103,21 @@ function formatConstraintPayload(payload?: Record<string, unknown>) {
   if (!entries.length) return 'Sem parametros';
   return entries.map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`).join('; ');
 }
+
+function formatMinutes(value?: number | null) {
+  if (value == null) return '-';
+  if (value < 60) return `${value} min`;
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+function numericMinutes(value: number | string | null | undefined) {
+  if (value == null || value === '') return null;
+  const minutes = Number(value);
+  return Number.isFinite(minutes) ? minutes : null;
+}
+
 function activityText(entry: ActivityLogEntry) {
   if (entry.type === 'status') {
     return `Status changed from ${entry.fromStatus || ''} to ${entry.toStatus || ''}`;
@@ -154,6 +169,10 @@ export default function TaskDetails({
   const scheduledEvent = nextScheduledEvent(draft);
   const activeEvents = activeCalendarEvents(draft);
   const reviewedEvents = reviewedCalendarEvents(draft);
+  const workSessions = [...(draft.workSessions || [])].sort((a, b) => Date.parse(a.plannedStartAt) - Date.parse(b.plannedStartAt));
+  const completedWorkMinutes = draft.completedWorkMinutes || 0;
+  const plannedFutureWorkMinutes = draft.plannedFutureWorkMinutes || 0;
+  const remainingWorkMinutes = draft.remainingWorkMinutes ?? numericMinutes(draft.estimatedMinutes);
   const applicableRules = schedulerRules.map((rule) => ({
     ...rule,
     constraints: rule.constraints.filter((constraint) => constraint.enabled && constraintAppliesToTask(constraint, draft as Task))
@@ -361,6 +380,34 @@ export default function TaskDetails({
                 Criar evento
               </button>
             )}
+          </section>
+
+          <section className="details-section details-work-sessions">
+            <h3>Work sessions <span>{workSessions.length}</span></h3>
+            <div className="work-session-metrics">
+              <div><span>Estimado</span><strong>{formatMinutes(numericMinutes(draft.estimatedMinutes))}</strong></div>
+              <div><span>Feito</span><strong>{formatMinutes(completedWorkMinutes)}</strong></div>
+              <div><span>Planeado futuro</span><strong>{formatMinutes(plannedFutureWorkMinutes)}</strong></div>
+              <div><span>Restante</span><strong>{formatMinutes(remainingWorkMinutes)}</strong></div>
+            </div>
+            {workSessions.length ? (
+              <div className="work-session-list">
+                {workSessions.map((session) => {
+                  const linkedEvent = (draft.calendarEvents || []).find((event) => event.id === session.taskCalendarEventId);
+                  return (
+                    <article key={session.id}>
+                      <div>
+                        <strong>{session.status}</strong>
+                        <span>{formatDate(session.plannedStartAt)} - {formatDate(session.plannedEndAt)}</span>
+                        <small>{formatMinutes(session.completedMinutes)} feito de {formatMinutes(session.plannedMinutes)}</small>
+                        {session.note && <small>{session.note}</small>}
+                      </div>
+                      {linkedEvent?.htmlLink && <a className="button secondary small" href={linkedEvent.htmlLink} target="_blank" rel="noreferrer">Abrir evento</a>}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : <p className="details-empty">Sem sessoes de trabalho registadas.</p>}
           </section>
 
           <section className="details-section details-scheduler-rules">
