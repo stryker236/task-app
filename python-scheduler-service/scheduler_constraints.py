@@ -78,16 +78,14 @@ def day_matches(candidate: Candidate, payload: dict[str, Any]) -> bool:
         days_of_month = integer_set(payload.get("daysOfMonth"))
     if not isinstance(dates, set):
         dates = date_set(payload)
-    if dates:
-        if candidate.start.date().isoformat() not in dates:
-            return False
-    if days:
-        if candidate.start.isoweekday() not in days:
-            return False
-    if days_of_month:
-        if candidate.start.day not in days_of_month:
-            return False
-    return True
+    has_filters = bool(dates or days or days_of_month)
+    if not has_filters:
+        return True
+    return (
+        candidate.start.date().isoformat() in dates
+        or candidate.start.isoweekday() in days
+        or candidate.start.day in days_of_month
+    )
 
 
 def candidate_minutes(candidate: Candidate) -> tuple[int, int]:

@@ -1,5 +1,5 @@
 const { AI_COMMAND_TYPES, ADVISOR_ACTIONS } = require('../constants/aiConstants');
-const { RELATION_TYPES, STATUSES, advisorCommandResponseSchema } = require('./aiSchemas');
+const { RELATION_TYPES, STATUSES, advisorCommandResponseSchema, tagSuggestionResponseSchema } = require('./aiSchemas');
 const { buildTaskDateContext, advisorStatusPriority, createCommandContextTask } = require('./aiAdvisorContext');
 
 function resolveAdvisorAction(action) {
@@ -26,6 +26,11 @@ function hasActiveCalendarEvent(task, now = Date.now()) {
     return !Number.isNaN(end) && end >= now;
   });
 }
+
+function taskTagCount(task) {
+  return Array.isArray(task.tags) ? task.tags.length : 0;
+}
+
 function selectCommandContextTasks({ action, tasks, excludeTaskIds = [] }) {
   const active = tasks.filter((task) => !task.isArchived && ['new', 'in_progress', 'waiting'].includes(task.status));
   const excluded = new Set(excludeTaskIds.map(String));
@@ -47,16 +52,16 @@ function selectCommandContextTasks({ action, tasks, excludeTaskIds = [] }) {
   }
 
   if (action === 'suggest_tags') {
-    const limit = Math.max(1, Math.ceil(active.length * 0.7));
     return active
       .sort((a, b) => {
+        const missingTagsDifference = Number(taskTagCount(a) > 0) - Number(taskTagCount(b) > 0);
+        if (missingTagsDifference) return missingTagsDifference;
         const priorityDifference = Number(b.priority || 0) - Number(a.priority || 0);
         if (priorityDifference) return priorityDifference;
         const dueDifference = dueDateSortValue(a) - dueDateSortValue(b);
         if (dueDifference) return dueDifference;
         return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
-      })
-      .slice(0, limit);
+      });
   }
 
   if (action === 'priority_management') {
@@ -114,6 +119,9 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
   const selectedTasks = selectCommandContextTasks({ action: advisorAction.key, tasks, excludeTaskIds });
   const activeTasks = selectedTasks
     .map((task) => createCommandContextTask(task, tasksById));
+  const untaggedTaskIds = selectedTasks
+    .filter((task) => taskTagCount(task) === 0)
+    .map((task) => task.id);
   function calendarRole(calendar) {
     const summary = String(calendar.summary || '').toLocaleLowerCase();
     if (calendar.primary || summary.includes('@')) {
@@ -148,6 +156,9 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
     || availableCalendars[0]
     || null;
   const defaultCalendarId = defaultCalendar?.id || 'primary';
+  const preferredUpdateFields = advisorAction.key === 'suggest_tags'
+    ? ['tags']
+    : ['tags', 'dueDateTime', 'checklistItems', 'blockedByTaskIds', 'priority'];
 
   return {
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
@@ -177,6 +188,8 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
           'Do not propose estimatedMinutes by default. Only propose estimatedMinutes if the user explicitly asks for time estimates, or if the task has a concrete checklist/scope that makes the estimate defensible.',
           'If estimating time is explicitly requested, use conservative rounded values only: 15, 30, 45, 60, 90, 120, 180, 240, or 480 minutes. Never estimate vague tasks.',
           'For tags, actively suggest improvements when tags are missing, inconsistent, duplicated by meaning, too broad, or useful for filtering.',
+          'For suggest_tags specifically, missing tags are not noise: propose tags for every untagged active task where the title or notes provide enough semantic signal. Skip an untagged task only if it is too vague to tag responsibly.',
+          'For suggest_tags, only return update_task commands with patch.tags. Preserve existing good tags and add the proposed tags; do not update any other field.',
           'Prefer reusing availableTags exactly as written. Suggest a new tag only when no existing tag fits well.',
           'Keep tag names short, lowercase when natural, and avoid one-off noise tags.',
           'Only consider active cards. The provided task context excludes done and cancelled cards.',
@@ -207,7 +220,7 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
           allowedPriorities: [1, 2, 3, 4],
           allowedRelationTypes: RELATION_TYPES,
           statusPriorityOrder: ['new', 'in_progress', 'waiting'],
-          preferredUpdateFields: ['tags', 'dueDateTime', 'checklistItems', 'blockedByTaskIds', 'priority'],
+          preferredUpdateFields,
           estimatedMinutesPolicy: {
             default: 'do_not_suggest',
             requireExplicitUserRequestOrConcreteChecklist: true,
@@ -216,12 +229,17 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
           tagGuidelines: {
             reuseExistingTagsFirst: true,
             suggestTagsForMissingOrInconsistentTags: true,
+            missingTagsAreHighPriority: true,
+            suggestTagsForUntaggedTasksWhenTitleOrNotesHaveSignal: true,
+            skipUntaggedTaskOnlyWhenTooVague: true,
             avoidOneOffNoiseTags: true,
             taskSelectionForSuggestTags: {
-              activeTaskCoverage: 0.7,
-              prioritizedBy: ['priority_desc', 'dueDateTime_asc'],
-              noDueDateAfterDatedTasks: true
-            }
+              activeTaskCoverage: 1,
+              prioritizedBy: ['missing_tags_desc', 'priority_desc', 'dueDateTime_asc'],
+              noDueDateAfterDatedTasks: true,
+              includeAllActiveTasks: true
+            },
+            untaggedTaskIds
           },
           priorityManagementPolicy: {
             onlyForAction: 'priority_management',
@@ -293,6 +311,61 @@ function buildAdvisorCommandRequest({ action, tasks, tags = [], memory = [], cal
   };
 }
 
+function buildTagSuggestionRequest({ tasks, tags = [], memory = [], batchIndex = 0, batchCount = 1 }) {
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  const selectedTasks = selectCommandContextTasks({ action: 'suggest_tags', tasks });
+  const activeTasks = selectedTasks.map((task) => createCommandContextTask(task, tasksById));
+  const untaggedTaskIds = selectedTasks.filter((task) => taskTagCount(task) === 0).map((task) => task.id);
+  return {
+    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    input: [
+      {
+        role: 'system',
+        content: [
+          'You are the Task App tag advisor.',
+          'Return only JSON that matches the provided schema.',
+          'You must return exactly one decision object for every task in the provided tasks array.',
+          'Never invent task IDs. Use each provided task ID exactly once.',
+          'Allowed decisions: suggested, skipped_too_vague, already_good, needs_user_context.',
+          'For active tasks with no tags, prefer decision suggested when the title or notes provide enough semantic signal.',
+          'Use skipped_too_vague only when the task is too generic to tag responsibly.',
+          'Use needs_user_context when the task has signal but requires user clarification before tagging.',
+          'Use already_good when existing tags are already useful and consistent.',
+          'When decision is suggested, suggestedTags must be the full desired tag list for the task, preserving existing useful tags.',
+          'When decision is not suggested, suggestedTags must be an empty array.',
+          'Prefer reusing availableTags exactly as written. Create a new tag only when no existing tag fits.',
+          'Keep tags short, stable, useful for filtering/scheduling, and lowercase when natural.',
+          'Avoid one-off noisy tags, over-specific implementation details, and duplicate synonyms.',
+          'Do not suggest changes to title, notes, status, due date, priority, checklist, relations, favorite, or estimates.'
+        ].join('\n')
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          today: new Date().toISOString(),
+          action: 'suggest_tags',
+          batchIndex,
+          batchCount,
+          instruction: ADVISOR_ACTIONS.suggest_tags.instruction,
+          availableTags: tags.map((tag) => tag.name || tag).slice(0, 200),
+          advisorMemory: memory,
+          untaggedTaskIds,
+          expectedDecisionPerTask: true,
+          tasks: activeTasks
+        })
+      }
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'task_tag_suggestion_decisions',
+        strict: true,
+        schema: tagSuggestionResponseSchema
+      }
+    }
+  };
+}
+
 function buildAdvisorAdviceRequest({ tasks, limit }) {
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
   const activeTasks = tasks
@@ -338,6 +411,7 @@ module.exports = {
   resolveAdvisorAction,
   selectCommandContextTasks,
   buildAdvisorCommandRequest,
+  buildTagSuggestionRequest,
   buildAdvisorAdviceRequest
 };
 

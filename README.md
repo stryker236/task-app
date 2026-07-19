@@ -275,7 +275,7 @@ https://www.googleapis.com/auth/gmail.send
 https://www.googleapis.com/auth/userinfo.email
 ```
 
-Google connections are stored encrypted in `google_connections` and expire after 1 day. Reconnect Google if scopes change or the connection expires.
+Google connections are stored encrypted in `google_connections`. The app-side connection lifetime defaults to 365 days and can be changed with `GOOGLE_CONNECTION_TTL_DAYS`; Google access tokens are still refreshed on Google's own schedule. Reconnect Google if scopes change, the refresh token is revoked, or the connection expires.
 
 Test database connection:
 

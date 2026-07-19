@@ -193,6 +193,30 @@ function sanitizeManualSchedulerConstraints(input, constraintTypes) {
   }
   return normalized.constraints;
 }
+
+function schedulerRuleTemporalContext(date = new Date(), timeZone = 'Europe/Lisbon') {
+  const timeParts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(date);
+  const values = Object.fromEntries(timeParts.map((part) => [part.type, part.value]));
+  const currentDate = `${values.year}-${values.month}-${values.day}`;
+  return {
+    currentDate,
+    currentDateTime: `${currentDate}T${values.hour}:${values.minute}:${values.second}`,
+    currentWeekday: new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'long' }).format(date),
+    timeZone,
+    locale: 'pt-PT',
+    weekStartsOn: 1
+  };
+}
+
 function createSchedulerRuleRouter({
   fetchTasks,
   fetchSchedulerRules,
@@ -203,6 +227,7 @@ function createSchedulerRuleRouter({
   withTransaction
 }) {
   const router = express.Router();
+  const schedulerRuleTimeZone = process.env.SCHEDULER_RULE_TIME_ZONE || process.env.TZ || 'Europe/Lisbon';
 
   router.get('/scheduler/rules', async (req, res, next) => {
     try {
@@ -223,7 +248,12 @@ function createSchedulerRuleRouter({
       if (text.length > 1000) throw createValidationError(['text must have at most 1000 characters']);
       const tasks = await fetchTasks();
       const constraintTypes = await fetchSchedulerConstraintTypes(undefined, { enabledOnly: true });
-      const interpreted = await interpretSchedulerRule({ text, tasks, constraintTypes });
+      const interpreted = await interpretSchedulerRule({
+        text,
+        tasks,
+        constraintTypes,
+        temporalContext: schedulerRuleTemporalContext(new Date(), schedulerRuleTimeZone)
+      });
       const rule = await withTransaction((client) => createSchedulerRule(client, {
         text,
         interpretation: interpreted.interpretation,
@@ -245,7 +275,12 @@ function createSchedulerRuleRouter({
       if (text.length > 2000) throw createValidationError(['text must have at most 2000 characters']);
       const tasks = await fetchTasks();
       const constraintTypes = await fetchSchedulerConstraintTypes(undefined, { enabledOnly: true });
-      const interpretedRules = await interpretSchedulerRules({ text, tasks, constraintTypes });
+      const interpretedRules = await interpretSchedulerRules({
+        text,
+        tasks,
+        constraintTypes,
+        temporalContext: schedulerRuleTemporalContext(new Date(), schedulerRuleTimeZone)
+      });
       const rules = await withTransaction(async (client) => {
         const created = [];
         for (const interpreted of interpretedRules) {
@@ -304,7 +339,12 @@ function createSchedulerRuleRouter({
       if (!current) return res.status(404).json({ error: 'Scheduler rule not found' });
       const tasks = await fetchTasks();
       const constraintTypes = await fetchSchedulerConstraintTypes(undefined, { enabledOnly: true });
-      const interpreted = await interpretSchedulerRule({ text: current.text, tasks, constraintTypes });
+      const interpreted = await interpretSchedulerRule({
+        text: current.text,
+        tasks,
+        constraintTypes,
+        temporalContext: schedulerRuleTemporalContext(new Date(), schedulerRuleTimeZone)
+      });
       const rule = await withTransaction((client) => updateSchedulerRule(client, current.id, {
         interpretation: interpreted.interpretation,
         status: interpreted.status,

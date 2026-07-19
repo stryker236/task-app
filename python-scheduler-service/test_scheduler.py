@@ -140,6 +140,34 @@ class SchedulerTests(unittest.TestCase):
 
         self.assertEqual(result["scheduled"][0]["start"], "2026-07-10T08:00:00Z")
 
+    def test_date_filters_are_union_with_weekday_filters(self):
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-10T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [
+                {"start": "2026-07-08T08:00:00Z", "end": "2026-07-08T22:00:00Z"},
+            ],
+            "taskConstraints": {
+                "task": [
+                    {
+                        "id": "allowed-weekday-or-date",
+                        "type": "allowed_window",
+                        "payload": {
+                            "days": [3],
+                            "dates": ["2026-07-10"],
+                            "startTime": "08:00",
+                            "endTime": "10:00",
+                        },
+                        "hard": True,
+                    }
+                ]
+            },
+            "tasks": [{"id": "task", "title": "Task", "durationMinutes": 30}],
+        })
+
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-10T08:00:00Z")
+
     def test_hard_allowed_window_task_is_ordered_before_flexible_task(self):
         result = solve_schedule({
             "now": "2026-07-16T00:00:00Z",

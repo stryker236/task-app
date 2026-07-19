@@ -101,21 +101,22 @@ export default function App() {
     clearDoneQuickQueueItems
   } = useQuickQueue({ setError });
 
-  const taskForm = useTaskFormController({
-    allTasks,
-    loading,
-    filters,
-    fetchDashboardData,
-    setError,
-    deleteQuickQueueItem
-  });
-
   const advisorController = useAdvisorController({
     allTasks,
     fetchDashboardData,
     filters,
     setError,
     setViewingTask
+  });
+
+  const taskForm = useTaskFormController({
+    allTasks,
+    loading,
+    filters,
+    fetchDashboardData,
+    setError,
+    deleteQuickQueueItem,
+    onTaskMutation: advisorController.clearAdvisorProposals
   });
 
   const progressLog = useProgressLogController({
@@ -129,7 +130,8 @@ export default function App() {
     fetchDashboardData,
     setError,
     setViewingTask,
-    clearFormDraft: taskForm.clearFormDraft
+    clearFormDraft: taskForm.clearFormDraft,
+    onTaskMutation: advisorController.clearAdvisorProposals
   });
 
   const { deleteUnusedTagFromCatalog, deleteUnusedTagsFromCatalog } = useTagActions({

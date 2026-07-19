@@ -160,7 +160,29 @@ function promptConstraintTypes(constraintTypes: SchedulerConstraintType[] = []) 
   }));
 }
 
-function buildSchedulerRulePrompt({ text, tasks = [], constraintTypes = [] }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[] }) {
+type SchedulerRuleTemporalContext = {
+  currentDate?: string;
+  currentDateTime?: string;
+  currentWeekday?: string;
+  timeZone?: string;
+  locale?: string;
+};
+
+function temporalPromptLines() {
+  return [
+    'Resolve relative dates and natural-language date references using temporalContext from the user payload.',
+    'temporalContext.currentDate is the user-local "today" date. temporalContext.currentDateTime is the user-local current date/time. temporalContext.timeZone is the user timezone.',
+    'For exact one-off dates, use payload.date. For multiple exact one-off dates, use payload.dates. For recurring weekdays, use payload.days.',
+    'When the user says today/hoje, use temporalContext.currentDate. When the user says tomorrow/amanha, use the day after temporalContext.currentDate. When the user says this week/esta semana or weekend/fim de semana, infer the concrete dates from temporalContext.',
+    'If a relative date cannot be inferred confidently from temporalContext, mark ambiguous true instead of guessing.',
+    'A request to have nothing scheduled on a concrete date means blocked_window, scope allTasks, hard true, startTime 00:00, endTime 23:59, with date/dates filled.',
+    'A request to avoid a concrete date or concrete date range also means blocked_window. A recurring weekday avoidance can use avoid_day or blocked_window with days.',
+    'A request to only schedule on concrete dates means allowed_date or allowed_window with date/dates. A recurring weekday allowance uses allowed_window with days.',
+    'If both days and date/dates are present in one temporal payload, they are a union: match recurring weekdays OR exact dates.'
+  ];
+}
+
+function buildSchedulerRulePrompt({ text, tasks = [], constraintTypes = [], temporalContext = {} }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[]; temporalContext?: SchedulerRuleTemporalContext }) {
   return {
     model: DEFAULT_MODEL,
     input: [
@@ -175,6 +197,7 @@ function buildSchedulerRulePrompt({ text, tasks = [], constraintTypes = [] }: { 
           'Priority mapping: important/high priority/urgent should use scope.priorities [3,4]; critical/very urgent should use [4]; low priority should use [1].',
           'Payload uses days as ISO weekday numbers 1-7, date as YYYY-MM-DD, dates as YYYY-MM-DD[], startTime/endTime as HH:mm, minutes for duration rules.',
           'Use days for recurring weekdays. Use date/dates for exact calendar dates, never for weekdays or days of the month.',
+          ...temporalPromptLines(),
           'blocked_window, allowed_window, preferred_window, priority_boost, and daily_limit may include days, date, or dates.',
           'Use priority_boost for rules like "prioritize/prefer these tags during this day/time"; payload may include days, date, dates, startTime, endTime, weight.',
           'Use daily_limit for rules like "only X tasks with these tags on this day"; payload must include max and may include days/date/dates.',
@@ -192,6 +215,7 @@ function buildSchedulerRulePrompt({ text, tasks = [], constraintTypes = [] }: { 
         content: JSON.stringify({
           ruleText: text,
           schedulerConstraintTypes: promptConstraintTypes(constraintTypes),
+          temporalContext,
           availableTaskMetadata: tasks.slice(0, 120).map(compactTaskForRule)
         })
       }
@@ -200,7 +224,7 @@ function buildSchedulerRulePrompt({ text, tasks = [], constraintTypes = [] }: { 
   };
 }
 
-function buildSchedulerRuleBreakdownPrompt({ text, tasks = [], constraintTypes = [] }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[] }) {
+function buildSchedulerRuleBreakdownPrompt({ text, tasks = [], constraintTypes = [], temporalContext = {} }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[]; temporalContext?: SchedulerRuleTemporalContext }) {
   return {
     model: DEFAULT_MODEL,
     input: [
@@ -218,6 +242,7 @@ function buildSchedulerRuleBreakdownPrompt({ text, tasks = [], constraintTypes =
           'Priority mapping: important/high priority/urgent should use scope.priorities [3,4]; critical/very urgent should use [4]; low priority should use [1].',
           'Payload uses days as ISO weekday numbers 1-7, date as YYYY-MM-DD, dates as YYYY-MM-DD[], startTime/endTime as HH:mm, minutes for duration rules.',
           'Use days for recurring weekdays. Use date/dates for exact calendar dates, never for weekdays or days of the month.',
+          ...temporalPromptLines(),
           'blocked_window, allowed_window, preferred_window, priority_boost, and daily_limit may include days, date, or dates.',
           'Use priority_boost for rules like "prioritize/prefer these tags during this day/time"; payload may include days, date, dates, startTime, endTime, weight.',
           'Use daily_limit for rules like "only X tasks with these tags on this day"; payload must include max and may include days/date/dates.',
@@ -235,6 +260,7 @@ function buildSchedulerRuleBreakdownPrompt({ text, tasks = [], constraintTypes =
         content: JSON.stringify({
           ruleText: text,
           schedulerConstraintTypes: promptConstraintTypes(constraintTypes),
+          temporalContext,
           availableTaskMetadata: tasks.slice(0, 120).map(compactTaskForRule)
         })
       }
@@ -264,16 +290,16 @@ async function requestOpenAiJson(body: Record<string, any>) {
   return JSON.parse(outputText);
 }
 
-async function interpretSchedulerRule({ text, tasks = [], constraintTypes = [] }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[] }) {
-  const parsed = await requestOpenAiJson(buildSchedulerRulePrompt({ text, tasks, constraintTypes }));
+async function interpretSchedulerRule({ text, tasks = [], constraintTypes = [], temporalContext = {} }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[]; temporalContext?: SchedulerRuleTemporalContext }) {
+  const parsed = await requestOpenAiJson(buildSchedulerRulePrompt({ text, tasks, constraintTypes, temporalContext }));
   return {
     model: DEFAULT_MODEL,
     ...normalizeInterpretation(parsed, constraintTypes)
   };
 }
 
-async function interpretSchedulerRules({ text, tasks = [], constraintTypes = [] }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[] }) {
-  const parsed = await requestOpenAiJson(buildSchedulerRuleBreakdownPrompt({ text, tasks, constraintTypes }));
+async function interpretSchedulerRules({ text, tasks = [], constraintTypes = [], temporalContext = {} }: { text: string; tasks?: Record<string, any>[]; constraintTypes?: SchedulerConstraintType[]; temporalContext?: SchedulerRuleTemporalContext }) {
+  const parsed = await requestOpenAiJson(buildSchedulerRuleBreakdownPrompt({ text, tasks, constraintTypes, temporalContext }));
   const items = Array.isArray(parsed.rules) && parsed.rules.length ? parsed.rules : [{ ...parsed, text }];
   return items.map((item: Record<string, any>) => {
     const ruleText = normalizeStringForRule(item.text) || text;

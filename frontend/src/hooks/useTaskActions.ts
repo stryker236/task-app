@@ -25,6 +25,7 @@ type UseTaskActionsOptions = {
   setError: (message: string) => void;
   setViewingTask: Dispatch<SetStateAction<Task | null>>;
   clearFormDraft: () => void;
+  onTaskMutation?: () => void;
 };
 
 function errorMessage(error: unknown) {
@@ -36,7 +37,8 @@ export default function useTaskActions({
   fetchDashboardData,
   setError,
   setViewingTask,
-  clearFormDraft
+  clearFormDraft,
+  onTaskMutation
 }: UseTaskActionsOptions) {
   const [postponeTask, setPostponeTask] = useState<Task | null>(null);
   const [postponing, setPostponing] = useState(false);
@@ -45,6 +47,7 @@ export default function useTaskActions({
     if (!window.confirm(`Eliminar "${task.title}"? Esta acao nao pode ser anulada.`)) return;
     try {
       await deleteTask(task.id);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -54,6 +57,7 @@ export default function useTaskActions({
   async function duplicateSingleTask(task: Task) {
     try {
       const duplicate = await duplicateTask(task.id);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
       clearFormDraft();
       setViewingTask(duplicate);
@@ -65,6 +69,7 @@ export default function useTaskActions({
   async function updateTaskStatus(task: Task, status: TaskStatus) {
     try {
       await updateTask(task.id, { ...task, status });
+      onTaskMutation?.();
       await fetchDashboardData(filters);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -75,6 +80,7 @@ export default function useTaskActions({
     if (priority < 1 || priority > 4 || priority === task.priority) return;
     try {
       await updateTask(task.id, { ...task, priority });
+      onTaskMutation?.();
       await fetchDashboardData(filters);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -84,6 +90,7 @@ export default function useTaskActions({
   async function updateTaskFavoriteFlag(task: Task, isFavorite: boolean) {
     try {
       await updateTask(task.id, { ...task, isFavorite });
+      onTaskMutation?.();
       await fetchDashboardData(filters);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -95,6 +102,7 @@ export default function useTaskActions({
     try {
       await archiveTask(task.id);
       setViewingTask(null);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -105,6 +113,7 @@ export default function useTaskActions({
     try {
       await restoreTask(task.id);
       setViewingTask(null);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -116,6 +125,7 @@ export default function useTaskActions({
     if (!window.confirm(`Arquivar todas as tarefas em ${label}?`)) return;
     try {
       const result = await archiveTasksByStatus(status);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
       if (result.archivedCount === 0) setError(`Nao existem tarefas ${label} por arquivar.`);
     } catch (requestError) {
@@ -127,6 +137,7 @@ export default function useTaskActions({
     try {
       const updated = await toggleChecklistItem(task.id, item.id, isDone);
       setViewingTask(updated);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -197,6 +208,7 @@ export default function useTaskActions({
     try {
       const updated = await updateTask(task.id, { ...task, ...changes });
       setViewingTask(updated);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
       return updated;
     } catch (requestError) {
@@ -209,6 +221,7 @@ export default function useTaskActions({
     try {
       const updated = await reviewTaskCalendarEvent(task.id, event.id, { status, note, feedback });
       setViewingTask((current) => current?.id === updated.id ? updated : current);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
       return updated;
     } catch (requestError) {
@@ -222,6 +235,7 @@ export default function useTaskActions({
     try {
       await updateTask(task.id, { ...task, dueDateTime });
       setPostponeTask(null);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
     } catch (requestError) {
       setError(errorMessage(requestError));

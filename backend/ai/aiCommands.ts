@@ -1,6 +1,7 @@
 const { randomUUID } = require('crypto');
 const { buildNewTask } = require('../tasks/taskFactory');
 const { CALENDAR_SCOPE, createCalendarClient, createOAuthClient } = require('../google/googleClient');
+const { googleConnectionExpiresAt } = require('../google/googleConnectionTtl');
 const { decryptJson } = require('../google/tokenCrypto');
 const {
   RELATION_TYPES,
@@ -219,7 +220,7 @@ async function getAuthorizedCalendarClient(dependencies) {
       accountEmail: connection.accountEmail,
       scopes: connection.scopes,
       encryptedTokens: { ...storedTokens, ...tokens },
-      expiresAt: connection.expiresAt
+      expiresAt: googleConnectionExpiresAt()
     }).catch((error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
   });
   const calendarClient = createCalendarClient(authClient);

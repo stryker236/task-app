@@ -8,7 +8,7 @@ const ADVISOR_ACTIONS = {
   },
   suggest_tags: {
     label: 'Suggest tags',
-    instruction: 'Suggest tag improvements for active cards. Reuse existing tags when possible, fix inconsistent tags, and propose new tags only when clearly useful. Do not change title, notes, status, history, or estimates. If you dont propose a change dont even return the task in the output. Feel free to propose multiple tags for a single task if they are all useful and relevant. Feel free to propose a creation of a tag if make sense'
+    instruction: 'Suggest tag improvements for active cards. Treat active cards with no tags as strong candidates and propose tags for them whenever the title or notes give enough signal. Reuse existing tags when possible, fix inconsistent tags, and propose new tags when useful. Do not change title, notes, status, history, due date, priority, checklist, relations, favorite, or estimates. If you dont propose a change dont return the task in the output. Feel free to propose multiple tags for a single task if they are all useful and relevant.'
   },
   priority_management: {
     label: 'Priority management',

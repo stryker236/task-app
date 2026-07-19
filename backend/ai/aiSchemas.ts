@@ -86,7 +86,7 @@ const advisorCommandResponseSchema = {
     summary: { type: 'string' },
     commands: {
       type: 'array',
-      maxItems: 50,
+      maxItems: 100,
       items: {
         type: 'object',
         additionalProperties: false,
@@ -109,11 +109,41 @@ const advisorCommandResponseSchema = {
   required: ['summary', 'commands']
 };
 
+const tagSuggestionDecisionSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    taskId: { type: 'string' },
+    decision: {
+      type: 'string',
+      enum: ['suggested', 'skipped_too_vague', 'already_good', 'needs_user_context']
+    },
+    reason: { type: 'string' },
+    suggestedTags: { type: 'array', items: { type: 'string' } }
+  },
+  required: ['taskId', 'decision', 'reason', 'suggestedTags']
+};
+
+const tagSuggestionResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    summary: { type: 'string' },
+    decisions: {
+      type: 'array',
+      maxItems: 40,
+      items: tagSuggestionDecisionSchema
+    }
+  },
+  required: ['summary', 'decisions']
+};
+
 module.exports = {
   AI_COMMAND_TYPES,
   RELATION_TYPES,
   STATUSES,
   advisorCommandResponseSchema,
+  tagSuggestionResponseSchema,
   calendarEventSchema,
   taskCreateSchema,
   taskPatchSchema

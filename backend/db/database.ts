@@ -2,6 +2,7 @@ const { Pool } = require('pg');
 const { randomUUID } = require('crypto');
 const { iso } = require('../utils/date');
 const { logger } = require('../logger');
+const { googleConnectionExpiresAt } = require('../google/googleConnectionTtl');
 const { mergeAdvisorMemoryRulePayload } = require('../ai/advisorMemory');
 
 import type { PoolClient, Pool as PgPool } from 'pg';
@@ -1169,7 +1170,7 @@ async function saveGoogleConnection(db: Queryable, { accountEmail, scopes, encry
 		`INSERT INTO google_connections (account_email, scopes, encrypted_tokens, expires_at)
      VALUES ($1, $2, $3::jsonb, $4)
      RETURNING *`,
-		[accountEmail, scopes, JSON.stringify(encryptedTokens), expiresAt || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()]
+		[accountEmail, scopes, JSON.stringify(encryptedTokens), expiresAt || googleConnectionExpiresAt()]
 	);
 	return mapGoogleConnection(result.rows[0]);
 }

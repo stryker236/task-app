@@ -1,6 +1,7 @@
 const express = require('express');
 const { randomBytes } = require('crypto');
 const { encryptJson, decryptJson } = require('../google/tokenCrypto');
+const { googleConnectionExpiresAt } = require('../google/googleConnectionTtl');
 const { parseDateOnly } = require('../utils/date');
 const {
   CALENDAR_SCOPE,
@@ -25,7 +26,6 @@ import type {
   TaskCalendarEvent
 } from '../../shared/types';
 
-const GOOGLE_CONNECTION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const GOOGLE_TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000;
 const GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS = Number(process.env.GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS || 60_000);
 
@@ -467,7 +467,7 @@ function createGoogleRouter({
         accountEmail: connection.accountEmail,
         scopes: connection.scopes,
         encryptedTokens: { ...storedTokens, ...tokens },
-        expiresAt: new Date(Date.now() + GOOGLE_CONNECTION_TTL_MS).toISOString()
+        expiresAt: googleConnectionExpiresAt()
         }).catch((error: Error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
     });
     if (shouldRefreshGoogleToken(storedTokens)) {
@@ -477,7 +477,7 @@ function createGoogleRouter({
           accountEmail: connection.accountEmail,
           scopes: connection.scopes,
           encryptedTokens: { ...storedTokens, ...authClient.credentials },
-          expiresAt: new Date(Date.now() + GOOGLE_CONNECTION_TTL_MS).toISOString()
+          expiresAt: googleConnectionExpiresAt()
         });
         logger.info('calendar.connection.token_refreshed', { metadata: { accountEmail: connection.accountEmail } });
       } catch (error: any) {
@@ -584,7 +584,7 @@ function createGoogleRouter({
           accountEmail,
           scopes: GOOGLE_SCOPES,
           encryptedTokens: encryptJson(tokenResult.tokens),
-          expiresAt: new Date(Date.now() + GOOGLE_CONNECTION_TTL_MS).toISOString()
+          expiresAt: googleConnectionExpiresAt()
         });
       });
 

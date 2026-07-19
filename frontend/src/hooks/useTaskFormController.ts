@@ -11,6 +11,7 @@ type UseTaskFormControllerOptions = {
   fetchDashboardData: (filters?: TaskFilters) => Promise<void>;
   setError: (message: string) => void;
   deleteQuickQueueItem: (id: string) => Promise<void>;
+  onTaskMutation?: () => void;
 };
 
 function errorMessage(error: unknown) {
@@ -29,7 +30,8 @@ export default function useTaskFormController({
   filters,
   fetchDashboardData,
   setError,
-  deleteQuickQueueItem
+  deleteQuickQueueItem,
+  onTaskMutation
 }: UseTaskFormControllerOptions) {
   const [editingTask, setEditingTask] = useState<Task | null | undefined>(undefined);
   const [formOpen, setFormOpen] = useState(false);
@@ -130,6 +132,7 @@ export default function useTaskFormController({
       clearFormDraft();
       setBlockingTarget(null);
       setFormOpen(false);
+      onTaskMutation?.();
       await fetchDashboardData(filters);
     } catch (requestError) {
       setError(errorMessage(requestError));

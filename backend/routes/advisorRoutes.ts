@@ -1,6 +1,7 @@
 const express = require('express');
 const { ADVISOR_ACTIONS, generateTaskAdvisorAdvice, generateTaskAdvisorCommands, resolveAdvisorAction } = require('../ai/aiAdvisor');
 const { createCalendarClient, createOAuthClient } = require('../google/googleClient');
+const { googleConnectionExpiresAt } = require('../google/googleConnectionTtl');
 const { decryptJson } = require('../google/tokenCrypto');
 const { requestSchedule } = require('../ai/schedulerClient');
 const { explainScheduleCommandsWithOpenAi } = require('../ai/scheduleExplanations');
@@ -102,7 +103,7 @@ async function fetchWritableAdvisorCalendars({ pool, fetchGoogleConnection, save
 			accountEmail: connection.accountEmail,
 			scopes: connection.scopes,
 			encryptedTokens: { ...storedTokens, ...tokens },
-			expiresAt: connection.expiresAt
+			expiresAt: googleConnectionExpiresAt()
 		}).catch((error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
 	});
 	const calendar = createCalendarClient(authClient);
@@ -264,6 +265,186 @@ function countRejectionReasons(rejections: any[]) {
 		counts[rejection.reason] = (counts[rejection.reason] || 0) + 1;
 		return counts;
 	}, {});
+}
+
+function commandTypeCounts(commands: any[] = []) {
+	return commands.reduce((counts, command) => {
+		const type = normalizeString(command?.type) || 'unknown';
+		counts[type] = (counts[type] || 0) + 1;
+		return counts;
+	}, {});
+}
+
+function commandTaskIds(commands: any[] = []) {
+	return [...new Set(commands
+		.map((command) => normalizeString(command?.taskId))
+		.filter(Boolean))];
+}
+
+function buildGeneralAdvisorDebug({
+	action = '',
+	tasks = [],
+	advisorCommands = [],
+	actionFiltered = { previews: [] },
+	calendarFiltered = { previews: [] },
+	duplicateFiltered = { previews: [] },
+	existingGoogleFiltered = { previews: [] },
+	filtered = { previews: [], rejected: [] }
+}: Record<string, any>) {
+	const candidates = tasks.filter((task) => task && !task.isArchived && ['new', 'in_progress', 'waiting'].includes(task.status));
+	const candidateIds = new Set(candidates.map((task) => String(task.id)));
+	const generatedTaskIds = new Set(commandTaskIds(advisorCommands));
+	const finalTaskIds = new Set((filtered.previews || []).map((preview) => normalizeString(preview?.taskId)).filter(Boolean));
+	const touchedCandidates = candidates.filter((task) => generatedTaskIds.has(String(task.id)));
+	const finalCandidates = candidates.filter((task) => finalTaskIds.has(String(task.id)));
+	const notProposedCandidates = candidates.filter((task) => !generatedTaskIds.has(String(task.id)));
+	const rejectedByMemory = filtered.rejected || [];
+	const afterMemoryFilter = filtered.previews.length;
+	let noSuggestionReason = '';
+	if (afterMemoryFilter === 0) {
+		if (candidates.length === 0) {
+			noSuggestionReason = 'Nao havia tasks ativas elegiveis para analisar.';
+		} else if (advisorCommands.length === 0) {
+			noSuggestionReason = 'O AI analisou as tasks ativas, mas nao devolveu comandos para esta acao.';
+		} else if (actionFiltered.previews.length === 0) {
+			noSuggestionReason = 'O AI devolveu comandos, mas nenhum passou o filtro da acao pedida.';
+		} else if (calendarFiltered.previews.length === 0) {
+			noSuggestionReason = 'As sugestoes foram removidas por configuracao/validacao de calendario.';
+		} else if (duplicateFiltered.previews.length === 0) {
+			noSuggestionReason = 'As sugestoes foram removidas por duplicacao no proprio batch.';
+		} else if (existingGoogleFiltered.previews.length === 0) {
+			noSuggestionReason = 'As sugestoes foram removidas por ja existirem ou por conflito com Google Calendar.';
+		} else if (rejectedByMemory.length > 0) {
+			noSuggestionReason = 'As sugestoes foram removidas por memoria/feedback aprendido.';
+		} else {
+			noSuggestionReason = 'Foram geradas sugestoes, mas nenhuma ficou disponivel depois dos filtros do advisor.';
+		}
+	}
+	return {
+		action,
+		generatedCount: advisorCommands.length,
+		generatedCommandTypeCounts: commandTypeCounts(advisorCommands),
+		availableCommandTypeCounts: commandTypeCounts(filtered.commands || []),
+		afterActionFilter: actionFiltered.previews.length,
+		afterCalendarFilter: calendarFiltered.previews.length,
+		afterPastFilter: calendarFiltered.previews.length,
+		afterDuplicateBatchFilter: duplicateFiltered.previews.length,
+		afterExistingGoogleFilter: existingGoogleFiltered.previews.length,
+		afterMemoryFilter,
+		rejectedCount: rejectedByMemory.length,
+		noSuggestionReason,
+		candidateTaskCount: candidates.length,
+		candidateTasksWithDueDate: candidates.filter((task) => task.dueDateTime).length,
+		candidateTasksWithoutDueDate: candidates.filter((task) => !task.dueDateTime).length,
+		touchedTaskCount: touchedCandidates.length,
+		availableTaskCount: finalCandidates.length,
+		notProposedCount: notProposedCandidates.length,
+		notProposedWithoutDueDateCount: notProposedCandidates.filter((task) => !task.dueDateTime).length,
+		touchedTaskIds: [...generatedTaskIds].filter((taskId) => candidateIds.has(taskId)),
+		availableTaskIds: [...finalTaskIds].filter((taskId) => candidateIds.has(taskId)),
+		candidateTasks: candidates.slice(0, 40).map(compactCandidateTask),
+		touchedTasks: touchedCandidates.slice(0, 40).map(compactCandidateTask),
+		notProposedCandidates: notProposedCandidates.slice(0, 40).map(compactCandidateTask),
+		rejectionReasons: countRejectionReasons(rejectedByMemory.map((item) => ({ reason: item.memoryRules?.[0]?.matchedReasons?.[0] || 'memory_suppressed' }))),
+		rejections: rejectedByMemory.slice(0, 25).map((item) => ({
+			status: 'rejected',
+			reason: item.memoryRules?.[0]?.matchedReasons?.[0] || 'memory_suppressed',
+			commandId: item.preview?.id || item.command?.id || '',
+			taskId: item.preview?.taskId || item.command?.taskId || null,
+			taskTitle: item.preview?.taskTitle || null,
+			summary: item.preview?.summary || item.command?.label || '',
+			memoryRules: item.memoryRules || []
+		}))
+	};
+}
+
+function taskHasNoTags(task: any) {
+	return !Array.isArray(task?.tags) || task.tags.length === 0;
+}
+
+function buildTagSuggestionDebug({
+	tasks = [],
+	advisorCommands = [],
+	tagDecisions = [],
+	actionFiltered = { previews: [] },
+	calendarFiltered = { previews: [] },
+	duplicateFiltered = { previews: [] },
+	filtered = { previews: [], rejected: [] }
+}: Record<string, any>) {
+	const candidates = tasks.filter((task) => task && !task.isArchived && ['new', 'in_progress', 'waiting'].includes(task.status));
+	const tasksById = new Map<string, any>(candidates.map((task: any) => [String(task.id), task]));
+	const untaggedCandidates = candidates.filter(taskHasNoTags);
+	const generatedTaskIds = new Set(advisorCommands.map((command) => String(command?.taskId || '')).filter(Boolean));
+	const finalTaskIds = new Set((filtered.previews || []).map((preview) => String(preview?.taskId || '')).filter(Boolean));
+	const generatedUntagged = untaggedCandidates.filter((task) => generatedTaskIds.has(String(task.id)));
+	const finalUntagged = untaggedCandidates.filter((task) => finalTaskIds.has(String(task.id)));
+	const notGeneratedUntagged = untaggedCandidates.filter((task) => !generatedTaskIds.has(String(task.id)));
+	const notAvailableUntagged = untaggedCandidates.filter((task) => !finalTaskIds.has(String(task.id)));
+	const decisionCounts = tagDecisions.reduce((counts, item) => {
+		const decision = String(item?.decision || 'unknown');
+		counts[decision] = (counts[decision] || 0) + 1;
+		return counts;
+	}, {});
+	const afterActionFilter = actionFiltered.previews.length;
+	const afterMemoryFilter = filtered.previews.length;
+	const rejectedCount = (filtered.rejected || []).length;
+	let noSuggestionReason = '';
+	if (afterMemoryFilter === 0) {
+		if (candidates.length === 0) {
+			noSuggestionReason = 'Nao havia tasks ativas elegiveis para analisar.';
+		} else if (tagDecisions.length && Number(decisionCounts.skipped_too_vague || 0) === tagDecisions.length) {
+			noSuggestionReason = 'O AI respondeu a todas as tasks, mas marcou todas como vagas demais para sugerir tags com seguranca.';
+		} else if (tagDecisions.length && Number(decisionCounts.already_good || 0) === tagDecisions.length) {
+			noSuggestionReason = 'O AI respondeu a todas as tasks e considerou que as tags existentes ja estavam boas.';
+		} else if (tagDecisions.length && Number(decisionCounts.needs_user_context || 0) === tagDecisions.length) {
+			noSuggestionReason = 'O AI respondeu a todas as tasks, mas indicou que precisava de mais contexto antes de sugerir tags.';
+		} else if (advisorCommands.length === 0 && untaggedCandidates.length > 0) {
+			noSuggestionReason = 'As tasks sem tags chegaram ao AI, mas o AI nao devolveu sugestoes. Normalmente isto acontece quando julgou que o titulo/notas eram vagos ou que nao havia tag util com confianca suficiente.';
+		} else if (advisorCommands.length === 0) {
+			noSuggestionReason = 'O AI analisou as tasks ativas, mas nao encontrou alteracoes de tags que considerasse uteis.';
+		} else if (afterActionFilter === 0) {
+			noSuggestionReason = 'O AI devolveu comandos, mas nenhum era uma alteracao aplicavel apenas ao campo tags.';
+		} else if (rejectedCount > 0) {
+			noSuggestionReason = 'As sugestoes foram removidas por memoria/feedback aprendido.';
+		} else {
+			noSuggestionReason = 'Foram geradas sugestoes, mas nenhuma ficou disponivel depois dos filtros do advisor.';
+		}
+	}
+	return {
+		generatedCount: advisorCommands.length,
+		afterActionFilter,
+		afterCalendarFilter: calendarFiltered.previews.length,
+		afterPastFilter: calendarFiltered.previews.length,
+		afterDuplicateBatchFilter: duplicateFiltered.previews.length,
+		afterExistingGoogleFilter: duplicateFiltered.previews.length,
+		afterMemoryFilter,
+		rejectedCount,
+		noSuggestionReason,
+		tagDecisionCount: tagDecisions.length,
+		tagDecisionCounts: decisionCounts,
+		tagDecisions: tagDecisions.slice(0, 120).map((decision) => ({
+			...decision,
+			taskTitle: tasksById.get(String(decision.taskId))?.title || ''
+		})),
+		candidateTaskCount: candidates.length,
+		candidateUntaggedTaskCount: untaggedCandidates.length,
+		generatedUntaggedTaskCount: generatedUntagged.length,
+		availableUntaggedTaskCount: finalUntagged.length,
+		notGeneratedUntaggedTaskCount: notGeneratedUntagged.length,
+		notAvailableUntaggedTaskCount: notAvailableUntagged.length,
+		notGeneratedUntaggedTasks: notGeneratedUntagged.slice(0, 20).map(compactCandidateTask),
+		notAvailableUntaggedTasks: notAvailableUntagged.slice(0, 20).map(compactCandidateTask),
+		rejectionReasons: countRejectionReasons((filtered.rejected || []).map((item) => ({ reason: item.memoryRules?.[0]?.matchedReasons?.[0] || 'memory_suppressed' }))),
+		rejections: (filtered.rejected || []).slice(0, 25).map((item) => ({
+			status: 'rejected',
+			reason: item.memoryRules?.[0]?.matchedReasons?.[0] || 'memory_suppressed',
+			commandId: item.preview?.id || item.command?.id || '',
+			taskId: item.preview?.taskId || item.command?.taskId || null,
+			taskTitle: item.preview?.taskTitle || null,
+			summary: item.preview?.summary || item.command?.label || '',
+			memoryRules: item.memoryRules || []
+		}))
+	};
 }
 
 function calendarTitleFingerprint(event: any) {
@@ -558,7 +739,7 @@ async function fetchAdvisorBusyEvents({ pool, fetchGoogleConnection, saveGoogleC
 			accountEmail: connection.accountEmail,
 			scopes: connection.scopes,
 			encryptedTokens: { ...storedTokens, ...tokens },
-			expiresAt: connection.expiresAt
+			expiresAt: googleConnectionExpiresAt()
 		}).catch((error) => logger.error('calendar.connection.token_refresh_failed', { metadata: { message: error.message } }));
 	});
 	const calendar = createCalendarClient(authClient);
@@ -927,6 +1108,26 @@ function createAdvisorRouter({
 				memory,
 				action
 			});
+			const debug = action === 'suggest_tags'
+				? buildTagSuggestionDebug({
+					tasks,
+					advisorCommands,
+					tagDecisions: advisor.tagDecisions || [],
+					actionFiltered,
+					calendarFiltered,
+					duplicateFiltered,
+					filtered
+				})
+				: buildGeneralAdvisorDebug({
+					action,
+					tasks,
+					advisorCommands,
+					actionFiltered,
+					calendarFiltered,
+					duplicateFiltered,
+					existingGoogleFiltered,
+					filtered
+				});
 
 			res.json({
 				mode: 'advisor_preview',
@@ -936,7 +1137,8 @@ function createAdvisorRouter({
 				summary: advisor.summary,
 				commandCount: filtered.previews.length,
 				commands: addCalendarLabelsToPreviews(filtered.previews, calendars),
-				rawCommands: filtered.commands
+				rawCommands: filtered.commands,
+				debug
 			});
 			(req as any).log?.('info', 'advisor.preview.generated', {
 				durationMs: Date.now() - startedAt,

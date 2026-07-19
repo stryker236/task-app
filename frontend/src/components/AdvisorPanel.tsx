@@ -503,12 +503,26 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
   const rejections = debug.rejections || [];
   const candidateAttempts = debug.candidateAttempts || [];
   const notProposedCandidates = debug.notProposedCandidates || [];
+  const candidateTasks = debug.candidateTasks || [];
+  const touchedTasks = debug.touchedTasks || [];
+  const generatedCommandTypeCounts = Object.entries(debug.generatedCommandTypeCounts || {});
+  const availableCommandTypeCounts = Object.entries(debug.availableCommandTypeCounts || {});
+  const tagDecisionReasons = debug.tagDecisions || [];
+  const tagDecisionCounts = Object.entries(debug.tagDecisionCounts || {});
 
   return (
     <details className="advisor-debug-summary">
       <summary>{generated} geradas, {available} disponiveis, {filtered} filtradas</summary>
       <div className="advisor-debug-counts">
         {debug.candidateTaskCount != null ? <span>Candidatas: {debug.candidateTaskCount}</span> : null}
+        {debug.candidateUntaggedTaskCount != null ? <span>Sem tags candidatas: {debug.candidateUntaggedTaskCount}</span> : null}
+        {debug.generatedUntaggedTaskCount != null ? <span>Sem tags geradas: {debug.generatedUntaggedTaskCount}</span> : null}
+        {debug.availableUntaggedTaskCount != null ? <span>Sem tags disponiveis: {debug.availableUntaggedTaskCount}</span> : null}
+        {debug.notGeneratedUntaggedTaskCount != null ? <span>Sem tags ignoradas pelo AI: {debug.notGeneratedUntaggedTaskCount}</span> : null}
+        {debug.notAvailableUntaggedTaskCount != null ? <span>Sem tags nao disponiveis: {debug.notAvailableUntaggedTaskCount}</span> : null}
+        {debug.tagDecisionCount != null ? <span>Decisoes tags: {debug.tagDecisionCount}</span> : null}
+        {debug.touchedTaskCount != null ? <span>Tocadas pelo AI: {debug.touchedTaskCount}</span> : null}
+        {debug.availableTaskCount != null ? <span>Tasks disponiveis: {debug.availableTaskCount}</span> : null}
         {debug.candidateTasksWithoutDueDate != null ? <span>Sem due date: {debug.candidateTasksWithoutDueDate}</span> : null}
         {debug.notProposedCount != null ? <span>Nao propostas: {debug.notProposedCount}</span> : null}
         {debug.notProposedWithoutDueDateCount != null ? <span>Nao propostas sem due date: {debug.notProposedWithoutDueDateCount}</span> : null}
@@ -525,6 +539,37 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
           {reasons.map(([reason, count]) => <span key={reason}>{reason}: {count}</span>)}
         </div>
       ) : <p className="advisor-empty">Sem rejeicoes registadas.</p>}
+      {generatedCommandTypeCounts.length ? (
+        <div className="advisor-debug-reasons">
+          <span>Geradas por tipo</span>
+          {generatedCommandTypeCounts.map(([type, count]) => <span key={type}>{type}: {count}</span>)}
+        </div>
+      ) : null}
+      {availableCommandTypeCounts.length ? (
+        <div className="advisor-debug-reasons">
+          <span>Disponiveis por tipo</span>
+          {availableCommandTypeCounts.map(([type, count]) => <span key={type}>{type}: {count}</span>)}
+        </div>
+      ) : null}
+      {tagDecisionCounts.length ? (
+        <div className="advisor-debug-reasons">
+          {tagDecisionCounts.map(([decision, count]) => <span key={decision}>{decision}: {count}</span>)}
+        </div>
+      ) : null}
+      {tagDecisionReasons.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Decisoes por task</strong>
+          <ul>
+            {tagDecisionReasons.slice(0, 40).map((item) => (
+              <li key={`tag-decision-${item.taskId}`}>
+                <span>{item.taskTitle || item.taskId}</span>
+                <small>{item.decision} - {item.reason}{item.suggestedTags?.length ? ` - #${item.suggestedTags.join(' #')}` : ''}</small>
+              </li>
+            ))}
+          </ul>
+          {tagDecisionReasons.length > 40 && <p className="advisor-empty">+{tagDecisionReasons.length - 40} decisoes adicionais</p>}
+        </div>
+      ) : null}
       {candidateAttempts.length ? (
         <div className="advisor-debug-candidates">
           <strong>Candidatas por tentativa</strong>
@@ -549,6 +594,33 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
               ) : null}
             </article>
           ))}
+        </div>
+      ) : null}
+      {touchedTasks.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Tasks tocadas pelo AI</strong>
+          <ul>
+            {touchedTasks.slice(0, 40).map((task) => (
+              <li key={`touched-${task.taskId}`}>
+                <span>{task.taskTitle || task.title || task.taskId}</span>
+                <small>p{task.priority ?? '-'} - {task.status || '-'} - {task.dueDateTime || 'sem due date'}</small>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {candidateTasks.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Candidatas analisadas</strong>
+          <ul>
+            {candidateTasks.slice(0, 40).map((task) => (
+              <li key={`candidate-${task.taskId}`}>
+                <span>{task.taskTitle || task.title || task.taskId}</span>
+                <small>p{task.priority ?? '-'} - {task.status || '-'} - {task.dueDateTime || 'sem due date'}</small>
+              </li>
+            ))}
+          </ul>
+          {candidateTasks.length > 40 && <p className="advisor-empty">+{candidateTasks.length - 40} candidatas adicionais</p>}
         </div>
       ) : null}
       {notProposedCandidates.length ? (
@@ -694,6 +766,66 @@ function SchedulerDebugReveal({ debug }: { debug?: Record<string, unknown> }) {
     </section>
   );
 }
+
+function AdvisorJsonReveal({ proposals }: { proposals: AdvisorPreview }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const advisorJson = JSON.stringify(proposals, null, 2);
+  async function copyAdvisorJson() {
+    await navigator.clipboard.writeText(advisorJson);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+  return (
+    <section className="advisor-scheduler-debug" aria-label="Advisor response JSON">
+      <div>
+        <strong>Advisor JSON</strong>
+        <span>Resposta completa recebida pelo frontend, incluindo propostas, comandos originais e debug.</span>
+      </div>
+      <div className="advisor-scheduler-debug-actions">
+        <button type="button" className="button secondary small" onClick={() => setOpen((current) => !current)}>{open ? 'Ocultar JSON' : 'Ver JSON'}</button>
+        <button type="button" className="button ghost small" onClick={copyAdvisorJson}>{copied ? 'Copiado' : 'Copiar JSON'}</button>
+      </div>
+      {open && <pre>{advisorJson}</pre>}
+    </section>
+  );
+}
+
+function EmptyAdvisorProposalReason({ proposals, action }: { proposals: AdvisorPreview; action?: string }) {
+  const debug = proposals.debug;
+  if (action === 'suggest_tags') {
+    const reason = debug?.noSuggestionReason || proposals.summary || 'O AI nao devolveu sugestoes de tags aplicaveis.';
+    return (
+      <div className="advisor-empty advisor-empty-diagnostic">
+        <strong>Sem sugestoes de tags.</strong>
+        <span>{reason}</span>
+        {debug?.candidateTaskCount != null && (
+          <small>
+            {debug.candidateTaskCount} candidatas analisadas
+            {debug.candidateUntaggedTaskCount != null ? `, ${debug.candidateUntaggedTaskCount} sem tags` : ''}
+            {debug.generatedCount != null ? `, ${debug.generatedCount} comandos devolvidos pelo AI` : ''}.
+          </small>
+        )}
+      </div>
+    );
+  }
+  if (debug?.noSuggestionReason) {
+    return (
+      <div className="advisor-empty advisor-empty-diagnostic">
+        <strong>Sem propostas disponiveis.</strong>
+        <span>{debug.noSuggestionReason}</span>
+        {debug.candidateTaskCount != null && (
+          <small>
+            {debug.candidateTaskCount} candidatas analisadas
+            {debug.generatedCount != null ? `, ${debug.generatedCount} comandos devolvidos pelo AI` : ''}
+            {debug.afterMemoryFilter != null ? `, ${debug.afterMemoryFilter} disponiveis depois dos filtros` : ''}.
+          </small>
+        )}
+      </div>
+    );
+  }
+  return <p className="advisor-empty">{proposals.summary || 'O AI nao propos acoes aplicaveis.'}</p>;
+}
 export function AdvisorProposalBuffer({
   allTasks = [],
   googleCalendars = [],
@@ -829,6 +961,8 @@ export function AdvisorProposalBuffer({
 
       <SchedulerDebugReveal debug={schedulerDebug} />
 
+      <AdvisorJsonReveal proposals={proposals} />
+
       <AdvisorDebugSummary proposals={proposals} />
 
       <AdvisorInteractionFeedback saved={interactionFeedbackSaved} action={action} onSave={onSaveInteractionFeedback} />
@@ -913,7 +1047,7 @@ export function AdvisorProposalBuffer({
           </div>
         </>
       ) : (
-        <p className="advisor-empty">O AI nao propos acoes aplicaveis.</p>
+        <EmptyAdvisorProposalReason proposals={proposals} action={action} />
       )}
     </section>
   );
