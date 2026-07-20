@@ -1,6 +1,14 @@
-export type TaskStatus = 'new' | 'in_progress' | 'waiting' | 'done' | 'cancelled';
+export const TASK_STATUSES = ['new', 'in_progress', 'waiting', 'done', 'cancelled'] as const;
 
-export type TaskRelationType = 'blocks' | 'blocked_by' | 'relates_to' | 'duplicates' | 'parent_of' | 'child_of';
+export const TASK_RELATION_TYPES = ['blocks', 'blocked_by', 'relates_to', 'duplicates', 'parent_of', 'child_of'] as const;
+
+export const TASK_SORT_FIELDS = ['priority', 'dueDateTime', 'createdAt', 'updatedAt', 'requestedBy', 'status'] as const;
+
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+export type TaskRelationType = (typeof TASK_RELATION_TYPES)[number];
+
+export type TaskSortField = (typeof TASK_SORT_FIELDS)[number];
 
 export type TaskPriority = 1 | 2 | 3 | 4;
 

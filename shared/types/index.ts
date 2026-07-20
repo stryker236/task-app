@@ -4,5 +4,5 @@ export type * from './quickQueue';
 export type * from './productivity';
 export type * from './sharedNotes';
 export type * from './tags';
-export type * from './task';
+export * from './task';
 export * from './settings';

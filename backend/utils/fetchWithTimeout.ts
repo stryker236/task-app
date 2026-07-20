@@ -1,6 +1,9 @@
-function numberFromEnv(value: string | undefined, fallback: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+function numberFromEnv(value: string | undefined, fallback: number): number {
+  const number = Number(value);
+
+  return number > 0 && Number.isFinite(number)
+    ? number
+    : fallback;
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 30000) {
@@ -29,4 +32,4 @@ module.exports = {
   numberFromEnv
 };
 
-export {};
+export { };

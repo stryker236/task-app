@@ -18,4 +18,4 @@ function buildNewTask(input: Record<string, any>, tasks: Record<string, any>[], 
 
 module.exports = { buildNewTask };
 
-export {};
+export { };

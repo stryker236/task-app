@@ -1,14 +1,13 @@
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
+function normalizeString(value: string): string {
+  return value.trim();
 }
 
-function normalizeArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
+function normalizeArray(value: string[]): string[] {
   return [...new Set(value.map(normalizeString).filter((item): item is string => Boolean(item)))];
 }
 
-function containsText(value: unknown, query: unknown): boolean {
-  return String(value || '').toLocaleLowerCase().includes(String(query || '').toLocaleLowerCase());
+function containsText(value: string, query: string): boolean {
+  return value.toLocaleLowerCase().includes(query.toLocaleLowerCase());
 }
 
 module.exports = {
@@ -17,4 +16,4 @@ module.exports = {
   containsText
 };
 
-export {};
+export { };

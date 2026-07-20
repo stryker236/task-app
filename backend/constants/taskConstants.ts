@@ -1,10 +1,16 @@
-const STATUSES = ['new', 'in_progress', 'waiting', 'done', 'cancelled'] as const;
-const RELATION_TYPES = ['blocks', 'blocked_by', 'relates_to', 'duplicates', 'parent_of', 'child_of'] as const;
-const SORT_FIELDS = ['priority', 'dueDateTime', 'createdAt', 'updatedAt', 'requestedBy', 'status'] as const;
+const {
+  TASK_STATUSES,
+  TASK_RELATION_TYPES,
+  TASK_SORT_FIELDS
+} = require('../../shared/types/task');
 
-type TaskStatus = (typeof STATUSES)[number];
-type RelationType = (typeof RELATION_TYPES)[number];
-type SortField = (typeof SORT_FIELDS)[number];
+const STATUSES = TASK_STATUSES;
+const RELATION_TYPES = TASK_RELATION_TYPES;
+const SORT_FIELDS = TASK_SORT_FIELDS;
+
+type TaskStatus = (typeof TASK_STATUSES)[number];
+type RelationType = (typeof TASK_RELATION_TYPES)[number];
+type SortField = (typeof TASK_SORT_FIELDS)[number];
 
 module.exports = {
   STATUSES,
