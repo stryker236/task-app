@@ -20,4 +20,6 @@
 
 Avoid creating functions that accept `unknown` types unless necessary. Instead, use specific types like `string`, `number`, or `Date` to ensure type safety and clarity in your code.
 
+Create types when appropriate to encapsulate related data and provide better structure. For example, if you have a function that processes user data, consider creating a `User` type that includes properties like `name`, `email`, and `age`. This will make your code more readable and maintainable.
+
 

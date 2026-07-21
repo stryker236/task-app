@@ -87,7 +87,13 @@ export default function useAdvisorController({
         action,
         commandCount: response.commandCount,
         generatedCount: response.debug?.generatedCount,
-        rejectionReasons: response.debug?.rejectionReasons
+        rejectionReasons: response.debug?.rejectionReasons,
+        tagSuggestionSummary: action === 'suggest_tags' ? response.debug?.tagSuggestionFlow?.summary : undefined,
+        tasksSentToAiCount: action === 'suggest_tags' ? response.debug?.selectedTagTaskCount : undefined,
+        untaggedTasksSentToAiCount: action === 'suggest_tags' ? response.debug?.selectedUntaggedTagTaskCount : undefined,
+        availableTagsSentToAiCount: action === 'suggest_tags' ? response.debug?.availableTagCount : undefined,
+        pickedTagCounts: action === 'suggest_tags' ? response.debug?.pickedTagCounts : undefined,
+        tagDecisionStatusCounts: action === 'suggest_tags' ? response.debug?.tagDecisionStatusCounts : undefined
       });
       setLastAdvisorAction(action);
       setProposalBatch(response);
@@ -151,11 +157,11 @@ export default function useAdvisorController({
     }
   }
 
-  async function applyAdvisorProposal(commandId: string) {
+  async function applyAdvisorProposal(commandId: string, commandOverride?: AiCommand) {
     const index = proposalBatch?.commands?.findIndex((command) => command.id === commandId) ?? -1;
     if (index < 0) return;
 
-    const rawCommand = proposalBatch?.rawCommands?.[index];
+    const rawCommand = commandOverride || proposalBatch?.rawCommands?.[index];
     if (!rawCommand) {
       setError('Nao foi possivel encontrar o comando original desta sugestao.');
       return;
@@ -163,7 +169,11 @@ export default function useAdvisorController({
 
     try {
       setApplyingProposalId(commandId);
-      clientLog('info', 'advisor.proposal.accepted', '', { commandId });
+      clientLog('info', 'advisor.proposal.accepted', '', {
+        commandId,
+        customized: Boolean(commandOverride),
+        tagPatch: Array.isArray(rawCommand.patch?.tags) ? rawCommand.patch.tags : undefined
+      });
       await applyAiCommands([rawCommand]);
       setProposalStatuses((current) => ({ ...current, [commandId]: 'accepted' }));
       await fetchDashboardData(filters);
@@ -180,19 +190,28 @@ export default function useAdvisorController({
   }
 
   
-  async function applyAdvisorProposals(commandIds: string[]) {
+  async function applyAdvisorProposals(commandIds: string[], commandOverrides: Record<string, AiCommand> = {}) {
     const wanted = new Set(commandIds);
     const commands = proposalBatch?.commands || [];
     const rawCommands = proposalBatch?.rawCommands || [];
     const pending = commands
-      .map((command, index) => ({ command, rawCommand: rawCommands[index] }))
+      .map((command, index) => ({ command, rawCommand: commandOverrides[command.id] || rawCommands[index] }))
       .filter((item): item is { command: AiCommandPreview; rawCommand: AiCommand } => Boolean(item.rawCommand) && wanted.has(item.command.id) && !proposalStatuses[item.command.id]);
 
     if (!pending.length) return;
 
     try {
       setApplyingAllProposals(true);
-      clientLog('info', 'advisor.proposals.accepted_selection', '', { count: pending.length, commandIds: pending.map(({ command }) => command.id) });
+      clientLog('info', 'advisor.proposals.accepted_selection', '', {
+        count: pending.length,
+        commandIds: pending.map(({ command }) => command.id),
+        customizedCount: pending.filter(({ command }) => commandOverrides[command.id]).length,
+        tagPatchCount: pending.filter(({ rawCommand }) => Array.isArray(rawCommand.patch?.tags)).length,
+        tagPatchSample: pending
+          .filter(({ rawCommand }) => Array.isArray(rawCommand.patch?.tags))
+          .slice(0, 10)
+          .map(({ command, rawCommand }) => ({ commandId: command.id, tags: rawCommand.patch?.tags }))
+      });
       await applyAiCommands(pending.map(({ rawCommand }) => rawCommand));
       setProposalStatuses((current) => ({
         ...current,
@@ -206,18 +225,26 @@ export default function useAdvisorController({
     }
   }
 
-  async function applyAllAdvisorProposals() {
+  async function applyAllAdvisorProposals(commandOverrides: Record<string, AiCommand> = {}) {
     const commands = proposalBatch?.commands || [];
     const rawCommands = proposalBatch?.rawCommands || [];
     const pending = commands
-      .map((command, index) => ({ command, rawCommand: rawCommands[index] }))
+      .map((command, index) => ({ command, rawCommand: commandOverrides[command.id] || rawCommands[index] }))
       .filter((item): item is { command: AiCommandPreview; rawCommand: AiCommand } => Boolean(item.rawCommand) && !proposalStatuses[item.command.id]);
 
     if (!pending.length) return;
 
     try {
       setApplyingAllProposals(true);
-      clientLog('info', 'advisor.proposals.accepted_all', '', { count: pending.length });
+      clientLog('info', 'advisor.proposals.accepted_all', '', {
+        count: pending.length,
+        customizedCount: pending.filter(({ command }) => commandOverrides[command.id]).length,
+        tagPatchCount: pending.filter(({ rawCommand }) => Array.isArray(rawCommand.patch?.tags)).length,
+        tagPatchSample: pending
+          .filter(({ rawCommand }) => Array.isArray(rawCommand.patch?.tags))
+          .slice(0, 10)
+          .map(({ command, rawCommand }) => ({ commandId: command.id, tags: rawCommand.patch?.tags }))
+      });
       await applyAiCommands(pending.map(({ rawCommand }) => rawCommand));
       setProposalStatuses((current) => ({
         ...current,

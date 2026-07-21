@@ -93,10 +93,47 @@ export type AdvisorPreviewDebug = {
   tagDecisions?: Array<{
     taskId: string;
     taskTitle?: string;
+    existingTags?: string[];
     decision: string;
     reason: string;
     suggestedTags: string[];
+    newSuggestedTags?: string[];
+    finalPatchTags?: string[];
+    commandId?: string;
+    commandGenerated?: boolean;
+    finalStatus?: string;
+    rejectionReason?: string;
   }>;
+  availableTagCount?: number | null;
+  availableTags?: string[];
+  selectedTagTasks?: AdvisorTagTaskDebug[];
+  selectedTagTaskCount?: number | null;
+  selectedUntaggedTagTaskCount?: number | null;
+  skippedTagTasks?: AdvisorTagTaskDebug[];
+  pickedTags?: string[];
+  pickedTagCounts?: Record<string, number>;
+  tagDecisionStatusCounts?: Record<string, number>;
+  tagGeneratedCommands?: Array<{
+    commandId: string;
+    taskId: string;
+    taskTitle?: string;
+    patchTags: string[];
+  }>;
+  tagBatches?: Array<{
+    batchIndex: number;
+    batchCount: number;
+    taskCount: number;
+    taskIds: string[];
+    tasks: AdvisorTagTaskDebug[];
+    decisions: Array<{
+      taskId: string;
+      taskTitle?: string;
+      decision: string;
+      reason: string;
+      suggestedTags: string[];
+    }>;
+  }>;
+  tagSuggestionFlow?: Record<string, unknown> | null;
   schedulerHorizonEnd?: string;
   schedulerBusyEventCount?: number;
   schedulerReservedBusyCount?: number;
@@ -154,6 +191,13 @@ export type AdvisorPreviewDebug = {
       rule?: Record<string, unknown>;
     }>;
   }>;
+};
+
+export type AdvisorTagTaskDebug = AdvisorCandidateDebug & {
+  existingTags?: string[];
+  hasTags?: boolean;
+  notesChars?: number;
+  reason?: string;
 };
 
 export type AdvisorCandidateDebug = {

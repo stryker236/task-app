@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { GoogleCalendar, GoogleStatus, Task } from '../../../shared/types';
+import type { AiCommand, GoogleCalendar, GoogleStatus, Task } from '../../../shared/types';
 import type { AdvisorAdvice, AdvisorFeedbackInput, AdvisorMemoryRule, AdvisorPreview } from '../api';
 import AdvisorAdviceGrid, { type AdvisorActionItem } from './advisor/AdvisorAdviceGrid';
 import AdvisorPanelHeader, { advisorCalendarWriteReady } from './advisor/AdvisorPanelHeader';
@@ -48,10 +48,10 @@ type AdvisorPanelProps = {
   onRefresh: () => void;
   onRequestActions: (action: string) => void;
   onConnectGoogle: () => void;
-  onApplyProposal: (commandId: string) => void;
-  onApplyProposals: (commandIds: string[]) => void;
+  onApplyProposal: (commandId: string, commandOverride?: AiCommand) => void;
+  onApplyProposals: (commandIds: string[], commandOverrides?: Record<string, AiCommand>) => void;
   onIgnoreProposal: (commandId: string) => void;
-  onApplyAllProposals: () => void;
+  onApplyAllProposals: (commandOverrides?: Record<string, AiCommand>) => void;
   onIgnoreAllProposals: () => void;
   onClearProposals: () => void;
   onAdvisorDefaultCalendarChange: (calendarId: string) => void;
@@ -509,6 +509,13 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
   const availableCommandTypeCounts = Object.entries(debug.availableCommandTypeCounts || {});
   const tagDecisionReasons = debug.tagDecisions || [];
   const tagDecisionCounts = Object.entries(debug.tagDecisionCounts || {});
+  const tagDecisionStatusCounts = Object.entries(debug.tagDecisionStatusCounts || {});
+  const availableTags = debug.availableTags || [];
+  const selectedTagTasks = debug.selectedTagTasks || [];
+  const skippedTagTasks = debug.skippedTagTasks || [];
+  const pickedTagCounts = Object.entries(debug.pickedTagCounts || {});
+  const tagGeneratedCommands = debug.tagGeneratedCommands || [];
+  const tagBatches = debug.tagBatches || [];
 
   return (
     <details className="advisor-debug-summary">
@@ -521,6 +528,9 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
         {debug.notGeneratedUntaggedTaskCount != null ? <span>Sem tags ignoradas pelo AI: {debug.notGeneratedUntaggedTaskCount}</span> : null}
         {debug.notAvailableUntaggedTaskCount != null ? <span>Sem tags nao disponiveis: {debug.notAvailableUntaggedTaskCount}</span> : null}
         {debug.tagDecisionCount != null ? <span>Decisoes tags: {debug.tagDecisionCount}</span> : null}
+        {debug.availableTagCount != null ? <span>Tags enviadas: {debug.availableTagCount}</span> : null}
+        {debug.selectedTagTaskCount != null ? <span>Tasks enviadas para tags: {debug.selectedTagTaskCount}</span> : null}
+        {debug.selectedUntaggedTagTaskCount != null ? <span>Tasks enviadas sem tags: {debug.selectedUntaggedTagTaskCount}</span> : null}
         {debug.touchedTaskCount != null ? <span>Tocadas pelo AI: {debug.touchedTaskCount}</span> : null}
         {debug.availableTaskCount != null ? <span>Tasks disponiveis: {debug.availableTaskCount}</span> : null}
         {debug.candidateTasksWithoutDueDate != null ? <span>Sem due date: {debug.candidateTasksWithoutDueDate}</span> : null}
@@ -553,7 +563,61 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
       ) : null}
       {tagDecisionCounts.length ? (
         <div className="advisor-debug-reasons">
+          <span>Decisoes AI</span>
           {tagDecisionCounts.map(([decision, count]) => <span key={decision}>{decision}: {count}</span>)}
+        </div>
+      ) : null}
+      {tagDecisionStatusCounts.length ? (
+        <div className="advisor-debug-reasons">
+          <span>Resultado final</span>
+          {tagDecisionStatusCounts.map(([status, count]) => <span key={status}>{status}: {count}</span>)}
+        </div>
+      ) : null}
+      {availableTags.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Tags disponiveis enviadas ao AI</strong>
+          <div className="advisor-debug-tag-cloud">
+            {availableTags.slice(0, 120).map((tag) => <span key={`available-tag-${tag}`}>#{tag}</span>)}
+          </div>
+          {availableTags.length > 120 && <p className="advisor-empty">+{availableTags.length - 120} tags adicionais</p>}
+        </div>
+      ) : null}
+      {pickedTagCounts.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Tags escolhidas para sugestao</strong>
+          <div className="advisor-debug-tag-cloud selected">
+            {pickedTagCounts.map(([tag, count]) => <span key={`picked-tag-${tag}`}>#{tag}{Number(count) > 1 ? ` x${count}` : ''}</span>)}
+          </div>
+        </div>
+      ) : null}
+      {selectedTagTasks.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Tasks enviadas para sugestao de tags</strong>
+          <ul>
+            {selectedTagTasks.slice(0, 50).map((task) => (
+              <li key={`selected-tag-task-${task.taskId}`}>
+                <span>{task.taskTitle || task.title || task.taskId}</span>
+                <small>
+                  {task.existingTags?.length ? `atuais: #${task.existingTags.join(' #')}` : 'sem tags'}
+                  {task.notesChars ? ` - notas: ${task.notesChars} chars` : ''}
+                </small>
+              </li>
+            ))}
+          </ul>
+          {selectedTagTasks.length > 50 && <p className="advisor-empty">+{selectedTagTasks.length - 50} tasks enviadas adicionais</p>}
+        </div>
+      ) : null}
+      {tagGeneratedCommands.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Comandos finais de tags</strong>
+          <ul>
+            {tagGeneratedCommands.slice(0, 40).map((command) => (
+              <li key={`tag-command-${command.commandId}`}>
+                <span>{command.taskTitle || command.taskId}</span>
+                <small>{command.patchTags?.length ? `patch.tags: #${command.patchTags.join(' #')}` : 'sem patch.tags'}</small>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
       {tagDecisionReasons.length ? (
@@ -563,11 +627,43 @@ function AdvisorDebugSummary({ proposals }: { proposals: AdvisorPreview }) {
             {tagDecisionReasons.slice(0, 40).map((item) => (
               <li key={`tag-decision-${item.taskId}`}>
                 <span>{item.taskTitle || item.taskId}</span>
-                <small>{item.decision} - {item.reason}{item.suggestedTags?.length ? ` - #${item.suggestedTags.join(' #')}` : ''}</small>
+                <small>
+                  {item.finalStatus || item.decision} - {item.reason}
+                  {item.existingTags?.length ? ` - atuais: #${item.existingTags.join(' #')}` : ' - atuais: sem tags'}
+                  {item.suggestedTags?.length ? ` - AI: #${item.suggestedTags.join(' #')}` : ''}
+                  {item.newSuggestedTags?.length ? ` - novas: #${item.newSuggestedTags.join(' #')}` : ''}
+                  {item.rejectionReason ? ` - motivo final: ${item.rejectionReason}` : ''}
+                </small>
               </li>
             ))}
           </ul>
           {tagDecisionReasons.length > 40 && <p className="advisor-empty">+{tagDecisionReasons.length - 40} decisoes adicionais</p>}
+        </div>
+      ) : null}
+      {tagBatches.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Batches enviados ao AI</strong>
+          <ul>
+            {tagBatches.slice(0, 20).map((batch) => (
+              <li key={`tag-batch-${batch.batchIndex}`}>
+                <span>Batch {batch.batchIndex}/{batch.batchCount}</span>
+                <small>{batch.taskCount} tasks - {batch.decisions?.length || 0} decisoes recebidas</small>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {skippedTagTasks.length ? (
+        <div className="advisor-debug-candidates">
+          <strong>Tasks nao enviadas para tags</strong>
+          <ul>
+            {skippedTagTasks.slice(0, 30).map((task) => (
+              <li key={`skipped-tag-task-${task.taskId}`}>
+                <span>{task.taskTitle || task.title || task.taskId}</span>
+                <small>{task.reason || 'nao selecionada'} - {task.status || '-'}</small>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
       {candidateAttempts.length ? (
@@ -826,6 +922,75 @@ function EmptyAdvisorProposalReason({ proposals, action }: { proposals: AdvisorP
   }
   return <p className="advisor-empty">{proposals.summary || 'O AI nao propos acoes aplicaveis.'}</p>;
 }
+
+function tagPatchFromCommand(command?: AiCommand | null) {
+  return Array.isArray(command?.patch?.tags) ? command.patch.tags.map((tag) => String(tag).trim()).filter(Boolean) : [];
+}
+
+function isTagUpdateProposal(proposal: AdvisorPreview['commands'][number], rawCommand?: AiCommand | null) {
+  return proposal.type === 'update_task' && tagPatchFromCommand(rawCommand).length > 0;
+}
+
+function sameStringList(left: string[], right: string[]) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function customizeTagCommand(rawCommand: AiCommand, selectedTags: string[]) {
+  return {
+    ...rawCommand,
+    patch: {
+      ...(rawCommand.patch || {}),
+      tags: selectedTags
+    }
+  };
+}
+
+function AdvisorTagChoice({
+  tags,
+  selectedTags,
+  disabled,
+  onChange
+}: {
+  tags: string[];
+  selectedTags: string[];
+  disabled: boolean;
+  onChange: (tags: string[]) => void;
+}) {
+  if (!tags.length) return null;
+  const selectedSet = new Set(selectedTags.map((tag) => tag.toLocaleLowerCase()));
+  function toggleTag(tag: string) {
+    const isSelected = selectedSet.has(tag.toLocaleLowerCase());
+    onChange(isSelected ? selectedTags.filter((item) => item.toLocaleLowerCase() !== tag.toLocaleLowerCase()) : [...selectedTags, tag]);
+  }
+  return (
+    <div className="advisor-tag-choice">
+      <div>
+        <span>Tags a aplicar</span>
+        <button type="button" className="button ghost tiny" onClick={() => onChange(tags)} disabled={disabled || selectedTags.length === tags.length}>
+          Todas
+        </button>
+      </div>
+      <div className="advisor-tag-choice-list">
+        {tags.map((tag) => {
+          const selected = selectedSet.has(tag.toLocaleLowerCase());
+          return (
+            <button
+              type="button"
+              key={`advisor-tag-choice-${tag}`}
+              className={selected ? 'is-selected' : ''}
+              onClick={() => toggleTag(tag)}
+              disabled={disabled}
+              aria-pressed={selected}
+            >
+              #{tag}
+            </button>
+          );
+        })}
+      </div>
+      {!selectedTags.length && <small>Escolhe pelo menos uma tag para aceitar esta proposta.</small>}
+    </div>
+  );
+}
 export function AdvisorProposalBuffer({
   allTasks = [],
   googleCalendars = [],
@@ -860,10 +1025,10 @@ export function AdvisorProposalBuffer({
   applyingAllProposals: boolean;
   calendarWriteReady: boolean;
   onConnectGoogle: () => void;
-  onApplyProposal: (commandId: string) => void;
-  onApplyProposals: (commandIds: string[]) => void;
+  onApplyProposal: (commandId: string, commandOverride?: AiCommand) => void;
+  onApplyProposals: (commandIds: string[], commandOverrides?: Record<string, AiCommand>) => void;
   onIgnoreProposal: (commandId: string) => void;
-  onApplyAllProposals: () => void;
+  onApplyAllProposals: (commandOverrides?: Record<string, AiCommand>) => void;
   onIgnoreAllProposals: () => void;
   onClearProposals: () => void;
   onChangeProposalCalendar: (commandId: string, calendarId: string, calendarSummary: string) => void;
@@ -876,6 +1041,16 @@ export function AdvisorProposalBuffer({
   const visibleCommands = commands.filter((command) => !proposalStatuses[command.id]);
   const pendingCount = visibleCommands.length;
   const [selectedProposalIds, setSelectedProposalIds] = useState<string[]>([]);
+  const [tagSelections, setTagSelections] = useState<Record<string, string[]>>({});
+  const rawCommandById = useMemo(() => {
+    const map = new Map<string, AiCommand>();
+    const rawCommands = proposals.rawCommands || [];
+    commands.forEach((command, index) => {
+      const rawCommand = rawCommands[index];
+      if (rawCommand) map.set(command.id, rawCommand);
+    });
+    return map;
+  }, [commands, proposals.rawCommands]);
   const visibleIds = useMemo(() => new Set(visibleCommands.map((command) => command.id)), [visibleCommands]);
   const selectedVisibleIds = selectedProposalIds.filter((id) => visibleIds.has(id));
   const selectedCount = selectedVisibleIds.length;
@@ -901,14 +1076,71 @@ export function AdvisorProposalBuffer({
     setSelectedProposalIds(selected ? visibleCommands.map((command) => command.id) : []);
   }
 
+  function proposedTagsForCommand(commandId: string) {
+    return tagPatchFromCommand(rawCommandById.get(commandId));
+  }
+
+  function selectedTagsForCommand(commandId: string) {
+    return tagSelections[commandId] || proposedTagsForCommand(commandId);
+  }
+
+  function applicableCommandIds(commandIds: string[]) {
+    return commandIds.filter((commandId) => {
+      const rawCommand = rawCommandById.get(commandId);
+      const proposal = commands.find((command) => command.id === commandId);
+      if (!proposal || !isTagUpdateProposal(proposal, rawCommand)) return true;
+      return selectedTagsForCommand(commandId).length > 0;
+    });
+  }
+
+  function updateTagSelection(commandId: string, tags: string[]) {
+    const proposedTags = proposedTagsForCommand(commandId);
+    setTagSelections((current) => {
+      const next = { ...current };
+      if (sameStringList(tags, proposedTags)) {
+        delete next[commandId];
+      } else {
+        next[commandId] = tags;
+      }
+      return next;
+    });
+  }
+
+  function buildCommandOverrides(commandIds: string[]) {
+    const overrides: Record<string, AiCommand> = {};
+    for (const commandId of commandIds) {
+      const rawCommand = rawCommandById.get(commandId);
+      const proposedTags = proposedTagsForCommand(commandId);
+      if (!rawCommand || !proposedTags.length) continue;
+      const selectedTags = selectedTagsForCommand(commandId);
+      if (!selectedTags.length) continue;
+      if (!sameStringList(selectedTags, proposedTags)) {
+        overrides[commandId] = customizeTagCommand(rawCommand, selectedTags);
+      }
+    }
+    return overrides;
+  }
+
   function applySelectedProposals() {
-    onApplyProposals(selectedVisibleIds);
+    const applicableIds = applicableCommandIds(selectedVisibleIds);
+    onApplyProposals(applicableIds, buildCommandOverrides(applicableIds));
     setSelectedProposalIds([]);
   }
 
   function applyDayProposals(commandIds: string[]) {
-    onApplyProposals(commandIds);
+    const applicableIds = applicableCommandIds(commandIds);
+    onApplyProposals(applicableIds, buildCommandOverrides(applicableIds));
     setSelectedProposalIds((current) => current.filter((id) => !commandIds.includes(id)));
+  }
+
+  function applyAllVisibleProposals() {
+    const commandIds = applicableCommandIds(visibleCommands.map((command) => command.id));
+    onApplyProposals(commandIds, buildCommandOverrides(commandIds));
+  }
+
+  function applyOneProposal(commandId: string) {
+    const overrides = buildCommandOverrides([commandId]);
+    onApplyProposal(commandId, overrides[commandId]);
   }
 
   return (
@@ -918,7 +1150,7 @@ export function AdvisorProposalBuffer({
           <h3>Propostas para validar</h3>
         </div>
         <div className="advisor-buffer-actions">
-          <button type="button" className="button primary small" onClick={onApplyAllProposals} disabled={!pendingCount || applyingAllProposals || calendarPermissionBlocked}>
+          <button type="button" className="button primary small" onClick={applyAllVisibleProposals} disabled={!pendingCount || applyingAllProposals || calendarPermissionBlocked}>
             {applyingAllProposals ? 'A aplicar...' : `Aceitar todos${pendingCount ? ` (${pendingCount})` : ''}`}
           </button>
           <button type="button" className="button secondary small" onClick={applySelectedProposals} disabled={!selectedCount || applyingAllProposals || calendarPermissionBlocked}>
@@ -987,6 +1219,11 @@ export function AdvisorProposalBuffer({
             const affectedTitle = affectedCardTitle(proposal);
             const calendarEvent = (proposal.changes as ObjectRecord | undefined)?.calendarEvent as ObjectRecord | undefined;
             const proposalCalendarId = String(calendarEvent?.calendarId || '');
+            const rawCommand = rawCommandById.get(proposal.id);
+            const proposedTags = proposedTagsForCommand(proposal.id);
+            const selectedTags = selectedTagsForCommand(proposal.id);
+            const isTagProposal = isTagUpdateProposal(proposal, rawCommand);
+            const noTagsSelected = isTagProposal && selectedTags.length === 0;
 
             return (
               <article className={`advisor-proposal ${selectedVisibleIds.includes(proposal.id) ? 'is-selected' : ''}`} key={proposal.id}>
@@ -1004,6 +1241,14 @@ export function AdvisorProposalBuffer({
                   <p>{proposal.reason}</p>
                   {proposal.alreadyExists && <small>Esta proposta ja existe ou esta duplicada.</small>}
                   <ProposalChanges proposal={proposal} allTasks={allTasks} />
+                  {isTagProposal && (
+                    <AdvisorTagChoice
+                      tags={proposedTags}
+                      selectedTags={selectedTags}
+                      disabled={disabled}
+                      onChange={(tags) => updateTagSelection(proposal.id, tags)}
+                    />
+                  )}
                   {proposal.type === 'create_calendar_event' && googleCalendars.length > 0 && (
                     <label className="advisor-calendar-select">
                       <span>Calendario destino</span>
@@ -1034,7 +1279,7 @@ export function AdvisorProposalBuffer({
                       Abrir task
                     </button>
                   )}
-                  <button type="button" className="button primary small" onClick={() => onApplyProposal(proposal.id)} disabled={disabled}>
+                  <button type="button" className="button primary small" onClick={() => applyOneProposal(proposal.id)} disabled={disabled || noTagsSelected}>
                     {needsCalendarPermission ? 'Requer Google' : applyingProposalId === proposal.id ? 'A aplicar...' : 'Aceitar'}
                   </button>
                   <button type="button" className="button secondary small" onClick={() => onIgnoreProposal(proposal.id)} disabled={disabled}>

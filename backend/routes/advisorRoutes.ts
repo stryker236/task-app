@@ -45,6 +45,10 @@ function hasActiveTaskCalendarEvent(events = [], now = new Date()) {
 	return events.some((event) => isActiveTaskCalendarEvent(event, now));
 }
 
+function activeTaskCalendarEvents(events = [], now = new Date()) {
+	return (Array.isArray(events) ? events : []).filter((event) => isActiveTaskCalendarEvent(event, now));
+}
+
 function previewChangedFields(preview) {
 	const changes = preview?.changes && typeof preview.changes === 'object' ? preview.changes : {};
 	const before = changes.before || {};
@@ -366,6 +370,7 @@ function buildTagSuggestionDebug({
 	tasks = [],
 	advisorCommands = [],
 	tagDecisions = [],
+	tagSuggestionDebug = null,
 	actionFiltered = { previews: [] },
 	calendarFiltered = { previews: [] },
 	duplicateFiltered = { previews: [] },
@@ -388,6 +393,25 @@ function buildTagSuggestionDebug({
 	const afterActionFilter = actionFiltered.previews.length;
 	const afterMemoryFilter = filtered.previews.length;
 	const rejectedCount = (filtered.rejected || []).length;
+	const filterDebug = {
+		afterActionFilter,
+		afterCalendarFilter: calendarFiltered.previews.length,
+		afterPastFilter: calendarFiltered.previews.length,
+		afterDuplicateBatchFilter: duplicateFiltered.previews.length,
+		afterExistingGoogleFilter: duplicateFiltered.previews.length,
+		afterMemoryFilter,
+		rejectedCount,
+		rejectionReasons: countRejectionReasons((filtered.rejected || []).map((item) => ({ reason: item.memoryRules?.[0]?.matchedReasons?.[0] || 'memory_suppressed' }))),
+		rejections: (filtered.rejected || []).slice(0, 25).map((item) => ({
+			status: 'rejected',
+			reason: item.memoryRules?.[0]?.matchedReasons?.[0] || 'memory_suppressed',
+			commandId: item.preview?.id || item.command?.id || '',
+			taskId: item.preview?.taskId || item.command?.taskId || null,
+			taskTitle: item.preview?.taskTitle || null,
+			summary: item.preview?.summary || item.command?.label || '',
+			memoryRules: item.memoryRules || []
+		}))
+	};
 	let noSuggestionReason = '';
 	if (afterMemoryFilter === 0) {
 		if (candidates.length === 0) {
@@ -420,11 +444,26 @@ function buildTagSuggestionDebug({
 		afterMemoryFilter,
 		rejectedCount,
 		noSuggestionReason,
+		tagSuggestionFlow: tagSuggestionDebug ? {
+			...tagSuggestionDebug,
+			filters: filterDebug
+		} : null,
+		availableTagCount: tagSuggestionDebug?.availableTagCount ?? null,
+		availableTags: tagSuggestionDebug?.availableTags || [],
+		selectedTagTasks: tagSuggestionDebug?.selectedTasks || [],
+		selectedTagTaskCount: tagSuggestionDebug?.selectedTaskCount ?? null,
+		selectedUntaggedTagTaskCount: tagSuggestionDebug?.selectedUntaggedTaskCount ?? null,
+		skippedTagTasks: tagSuggestionDebug?.skippedTasks || [],
+		pickedTags: tagSuggestionDebug?.pickedTags || [],
+		pickedTagCounts: tagSuggestionDebug?.pickedTagCounts || {},
+		tagDecisionStatusCounts: tagSuggestionDebug?.decisionStatusCounts || {},
+		tagGeneratedCommands: tagSuggestionDebug?.generatedCommands || [],
+		tagBatches: tagSuggestionDebug?.batches || [],
 		tagDecisionCount: tagDecisions.length,
 		tagDecisionCounts: decisionCounts,
-		tagDecisions: tagDecisions.slice(0, 120).map((decision) => ({
+		tagDecisions: (tagSuggestionDebug?.decisions || tagDecisions).slice(0, 120).map((decision) => ({
 			...decision,
-			taskTitle: tasksById.get(String(decision.taskId))?.title || ''
+			taskTitle: decision.taskTitle || tasksById.get(String(decision.taskId))?.title || ''
 		})),
 		candidateTaskCount: candidates.length,
 		candidateUntaggedTaskCount: untaggedCandidates.length,
@@ -434,16 +473,8 @@ function buildTagSuggestionDebug({
 		notAvailableUntaggedTaskCount: notAvailableUntagged.length,
 		notGeneratedUntaggedTasks: notGeneratedUntagged.slice(0, 20).map(compactCandidateTask),
 		notAvailableUntaggedTasks: notAvailableUntagged.slice(0, 20).map(compactCandidateTask),
-		rejectionReasons: countRejectionReasons((filtered.rejected || []).map((item) => ({ reason: item.memoryRules?.[0]?.matchedReasons?.[0] || 'memory_suppressed' }))),
-		rejections: (filtered.rejected || []).slice(0, 25).map((item) => ({
-			status: 'rejected',
-			reason: item.memoryRules?.[0]?.matchedReasons?.[0] || 'memory_suppressed',
-			commandId: item.preview?.id || item.command?.id || '',
-			taskId: item.preview?.taskId || item.command?.taskId || null,
-			taskTitle: item.preview?.taskTitle || null,
-			summary: item.preview?.summary || item.command?.label || '',
-			memoryRules: item.memoryRules || []
-		}))
+		rejectionReasons: filterDebug.rejectionReasons,
+		rejections: filterDebug.rejections
 	};
 }
 
@@ -594,6 +625,15 @@ function periodicTaskConstraintsForCandidate(task: any, candidateId: string, now
 				hard: constraint.hard !== false
 			});
 		}
+		if (constraint.type === 'break_after_task' || constraint.type === 'break_after_work_block') {
+			constraints.push({
+				id: constraint.id,
+				ruleId: `periodic:${task.id}`,
+				type: constraint.type,
+				payload,
+				hard: constraint.hard !== false
+			});
+		}
 	}
 	return constraints;
 }
@@ -647,6 +687,9 @@ function buildPeriodicSchedulerCandidates(periodicTasks: any[] = [], now = new D
 				periodicTaskId: task.id,
 				title: task.title,
 				notes: task.notes || '',
+				tags: Array.isArray(task.tags) ? task.tags : [],
+				status: 'new',
+				priority: task.priority ?? null,
 				estimatedMinutes: task.estimatedMinutes || 30,
 				dueDateTime: fixed?.fixedStart || null
 			});
@@ -690,6 +733,124 @@ function resolveSchedulerRulesForTasks(rules: any[] = [], tasks: any[] = []) {
 		}
 	}
 	return taskConstraints;
+}
+
+function taskBreakConstraints(taskConstraints: any[] = []) {
+	return (Array.isArray(taskConstraints) ? taskConstraints : []).filter((constraint) => (
+		constraint?.type === 'break_after_task' || constraint?.type === 'break_after_work_block'
+	));
+}
+
+function constraintBreakMinutes(constraint: any) {
+	const minutes = Number(constraint?.payload?.breakMinutes || 0);
+	return Number.isFinite(minutes) && minutes > 0 ? Math.max(15, Math.min(240, Math.round(minutes))) : 0;
+}
+
+function constraintMinDurationMinutes(constraint: any) {
+	const minutes = Number(constraint?.payload?.minDurationMinutes || 0);
+	return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0;
+}
+
+function constraintWorkMinutes(constraint: any) {
+	const minutes = Number(constraint?.payload?.workMinutes || 0);
+	return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0;
+}
+
+function intervalOverlaps(start: number, end: number, busy: any[] = []) {
+	return busy.some((item) => {
+		const busyStart = Date.parse(item?.start || '');
+		const busyEnd = Date.parse(item?.end || '');
+		return !Number.isNaN(busyStart) && !Number.isNaN(busyEnd) && start < busyEnd && busyStart < end;
+	});
+}
+
+function createBreakBlockFromEvent({ event, constraint, reason, busy = [] }: Record<string, any>) {
+	const eventStart = Date.parse(event?.start || '');
+	const eventEnd = Date.parse(event?.end || '');
+	const breakMinutes = constraintBreakMinutes(constraint);
+	if (Number.isNaN(eventStart) || Number.isNaN(eventEnd) || eventEnd <= eventStart || breakMinutes <= 0) return null;
+	const breakStart = eventEnd;
+	const breakEnd = breakStart + breakMinutes * 60 * 1000;
+	if (intervalOverlaps(breakStart, breakEnd, busy)) return null;
+	return {
+		type: 'break',
+		start: new Date(breakStart).toISOString(),
+		end: new Date(breakEnd).toISOString(),
+		reason,
+		sourceRuleId: constraint.ruleId || null,
+		sourceConstraintId: constraint.id || null
+	};
+}
+
+function createBreakCommand(block: any, index: number, calendarId: string, calendarSummary: string, calendarTimeZone: string) {
+	return {
+		id: `existing_schedule_break_${index + 1}`,
+		type: 'create_calendar_event',
+		taskId: null,
+		periodicTaskId: null,
+		reason: block.reason === 'break_after_task'
+			? 'Pausa criada pela regra de descanso apos um evento ja agendado.'
+			: 'Pausa criada pela regra de descanso apos um bloco de trabalho ja agendado.',
+		event: {
+			summary: 'Pausa',
+			description: block.reason || 'scheduler break',
+			location: '',
+			start: block.start,
+			end: block.end,
+			timeZone: calendarTimeZone,
+			calendarId,
+			calendarSelectionReason: `default calendar: ${calendarSummary}`
+		}
+	};
+}
+
+function existingScheduledBreakBlocks({ scheduledItems = [], taskConstraints = {}, busy = [] }: Record<string, any>) {
+	const blocks = [];
+	const occupied = [...busy];
+	const sortedItems = [...scheduledItems].sort((left, right) => Date.parse(left.event?.start || '') - Date.parse(right.event?.start || ''));
+	let workBlockMinutes = 0;
+	let workBlockLastEnd = '';
+	let workBlockConstraint: any = null;
+	for (const item of sortedItems) {
+		const constraints = taskBreakConstraints(taskConstraints[String(item.taskId)] || []);
+		if (!constraints.length) continue;
+		const eventStart = Date.parse(item.event?.start || '');
+		const eventEnd = Date.parse(item.event?.end || '');
+		if (Number.isNaN(eventStart) || Number.isNaN(eventEnd) || eventEnd <= eventStart) continue;
+		const durationMinutes = Math.round((eventEnd - eventStart) / 60000);
+		for (const constraint of constraints.filter((constraint) => constraint.type === 'break_after_task')) {
+			if (durationMinutes < constraintMinDurationMinutes(constraint)) continue;
+			const block = createBreakBlockFromEvent({ event: item.event, constraint, reason: 'break_after_task', busy: occupied });
+			if (block) {
+				blocks.push(block);
+				occupied.push({ start: block.start, end: block.end });
+			}
+		}
+		const currentWorkBlock = constraints.find((constraint) => constraint.type === 'break_after_work_block');
+		if (!currentWorkBlock) {
+			workBlockMinutes = 0;
+			workBlockLastEnd = '';
+			workBlockConstraint = null;
+			continue;
+		}
+		if (!workBlockLastEnd || Date.parse(workBlockLastEnd) !== eventStart || String(workBlockConstraint?.id || '') !== String(currentWorkBlock.id || '')) {
+			workBlockMinutes = 0;
+		}
+		workBlockMinutes += durationMinutes;
+		workBlockLastEnd = item.event.end;
+		workBlockConstraint = currentWorkBlock;
+		if (workBlockMinutes >= constraintWorkMinutes(currentWorkBlock)) {
+			const block = createBreakBlockFromEvent({ event: item.event, constraint: currentWorkBlock, reason: 'break_after_work_block', busy: occupied });
+			if (block) {
+				blocks.push(block);
+				occupied.push({ start: block.start, end: block.end });
+				workBlockMinutes = 0;
+				workBlockLastEnd = '';
+				workBlockConstraint = null;
+			}
+		}
+	}
+	return blocks;
 }
 
 function schedulerConstraintMap(constraints: any[] = []) {
@@ -775,30 +936,75 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 	const calendarSummary = defaultCalendar?.summary || calendarId;
 	const calendarTimeZone = defaultCalendar?.timeZone || 'Europe/Lisbon';
 	const fixedConstraints = schedulerConstraintMap(constraints);
+	const requestedStart = Date.parse(String(scheduleStartFrom || ''));
+	const nowDate = Number.isNaN(requestedStart) ? new Date() : new Date(Math.max(Date.now(), requestedStart));
+	const now = nowDate.toISOString();
 	const linkedResults = await Promise.all(tasks.map(async (task) => ({
 		task,
 		linkedEvents: task?.id && dependencies.fetchTaskCalendarEvents
 			? await dependencies.fetchTaskCalendarEvents(dependencies.pool, task.id)
 			: []
 	})));
+	const activeLinkedScheduledItems = linkedResults
+		.filter(({ task }) => isEligibleCalendarTask(task))
+		.flatMap(({ task, linkedEvents }) => activeTaskCalendarEvents(linkedEvents, nowDate).map((event) => ({
+			taskId: String(task.id),
+			task,
+			event: {
+				start: event.start || event.startAt,
+				end: event.end || event.endAt,
+				calendarId: event.calendarId || calendarId,
+				summary: event.summary || task.title || ''
+			}
+		})));
 	const eligibleTasks = linkedResults
 		.filter(({ task, linkedEvents }) => isEligibleCalendarTask(task) && !hasActiveTaskCalendarEvent(linkedEvents))
 		.map(({ task }) => task);
 	const periodicTasks = dependencies.fetchPeriodicTasks
 		? await dependencies.fetchPeriodicTasks(dependencies.pool, { activeOnly: true, includeOccurrences: true })
 		: [];
-	const periodicScheduler = buildPeriodicSchedulerCandidates(periodicTasks, new Date());
+	const periodicScheduler = buildPeriodicSchedulerCandidates(periodicTasks, nowDate);
+	const activePeriodicScheduledItems = periodicTasks.flatMap((task) => (
+		(task.occurrences || [])
+			.filter((occurrence) => ['scheduled', 'completed'].includes(occurrence.status) && isActiveTaskCalendarEvent({ end: occurrence.scheduledEnd }, nowDate))
+			.map((occurrence) => ({
+				taskId: `periodic-existing:${occurrence.id}`,
+				periodicTask: task,
+				task: {
+					id: `periodic-existing:${occurrence.id}`,
+					periodicTaskId: task.id,
+					title: task.title,
+					notes: task.notes || '',
+					tags: Array.isArray(task.tags) ? task.tags : [],
+					status: 'new',
+					priority: task.priority ?? null,
+					estimatedMinutes: task.estimatedMinutes || 30
+				},
+				event: {
+					start: occurrence.scheduledStart,
+					end: occurrence.scheduledEnd,
+					calendarId: occurrence.calendarId || calendarId,
+					summary: task.title || ''
+				}
+			}))
+	));
 	const schedulerCandidates = [...eligibleTasks, ...periodicScheduler.candidates];
 	const activeSchedulerRules = dependencies.fetchActiveSchedulerRules
 		? await dependencies.fetchActiveSchedulerRules(dependencies.pool)
 		: [];
-	const taskConstraints = resolveSchedulerRulesForTasks(activeSchedulerRules, eligibleTasks);
+	const existingScheduledItems = [...activeLinkedScheduledItems, ...activePeriodicScheduledItems];
+	const existingScheduledTasks = existingScheduledItems.map((item) => item.task);
+	const taskConstraints = resolveSchedulerRulesForTasks(activeSchedulerRules, [...schedulerCandidates, ...existingScheduledTasks]);
 	for (const [taskId, periodicConstraints] of Object.entries(periodicScheduler.taskConstraints)) {
 		taskConstraints[taskId] = [...(taskConstraints[taskId] || []), ...(periodicConstraints as any[])];
 	}
-	const requestedStart = Date.parse(String(scheduleStartFrom || ''));
-	const nowDate = Number.isNaN(requestedStart) ? new Date() : new Date(Math.max(Date.now(), requestedStart));
-	const now = nowDate.toISOString();
+	for (const item of activePeriodicScheduledItems) {
+		taskConstraints[item.taskId] = [
+			...(taskConstraints[item.taskId] || []),
+			...periodicTaskConstraintsForCandidate(item.periodicTask, item.taskId, nowDate)
+				.filter((constraint) => constraint.type === 'break_after_task' || constraint.type === 'break_after_work_block')
+		];
+	}
 	const periodicFixedMap = new Map(periodicScheduler.fixedConstraints.map((item) => [String(item.taskId), item]));
 	const combinedFixedConstraints = new Map([...fixedConstraints.entries(), ...periodicFixedMap.entries()]);
 	const horizonEnd = scheduleHorizon(schedulerCandidates, combinedFixedConstraints, nowDate);
@@ -814,7 +1020,12 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 		...event,
 		calendarSummary: calendarSummaryById.get(String(event.calendarId)) || String(event.calendarId || '')
 	}));
-	const reservedBusy = [];
+	const existingBreakBlocks = existingScheduledBreakBlocks({
+		scheduledItems: existingScheduledItems,
+		taskConstraints,
+		busy: busyWithCalendarSummaries
+	});
+	const reservedBusy = existingBreakBlocks;
 	const schedulerRequest = {
 		now,
 		horizonEnd,
@@ -837,6 +1048,7 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 	};
 	const scheduled = await requestSchedule(schedulerRequest);
 	const tasksById = new Map(schedulerCandidates.map((task) => [String(task.id), task]));
+	const existingReservedBlockCommands = existingBreakBlocks.map((block, index) => createBreakCommand(block, index, calendarId, calendarSummary, calendarTimeZone));
 	const reservedBlockCommands = (scheduled.reserved || []).map((block, index) => ({
 		id: `schedule_break_${index + 1}`,
 		type: 'create_calendar_event',
@@ -890,7 +1102,7 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 			}
 		};
 	});
-	commands = [...commands, ...reservedBlockCommands];
+	commands = [...commands, ...existingReservedBlockCommands, ...reservedBlockCommands];
 	const explanationModel = null;
 	const explanationSummary = '';
 	return {
@@ -921,6 +1133,7 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 					periodicSpacingBusy: periodicScheduler.spacingBusy,
 					activeSchedulerRules,
 					googleBusyEvents: busyWithCalendarSummaries,
+					existingScheduledItems,
 					committedReservedBusy: reservedBusy,
 					manualFixedConstraints: [...fixedConstraints.entries()].map(([taskId, constraint]) => ({ taskId, ...constraint })),
 					combinedFixedConstraints: [...combinedFixedConstraints.entries()].map(([taskId, constraint]) => ({ taskId, ...constraint }))
@@ -1113,6 +1326,7 @@ function createAdvisorRouter({
 					tasks,
 					advisorCommands,
 					tagDecisions: advisor.tagDecisions || [],
+					tagSuggestionDebug: advisor.tagSuggestionDebug || null,
 					actionFiltered,
 					calendarFiltered,
 					duplicateFiltered,

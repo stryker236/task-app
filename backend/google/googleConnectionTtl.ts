@@ -1,4 +1,4 @@
-const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000; // This represents a day
 const DEFAULT_GOOGLE_CONNECTION_TTL_DAYS = 365;
 
 function googleConnectionTtlDays() {
@@ -8,7 +8,7 @@ function googleConnectionTtlDays() {
 }
 
 function googleConnectionTtlMs() {
-  return googleConnectionTtlDays() * DAY_MS;
+  return googleConnectionTtlDays() * DAY_MS; // 
 }
 
 function googleConnectionExpiresAt(now = Date.now()) {

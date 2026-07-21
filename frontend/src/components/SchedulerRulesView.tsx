@@ -125,6 +125,35 @@ function selectedStrings(current: string[], value: string, checked: boolean) {
   else set.delete(value);
   return [...set];
 }
+
+function arrayValue(value: unknown) {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+function constraintAppliesToTask(constraint: { scope?: Record<string, unknown> }, task: Task) {
+  const scope = constraint.scope || {};
+  const keys = Object.keys(scope).filter((key) => {
+    const value = scope[key];
+    return !(Array.isArray(value) && value.length === 0) && value !== false && value != null;
+  });
+  if (!keys.length || scope.allTasks === true) return true;
+  const tags = arrayValue(scope.tags);
+  if (tags.length && !tags.some((tag) => task.tags.includes(tag))) return false;
+  const titleIncludes = arrayValue(scope.titleIncludes).map((item) => item.toLocaleLowerCase());
+  if (titleIncludes.length && !titleIncludes.some((item) => task.title.toLocaleLowerCase().includes(item))) return false;
+  const taskIds = arrayValue(scope.taskIds);
+  if (taskIds.length && !taskIds.includes(task.id)) return false;
+  const statuses = arrayValue(scope.statuses);
+  if (statuses.length && !statuses.includes(task.status)) return false;
+  const priorities = Array.isArray(scope.priorities) ? scope.priorities.map(Number) : [];
+  if (priorities.length && !priorities.includes(task.priority)) return false;
+  return true;
+}
+
+function ruleAppliesToTask(rule: SchedulerRule, task: Task) {
+  return rule.enabled && rule.status === 'active' && rule.constraints.some((constraint) => constraint.enabled && constraintAppliesToTask(constraint, task));
+}
+
 function appendTaskIdList(current: string, taskId: string) {
   return [...new Set([...splitList(current), taskId])].join(', ');
 }
@@ -518,19 +547,32 @@ export default function SchedulerRulesView() {
   const [copiedTaskId, setCopiedTaskId] = useState('');
   const [ruleTitleDraft, setRuleTitleDraft] = useState('');
   const [savingRuleTitle, setSavingRuleTitle] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState('');
+  const [refreshFailed, setRefreshFailed] = useState(false);
 
   const selectedRule = useMemo(() => rules.find((rule) => rule.id === selectedId) || rules[0] || null, [rules, selectedId]);
+  const affectedTasks = useMemo(() => selectedRule ? tasks.filter((task) => ruleAppliesToTask(selectedRule, task)) : [], [selectedRule, tasks]);
 
-  async function refresh() {
+  async function refresh(options: { preferredSelectedId?: string; silent?: boolean } = {}) {
     try {
       setLoading(true);
       setError('');
+      setRefreshFailed(false);
+      if (!options.silent) setRefreshNotice('');
       const [nextRules, nextTasks] = await Promise.all([getSchedulerRules(), getTasks({ includeArchived: true })]);
       setRules(nextRules);
       setTasks(nextTasks);
-      setSelectedId((current) => current && nextRules.some((rule) => rule.id === current) ? current : nextRules[0]?.id || '');
+      setSelectedId((current) => {
+        if (options.preferredSelectedId && nextRules.some((rule) => rule.id === options.preferredSelectedId)) return options.preferredSelectedId;
+        return current && nextRules.some((rule) => rule.id === current) ? current : nextRules[0]?.id || '';
+      });
+      setRefreshNotice(`Impacto atualizado: ${nextRules.length} regras e ${nextTasks.length} tasks carregadas.`);
+      return true;
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
+      setRefreshFailed(true);
+      setRefreshNotice('Nao consegui atualizar o impacto das regras. Podes tentar novamente.');
+      return false;
     } finally {
       setLoading(false);
     }
@@ -546,6 +588,7 @@ export default function SchedulerRulesView() {
       setSelectedId(result.rules[0]?.id || '');
       setLastCreatedCount(result.rules.length);
       setMessage('');
+      await refresh({ preferredSelectedId: result.rules[0]?.id || '', silent: true });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -559,6 +602,7 @@ export default function SchedulerRulesView() {
       const updated = await updateSchedulerRule(rule.id, { enabled });
       setRules((current) => current.map((item) => item.id === updated.id ? updated : item));
       setSelectedId(updated.id);
+      await refresh({ preferredSelectedId: updated.id, silent: true });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     }
@@ -577,6 +621,7 @@ export default function SchedulerRulesView() {
       const updated = await updateSchedulerRule(rule.id, { constraints });
       setRules((current) => current.map((item) => item.id === updated.id ? updated : item));
       setSelectedId(updated.id);
+      await refresh({ preferredSelectedId: updated.id, silent: true });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -596,6 +641,7 @@ export default function SchedulerRulesView() {
       const updated = await updateSchedulerRule(rule.id, { text });
       setRules((current) => current.map((item) => item.id === updated.id ? updated : item));
       setSelectedId(updated.id);
+      await refresh({ preferredSelectedId: updated.id, silent: true });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     } finally {
@@ -614,6 +660,7 @@ export default function SchedulerRulesView() {
       const updated = await reinterpretSchedulerRule(rule.id);
       setRules((current) => current.map((item) => item.id === updated.id ? updated : item));
       setSelectedId(updated.id);
+      await refresh({ preferredSelectedId: updated.id, silent: true });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     }
@@ -625,6 +672,7 @@ export default function SchedulerRulesView() {
       await deleteSchedulerRule(rule.id);
       setRules((current) => current.filter((item) => item.id !== rule.id));
       setSelectedId((current) => current === rule.id ? '' : current);
+      await refresh({ silent: true });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : String(requestError));
     }
@@ -651,10 +699,16 @@ export default function SchedulerRulesView() {
           <h2>Regras de agendamento</h2>
           <p>Escreve preferencias em texto ou corrige restricoes com campos seguros. A app valida o formato antes de guardar.</p>
         </div>
-        <button type="button" className="button secondary small" onClick={refresh} disabled={loading}>{loading ? 'A carregar...' : 'Atualizar'}</button>
+        <button type="button" className="button secondary small" onClick={() => { void refresh(); }} disabled={loading}>{loading ? 'A carregar...' : 'Atualizar'}</button>
       </header>
 
       {error && <p className="advisor-empty">{error}</p>}
+      {refreshNotice && (
+        <p className={`scheduler-refresh-notice ${refreshFailed ? 'is-error' : ''}`}>
+          {refreshNotice}
+          {refreshFailed && <button type="button" className="button secondary small" onClick={() => { void refresh(); }} disabled={loading}>{loading ? 'A atualizar...' : 'Atualizar agora'}</button>}
+        </p>
+      )}
       {lastCreatedCount > 1 && <p className="scheduler-split-notice">A mensagem foi dividida em {lastCreatedCount} regras concretas. Reve cada uma antes de confiar no agendamento.</p>}
 
       <div className="scheduler-rules-layout">
@@ -697,13 +751,30 @@ export default function SchedulerRulesView() {
                 <div><dt>Estado</dt><dd>{selectedRule.enabled ? 'Ativa no scheduler' : 'Nao usada no scheduler'}</dd></div>
                 <div><dt>Confianca</dt><dd>{selectedRule.confidence != null ? `${Math.round(selectedRule.confidence * 100)}%` : 'Manual ou nao indicada'}</dd></div>
                 <div><dt>Modelo</dt><dd>{selectedRule.model || 'Nao indicado'}</dd></div>
+                <div><dt>Tasks afetadas</dt><dd>{affectedTasks.length}</dd></div>
               </dl>
 
               <div className="scheduler-rule-actions">
                 <button type="button" className="button secondary small" onClick={() => setRuleEnabled(selectedRule, !selectedRule.enabled)}>{selectedRule.enabled ? 'Desativar' : 'Ativar'}</button>
                 <button type="button" className="button secondary small" onClick={() => reinterpret(selectedRule)}>Reinterpretar</button>
+                <button type="button" className="button secondary small" onClick={() => refresh({ preferredSelectedId: selectedRule.id })} disabled={loading}>{loading ? 'A atualizar...' : 'Atualizar impacto'}</button>
                 <button type="button" className="button ghost small" onClick={() => removeRule(selectedRule)}>Apagar</button>
               </div>
+
+              {affectedTasks.length > 0 && (
+                <section className="scheduler-constraints-section">
+                  <h4>Tasks afetadas</h4>
+                  <div className="scheduler-affected-task-list">
+                    {affectedTasks.slice(0, 12).map((task) => (
+                      <article key={task.id}>
+                        <strong>{task.title}</strong>
+                        <small>{task.status} - P{task.priority}{task.tags.length ? ` - #${task.tags.join(' #')}` : ''}</small>
+                      </article>
+                    ))}
+                    {affectedTasks.length > 12 && <p className="advisor-empty">+{affectedTasks.length - 12} tasks adicionais.</p>}
+                  </div>
+                </section>
+              )}
 
               <section className="scheduler-constraints-section">
                 <h4>Restricoes derivadas</h4>

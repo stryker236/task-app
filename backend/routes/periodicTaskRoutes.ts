@@ -2,7 +2,7 @@ const express = require('express');
 const { createValidationError, normalizeString } = require('../tasks/taskValidation');
 
 const PERIODS = ['week', 'month'];
-const CONSTRAINT_TYPES = ['fixed_occurrence', 'allowed_window', 'minimum_count'];
+const CONSTRAINT_TYPES = ['fixed_occurrence', 'allowed_window', 'minimum_count', 'break_after_task', 'break_after_work_block'];
 const OCCURRENCE_STATUSES = ['scheduled', 'completed', 'skipped', 'cancelled'];
 
 function sanitizeStringList(value: unknown): string[] {

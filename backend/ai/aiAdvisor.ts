@@ -41,6 +41,57 @@ function sameTagList(left = [], right = []) {
   return JSON.stringify(leftKeys) === JSON.stringify(rightKeys);
 }
 
+function tagName(tag: any) {
+  return String(typeof tag === 'string' ? tag : tag?.name || tag?.tag || tag?.label || '').trim();
+}
+
+function compactAvailableTags(tags = []) {
+  const seen = new Set();
+  const result = [];
+  for (const tag of Array.isArray(tags) ? tags : []) {
+    const name = tagName(tag);
+    const key = name.toLocaleLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    result.push(name);
+  }
+  return result.slice(0, 200);
+}
+
+function compactTagDebugTask(task: any = {}) {
+  return {
+    taskId: String(task.id || ''),
+    taskTitle: String(task.title || ''),
+    status: String(task.status || ''),
+    priority: task.priority ?? null,
+    dueDateTime: task.dueDateTime || null,
+    existingTags: sanitizeTagList(task.tags || []),
+    hasTags: Array.isArray(task.tags) && task.tags.length > 0,
+    notesChars: typeof task.notes === 'string' ? task.notes.length : 0,
+    updatedAt: task.updatedAt || null,
+    createdAt: task.createdAt || null
+  };
+}
+
+function tagSuggestionTaskSkipReason(task: any = {}) {
+  if (task?.isArchived) return 'archived';
+  if (!['new', 'in_progress', 'waiting'].includes(String(task?.status || ''))) return 'not_active_status';
+  return 'not_selected_by_context_selector';
+}
+
+function countTags(items = []) {
+  return items.reduce((counts, tag) => {
+    const value = String(tag || '').trim();
+    if (!value) return counts;
+    counts[value] = (counts[value] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function sampleItems(items = [], limit = 12) {
+  return Array.isArray(items) ? items.slice(0, limit) : [];
+}
+
 function safeJsonParse(value) {
   if (typeof value !== 'string') return null;
   try {
@@ -203,17 +254,52 @@ async function generateTagAdvisorCommands({ tasks, tags = [], memory = [] }) {
   const selectedTasks = selectCommandContextTasks({ action: 'suggest_tags', tasks });
   const batchSize = Math.max(1, Math.min(40, numberFromEnv(process.env.AI_TAG_SUGGESTION_BATCH_SIZE, 20)));
   const batches = chunkItems(selectedTasks, batchSize);
+  const selectedTaskIds = new Set(selectedTasks.map((task: any) => String(task.id)));
+  const availableTags = compactAvailableTags(tags);
+  const selectedTaskDebug = selectedTasks.map(compactTagDebugTask);
+  const skippedTaskDebug = (Array.isArray(tasks) ? tasks : [])
+    .filter((task: any) => task?.id && !selectedTaskIds.has(String(task.id)))
+    .map((task: any) => ({
+      ...compactTagDebugTask(task),
+      reason: tagSuggestionTaskSkipReason(task)
+    }))
+    .slice(0, 120);
   const startedAt = Date.now();
   const decisions = [];
   const summaries = [];
+  const batchDebug = [];
   logger.info('advisor.openai.tag_request.started', {
     metadata: {
       action: 'suggest_tags',
       model: DEFAULT_MODEL,
-      taskCount: tasks.length,
-      selectedTaskCount: selectedTasks.length,
+      totalTaskCount: Array.isArray(tasks) ? tasks.length : 0,
+      tasksSentToAiCount: selectedTasks.length,
+      untaggedTasksSentToAiCount: selectedTaskDebug.filter((task) => !task.hasTags).length,
+      tasksNotSentToAiCount: Math.max(0, (Array.isArray(tasks) ? tasks.length : 0) - selectedTasks.length),
+      availableTagsSentToAiCount: availableTags.length,
+      memoryRuleCount: Array.isArray(memory) ? memory.length : 0,
       batchCount: batches.length,
       batchSize
+    }
+  });
+  logger.debug('advisor.tags.selection', {
+    metadata: {
+      flow: {
+        summary: {
+          action: 'suggest_tags',
+          selectedTaskCount: selectedTasks.length,
+          selectedUntaggedTaskCount: selectedTaskDebug.filter((task) => !task.hasTags).length,
+          skippedTaskCount: skippedTaskDebug.length
+        },
+        selection: {
+          tasksSentToAiSample: sampleItems(selectedTaskDebug, 20),
+          tasksNotSentToAiSample: sampleItems(skippedTaskDebug, 20)
+        },
+        input: {
+          availableTagCount: availableTags.length,
+          availableTagsSentToAiSample: sampleItems(availableTags, 30)
+        }
+      }
     }
   });
 
@@ -225,30 +311,65 @@ async function generateTagAdvisorCommands({ tasks, tags = [], memory = [] }) {
       batchIndex: index + 1,
       batchCount: batches.length
     });
-    logger.info('advisor.openai.tag_request.batch', {
+    logger.debug('advisor.openai.tag_request.batch', {
       metadata: {
-        action: 'suggest_tags',
-        model: body.model,
-        batchIndex: index + 1,
-        batchCount: batches.length,
-        taskCount: batchTasks.length,
-        payloadSummary: summarizeOpenAiRequestPayload(body),
+        flow: {
+          summary: {
+            action: 'suggest_tags',
+            model: body.model,
+            batchIndex: index + 1,
+            batchCount: batches.length,
+            taskCount: batchTasks.length
+          },
+          input: {
+            payloadSummary: summarizeOpenAiRequestPayload(body),
+            tasksSentToAiSample: sampleItems(batchTasks.map(compactTagDebugTask), 10)
+          }
+        },
         logPayload: process.env.LOG_AI_PAYLOADS === 'true' ? body : undefined
       }
     });
     const parsed = await requestOpenAiJson(body, numberFromEnv(process.env.OPENAI_REQUEST_TIMEOUT_MS, 60000));
-    logger.info('advisor.openai.tag_response.batch', {
+    const normalizedBatchDecisions = normalizeTagSuggestionDecisions(parsed, batchTasks);
+    batchDebug.push({
+      batchIndex: index + 1,
+      batchCount: batches.length,
+      taskCount: batchTasks.length,
+      taskIds: batchTasks.map((task: any) => String(task.id)),
+      tasks: batchTasks.map(compactTagDebugTask),
+      decisions: normalizedBatchDecisions.map((decision) => ({
+        taskId: decision.taskId,
+        taskTitle: String(batchTasks.find((task: any) => String(task.id) === String(decision.taskId))?.title || ''),
+        decision: decision.decision,
+        reason: decision.reason,
+        suggestedTags: decision.suggestedTags
+      }))
+    });
+    logger.debug('advisor.openai.tag_response.batch', {
       metadata: {
-        action: 'suggest_tags',
-        model: body.model,
-        batchIndex: index + 1,
-        batchCount: batches.length,
-        responseSummary: summarizeOpenAiResponsePayload(parsed),
+        flow: {
+          summary: {
+            action: 'suggest_tags',
+            model: body.model,
+            batchIndex: index + 1,
+            batchCount: batches.length
+          },
+          aiDecisions: {
+            responseSummary: summarizeOpenAiResponsePayload(parsed),
+            aiDecisionsByTaskSample: sampleItems(normalizedBatchDecisions.map((decision) => ({
+              taskId: decision.taskId,
+              taskTitle: String(batchTasks.find((task: any) => String(task.id) === String(decision.taskId))?.title || ''),
+              decision: decision.decision,
+              reason: decision.reason,
+              suggestedTags: decision.suggestedTags
+            })), 20)
+          }
+        },
         logPayload: process.env.LOG_AI_PAYLOADS === 'true' ? parsed : undefined
       }
     });
     if (typeof parsed.summary === 'string' && parsed.summary.trim()) summaries.push(parsed.summary.trim());
-    decisions.push(...normalizeTagSuggestionDecisions(parsed, batchTasks));
+    decisions.push(...normalizedBatchDecisions);
   }
 
   const tasksById = new Map<string, any>(selectedTasks.map((task: any) => [String(task.id), task]));
@@ -269,15 +390,150 @@ async function generateTagAdvisorCommands({ tasks, tags = [], memory = [] }) {
       event: null
     }];
   });
+  const commandByTaskId = new Map<string, any>(commands.map((command) => [String(command.taskId || ''), command]));
+  const decisionDebug = decisions.map((decision) => {
+    const task = tasksById.get(String(decision.taskId));
+    const existingTags = sanitizeTagList(task?.tags || []);
+    const existingTagKeys = new Set(existingTags.map((tag) => tag.toLocaleLowerCase()));
+    const suggestedTags = sanitizeTagList(decision.suggestedTags || []);
+    const newSuggestedTags = suggestedTags.filter((tag) => !existingTagKeys.has(tag.toLocaleLowerCase()));
+    const command = commandByTaskId.get(String(decision.taskId));
+    let finalStatus = 'command_generated';
+    let rejectionReason = '';
+    if (decision.decision !== 'suggested') {
+      finalStatus = 'ai_no_suggestion';
+      rejectionReason = decision.decision;
+    } else if (!suggestedTags.length) {
+      finalStatus = 'empty_suggestion';
+      rejectionReason = 'AI marked suggested but returned no tags';
+    } else if (!task) {
+      finalStatus = 'task_not_found';
+      rejectionReason = 'Task was not present in selected context';
+    } else if (sameTagList(existingTags, suggestedTags)) {
+      finalStatus = 'same_as_existing_tags';
+      rejectionReason = 'Suggested tag list matches current tags';
+    } else if (!command) {
+      finalStatus = 'not_converted_to_command';
+      rejectionReason = 'Suggestion did not produce an update_task command';
+    }
+    return {
+      taskId: decision.taskId,
+      taskTitle: String(task?.title || ''),
+      existingTags,
+      decision: decision.decision,
+      reason: decision.reason,
+      suggestedTags,
+      newSuggestedTags,
+      finalPatchTags: sanitizeTagList(command?.patch?.tags || []),
+      commandId: command?.id || '',
+      commandGenerated: Boolean(command),
+      finalStatus,
+      rejectionReason
+    };
+  });
+  const pickedTags = decisionDebug.flatMap((item) => item.newSuggestedTags);
+  const decisionStatusCounts = decisionDebug.reduce((counts, item) => {
+    counts[item.finalStatus] = (counts[item.finalStatus] || 0) + 1;
+    return counts;
+  }, {});
+  const generatedCommands = commands.map((command) => ({
+    commandId: command.id,
+    taskId: command.taskId,
+    taskTitle: tasksById.get(String(command.taskId))?.title || '',
+    patchTags: sanitizeTagList(command.patch?.tags || [])
+  }));
+  const tagSuggestionDebug = {
+    summary: {
+      action: 'suggest_tags',
+      model: DEFAULT_MODEL,
+      durationMs: Date.now() - startedAt,
+      totalTaskCount: Array.isArray(tasks) ? tasks.length : 0,
+      selectedTaskCount: selectedTasks.length,
+      selectedUntaggedTaskCount: selectedTaskDebug.filter((task) => !task.hasTags).length,
+      skippedTaskCount: Math.max(0, (Array.isArray(tasks) ? tasks.length : 0) - selectedTasks.length),
+      availableTagCount: availableTags.length,
+      batchCount: batches.length,
+      decisionCount: decisions.length,
+      commandCount: commands.length,
+      pickedTagCount: pickedTags.length,
+      pickedUniqueTagCount: Object.keys(countTags(pickedTags)).length
+    },
+    input: {
+      availableTagsSentToAi: availableTags,
+      availableTagCount: availableTags.length,
+      memoryRuleCount: Array.isArray(memory) ? memory.length : 0,
+      batchSize
+    },
+    selection: {
+      tasksSentToAi: selectedTaskDebug.slice(0, 120),
+      selectedTaskCount: selectedTasks.length,
+      selectedUntaggedTaskCount: selectedTaskDebug.filter((task) => !task.hasTags).length,
+      tasksNotSentToAi: skippedTaskDebug,
+      skippedTaskCount: Math.max(0, (Array.isArray(tasks) ? tasks.length : 0) - selectedTasks.length)
+    },
+    batches: batchDebug,
+    aiDecisions: {
+      aiDecisionsByTask: decisionDebug,
+      decisionCounts: decisions.reduce((counts, item) => {
+        const decision = String(item?.decision || 'unknown');
+        counts[decision] = (counts[decision] || 0) + 1;
+        return counts;
+      }, {}),
+      finalStatusCounts: decisionStatusCounts
+    },
+    output: {
+      generatedCommands,
+      pickedTags,
+      pickedTagCounts: countTags(pickedTags)
+    },
+    availableTags,
+    availableTagCount: availableTags.length,
+    selectedTasks: selectedTaskDebug.slice(0, 120),
+    selectedTaskCount: selectedTasks.length,
+    selectedUntaggedTaskCount: selectedTaskDebug.filter((task) => !task.hasTags).length,
+    skippedTasks: skippedTaskDebug,
+    skippedTaskCount: Math.max(0, (Array.isArray(tasks) ? tasks.length : 0) - selectedTasks.length),
+    decisions: decisionDebug,
+    generatedCommands,
+    pickedTags,
+    pickedTagCounts: countTags(pickedTags),
+    decisionStatusCounts
+  };
+  logger.debug('advisor.tags.decisions', {
+    metadata: {
+      flow: {
+        summary: tagSuggestionDebug.summary,
+        aiDecisions: {
+          decisionCounts: tagSuggestionDebug.aiDecisions.decisionCounts,
+          finalStatusCounts: tagSuggestionDebug.aiDecisions.finalStatusCounts,
+          aiDecisionsByTaskSample: sampleItems(tagSuggestionDebug.aiDecisions.aiDecisionsByTask, 30)
+        },
+        output: {
+          generatedCommandCount: generatedCommands.length,
+          generatedCommandsSample: sampleItems(generatedCommands, 20),
+          pickedTags,
+          pickedTagCounts: tagSuggestionDebug.output.pickedTagCounts
+        }
+      }
+    }
+  });
 
   logger.info('advisor.openai.tag_response.completed', {
     durationMs: Date.now() - startedAt,
     metadata: {
       action: 'suggest_tags',
       model: DEFAULT_MODEL,
-      selectedTaskCount: selectedTasks.length,
-      decisionCount: decisions.length,
-      commandCount: commands.length
+      durationMs: Date.now() - startedAt,
+      totalTaskCount: tagSuggestionDebug.summary.totalTaskCount,
+      tasksSentToAiCount: tagSuggestionDebug.selection.selectedTaskCount,
+      untaggedTasksSentToAiCount: tagSuggestionDebug.selection.selectedUntaggedTaskCount,
+      tasksNotSentToAiCount: tagSuggestionDebug.selection.skippedTaskCount,
+      availableTagsSentToAiCount: tagSuggestionDebug.input.availableTagCount,
+      batchCount: tagSuggestionDebug.summary.batchCount,
+      aiDecisionCounts: tagSuggestionDebug.aiDecisions.decisionCounts,
+      finalStatusCounts: tagSuggestionDebug.aiDecisions.finalStatusCounts,
+      generatedCommandCount: generatedCommands.length,
+      pickedTagCounts: tagSuggestionDebug.output.pickedTagCounts
     }
   });
 
@@ -288,6 +544,7 @@ async function generateTagAdvisorCommands({ tasks, tags = [], memory = [] }) {
     summary: summaries[0] || (commands.length ? `Foram encontradas ${commands.length} sugestoes de tags.` : 'Nao foram encontradas sugestoes de tags aplicaveis.'),
     commands,
     tagDecisions: decisions,
+    tagSuggestionDebug,
     tagBatchCount: batches.length,
     tagCandidateCount: selectedTasks.length
   };
