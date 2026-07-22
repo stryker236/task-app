@@ -4,10 +4,28 @@ const { fetchWithTimeout, numberFromEnv } = require('../utils/fetchWithTimeout')
 type SchedulerTask = {
   id: string;
   title: string;
+  tags?: string[];
   durationMinutes: number;
   dueDateTime?: string | null;
   fixedStart?: string | null;
   fixedEnd?: string | null;
+};
+
+type TagGroupingConfig = {
+  enabled: boolean;
+  mode: 'off' | 'preferred' | 'required';
+  scope: 'block' | 'day';
+  strength: number;
+  groups?: Array<{
+    id: string;
+    label: string;
+    tags: string[];
+    confidence?: number | null;
+    reason?: string | null;
+    matchingTaskCount?: number;
+  }>;
+  source?: 'llm' | 'heuristic' | 'manual' | 'none';
+  requestedMode?: 'off' | 'preferred' | 'required';
 };
 
 type BusyInterval = {
@@ -38,6 +56,7 @@ type SchedulerRequest = {
   busy: BusyInterval[];
   taskConstraints?: Record<string, TaskConstraint[]>;
   constraints?: SchedulerConstraint[];
+  tagGrouping?: TagGroupingConfig;
 };
 
 type ScheduledTask = {
@@ -65,6 +84,7 @@ type SchedulerResponse = {
   scheduled: ScheduledTask[];
   reserved: ReservedBlock[];
   unscheduled: UnscheduledTask[];
+  debug?: Record<string, unknown> | null;
 };
 
 function schedulerServiceUrl() {
@@ -86,7 +106,8 @@ async function requestSchedule(payload: SchedulerRequest): Promise<SchedulerResp
   return {
     scheduled: Array.isArray(data.scheduled) ? data.scheduled : [],
     reserved: Array.isArray(data.reserved) ? data.reserved : [],
-    unscheduled: Array.isArray(data.unscheduled) ? data.unscheduled : []
+    unscheduled: Array.isArray(data.unscheduled) ? data.unscheduled : [],
+    debug: data.debug && typeof data.debug === 'object' ? data.debug : null
   };
 }
 

@@ -8,7 +8,9 @@ test('requestSchedule posts to the scheduler service and returns scheduled data'
   global.fetch = (async (url: string, options: any) => {
     assert.equal(url, 'http://scheduler.test/schedule');
     assert.equal(options.method, 'POST');
-    assert.deepEqual(JSON.parse(options.body).tasks[0].id, 'task-1');
+    const body = JSON.parse(options.body);
+    assert.deepEqual(body.tasks[0].id, 'task-1');
+    assert.deepEqual(body.tagGrouping.mode, 'preferred');
     return {
       ok: true,
       status: 200,
@@ -24,7 +26,15 @@ test('requestSchedule posts to the scheduler service and returns scheduled data'
       now: '2026-07-08T08:00:00Z',
       horizonEnd: '2026-07-09T22:00:00Z',
       busy: [],
-      tasks: [{ id: 'task-1', title: 'Task', durationMinutes: 30 }]
+      tasks: [{ id: 'task-1', title: 'Task', durationMinutes: 30 }],
+      tagGrouping: {
+        enabled: true,
+        mode: 'preferred',
+        scope: 'block',
+        strength: 0.35,
+        groups: [{ id: 'frontend', label: 'Frontend', tags: ['react', 'css'] }],
+        source: 'llm'
+      }
     });
 
     assert.equal(result.scheduled[0].taskId, 'task-1');

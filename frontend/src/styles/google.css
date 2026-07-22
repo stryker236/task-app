@@ -308,6 +308,24 @@
   text-transform: uppercase;
 }
 
+.calendar-tag-grouping-toggle {
+  display: grid;
+  gap: 4px;
+  min-width: 118px;
+}
+
+.calendar-tag-grouping-toggle span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.calendar-tag-grouping-toggle button {
+  min-height: 34px;
+  justify-content: center;
+}
+
 .calendar-advisor-bar select {
   min-height: 34px;
   border: 1px solid var(--field-border);
@@ -406,8 +424,18 @@
 }
 
 .calendar-month-event.is-advisor-preview {
-  border: 1px dashed color-mix(in srgb, var(--event-color) 70%, transparent);
-  background: color-mix(in srgb, var(--event-color) 20%, var(--surface));
+  border: 1px dashed #3758d5;
+  background: #3155c8;
+  color: #ffffff;
+}
+
+.calendar-month-event.is-advisor-preview span,
+.calendar-month-event.is-advisor-preview strong {
+  color: #ffffff;
+}
+
+.calendar-month-event.is-advisor-preview i {
+  background: #dce5ff;
 }
 
 .calendar-month-event.is-task-due-date {
@@ -568,9 +596,12 @@
 .calendar-all-day-event.is-advisor-preview,
 .calendar-timed-event.is-advisor-preview {
   border-style: solid;
-  outline: 1px dashed color-mix(in srgb, var(--event-color) 70%, transparent);
+  border-color: #2648b8;
+  border-left-color: #17358f;
+  outline: 1px dashed #dce5ff;
   outline-offset: -3px;
-  background: color-mix(in srgb, var(--event-color) 20%, var(--surface));
+  background: #3155c8;
+  color: #ffffff;
 }
 
 .calendar-all-day-event.is-task-due-date,
@@ -670,6 +701,7 @@
 }
 
 .calendar-timed-event.is-advisor-preview strong {
+  color: #ffffff;
   font-size: 12px;
   font-weight: 900;
 }
@@ -697,7 +729,7 @@
 }
 
 .calendar-timed-event.is-advisor-preview span {
-  color: color-mix(in srgb, var(--event-color) 65%, var(--text-soft));
+  color: #e9efff;
   font-size: 10px;
   font-weight: 850;
 }
@@ -781,6 +813,15 @@
 
 .calendar-fullcalendar-shell .fc-event.is-advisor-preview {
   border-style: dashed;
+  background-color: #3155c8 !important;
+  border-color: #dce5ff !important;
+  color: #ffffff;
+}
+
+.calendar-fullcalendar-shell .fc-event.is-advisor-preview .calendar-fc-event-content strong,
+.calendar-fullcalendar-shell .fc-event.is-advisor-preview .calendar-fc-event-content span,
+.calendar-fullcalendar-shell .fc-event.is-advisor-preview .calendar-fc-event-content em {
+  color: #ffffff;
 }
 
 .calendar-fullcalendar-shell .fc-event.is-advisor-break-preview {

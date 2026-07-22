@@ -1,5 +1,5 @@
 const express = require('express');
-const { ADVISOR_ACTIONS, generateTaskAdvisorAdvice, generateTaskAdvisorCommands, resolveAdvisorAction } = require('../ai/aiAdvisor');
+const { ADVISOR_ACTIONS, generateTaskAdvisorAdvice, generateTaskAdvisorCommands, generateSchedulerTagGrouping, resolveAdvisorAction } = require('../ai/aiAdvisor');
 const { createCalendarClient, createOAuthClient } = require('../google/googleClient');
 const { googleConnectionExpiresAt } = require('../google/googleConnectionTtl');
 const { decryptJson } = require('../google/tokenCrypto');
@@ -930,7 +930,54 @@ async function fetchAdvisorBusyEvents({ pool, fetchGoogleConnection, saveGoogleC
 	return results.flat();
 }
 
-async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requestedDefaultCalendarId, constraints, scheduleStartFrom, dependencies }: any) {
+function tagGroupingKey(value: any) {
+	return String(value || '').trim().toLocaleLowerCase();
+}
+
+function tagGroupIdsForTask(task: any, tagGrouping: any) {
+	const taskTags = new Set((Array.isArray(task?.tags) ? task.tags : []).map(tagGroupingKey).filter(Boolean));
+	if (!taskTags.size || !Array.isArray(tagGrouping?.groups)) return [];
+	return tagGrouping.groups
+		.filter((group: any) => (Array.isArray(group?.tags) ? group.tags : []).some((tag: string) => taskTags.has(tagGroupingKey(tag))))
+		.map((group: any) => String(group.id || group.label || '').trim())
+		.filter(Boolean);
+}
+
+function orderSchedulerCandidatesByTagGrouping(candidates: any[] = [], tagGrouping: any) {
+	if (!tagGrouping?.enabled || !Array.isArray(tagGrouping.groups) || !tagGrouping.groups.length) return candidates;
+	const groupOrder = new Map<string, number>(tagGrouping.groups.map((group: any, index: number) => [String(group.id || group.label || ''), index]));
+	return candidates
+		.map((task, index) => {
+			const groupIds = tagGroupIdsForTask(task, tagGrouping);
+			const groupRank = groupIds.reduce((rank, groupId) => Math.min(rank, groupOrder.get(groupId) ?? Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
+			return {
+				task,
+				index,
+				groupIds,
+				groupRank,
+				isPeriodic: Boolean(task?.periodicTaskId)
+			};
+		})
+		.sort((left, right) => {
+			if (left.isPeriodic !== right.isPeriodic) return Number(right.isPeriodic) - Number(left.isPeriodic);
+			if (left.groupRank !== right.groupRank) return left.groupRank - right.groupRank;
+			if (left.groupIds.length !== right.groupIds.length) return right.groupIds.length - left.groupIds.length;
+			return left.index - right.index;
+		})
+		.map((item) => item.task);
+}
+
+function tagGroupingCandidateOrder(candidates: any[] = [], tagGrouping: any) {
+	return candidates.map((task, index) => ({
+		index,
+		taskId: String(task?.id || ''),
+		title: String(task?.title || ''),
+		tags: Array.isArray(task?.tags) ? task.tags : [],
+		groupIds: tagGroupIdsForTask(task, tagGrouping)
+	}));
+}
+
+async function scheduleCalendarCommandsWithMicroservice({ tasks, tags = [], calendars, requestedDefaultCalendarId, constraints, scheduleStartFrom, tagGrouping, dependencies }: any) {
 	const defaultCalendar = defaultAdvisorCalendar(calendars, requestedDefaultCalendarId);
 	const calendarId = defaultCalendar?.id || defaultAdvisorCalendarId(calendars, requestedDefaultCalendarId);
 	const calendarSummary = defaultCalendar?.summary || calendarId;
@@ -988,7 +1035,15 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 				}
 			}))
 	));
-	const schedulerCandidates = [...eligibleTasks, ...periodicScheduler.candidates];
+	let schedulerCandidates = [...eligibleTasks, ...periodicScheduler.candidates];
+	const schedulerTagGrouping = await generateSchedulerTagGrouping({
+		tasks: schedulerCandidates,
+		tags,
+		tagGrouping
+	});
+	const schedulerCandidateOrderBeforeTagGrouping = tagGroupingCandidateOrder(schedulerCandidates, schedulerTagGrouping);
+	schedulerCandidates = orderSchedulerCandidatesByTagGrouping(schedulerCandidates, schedulerTagGrouping);
+	const schedulerCandidateOrderAfterTagGrouping = tagGroupingCandidateOrder(schedulerCandidates, schedulerTagGrouping);
 	const activeSchedulerRules = dependencies.fetchActiveSchedulerRules
 		? await dependencies.fetchActiveSchedulerRules(dependencies.pool)
 		: [];
@@ -1040,11 +1095,13 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 		tasks: schedulerCandidates.map((task) => ({
 			id: task.id,
 			title: task.title || '',
+			tags: Array.isArray(task.tags) ? task.tags.map(String) : [],
 			durationMinutes: taskDurationMinutes(task),
 			dueDateTime: task.dueDateTime || null,
 			periodicTaskId: task.periodicTaskId || null,
 			...(combinedFixedConstraints.get(String(task.id)) || {})
-		}))
+		})),
+		...(schedulerTagGrouping.enabled ? { tagGrouping: schedulerTagGrouping } : {})
 	};
 	const scheduled = await requestSchedule(schedulerRequest);
 	const tasksById = new Map(schedulerCandidates.map((task) => [String(task.id), task]));
@@ -1115,6 +1172,7 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 				generatedAt: new Date().toISOString(),
 				scheduleStartFrom: scheduleStartFrom || '',
 				defaultCalendar: { id: calendarId, summary: calendarSummary, timeZone: calendarTimeZone },
+				tagGrouping: schedulerTagGrouping,
 				schedulerRequest,
 				schedulerResponse: scheduled,
 				context: {
@@ -1131,6 +1189,8 @@ async function scheduleCalendarCommandsWithMicroservice({ tasks, calendars, requ
 					})),
 					periodicCandidates: periodicScheduler.candidates.map((task) => compactCandidateTask(task)),
 					periodicSpacingBusy: periodicScheduler.spacingBusy,
+					tagGroupingCandidateOrderBefore: schedulerCandidateOrderBeforeTagGrouping,
+					tagGroupingCandidateOrderAfter: schedulerCandidateOrderAfterTagGrouping,
 					activeSchedulerRules,
 					googleBusyEvents: busyWithCalendarSummaries,
 					existingScheduledItems,
@@ -1273,7 +1333,7 @@ function createAdvisorRouter({
 			const memory = buildAdvisorMemoryContext(memoryRules);
 
 			if (action === 'schedule_calendar_events')
-				return await ProcessCreateEventsRequest(tasks, calendars, requestedDefaultCalendarId, req.body.schedulerConstraints, normalizeString(req.body.scheduleStartFrom), {
+				return await ProcessCreateEventsRequest(tasks, tags, calendars, requestedDefaultCalendarId, req.body.schedulerConstraints, normalizeString(req.body.scheduleStartFrom), req.body.tagGrouping, {
 					pool,
 					fetchGoogleConnection,
 					saveGoogleConnection,
@@ -1553,13 +1613,15 @@ function createAdvisorRouter({
 module.exports = { createAdvisorRouter };
 
 export { };
-async function ProcessCreateEventsRequest(tasks: any, calendars: any, requestedDefaultCalendarId: any, schedulerConstraints: any, scheduleStartFrom: any, dependencies: any, res: any) {
+async function ProcessCreateEventsRequest(tasks: any, tags: any, calendars: any, requestedDefaultCalendarId: any, schedulerConstraints: any, scheduleStartFrom: any, tagGrouping: any, dependencies: any, res: any) {
 	const scheduled = await scheduleCalendarCommandsWithMicroservice({
 		tasks,
+		tags,
 		calendars,
 		requestedDefaultCalendarId,
 		constraints: schedulerConstraints,
 		scheduleStartFrom,
+		tagGrouping,
 		dependencies
 	});
 	const previews = buildAiCommandsPreview(scheduled.commands, tasks);

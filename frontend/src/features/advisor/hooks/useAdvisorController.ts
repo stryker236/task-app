@@ -16,7 +16,8 @@ import {
   type AdvisorMemoryRuleUpdate,
   type AdvisorPreviewDebug,
   type AdvisorReservedBlock,
-  type SchedulerConstraintInput
+  type SchedulerConstraintInput,
+  type SchedulerTagGroupingInput
 } from '../api';
 import type { TaskFilters } from '../../tasks/api';
 import { clientLog } from '../../../logger';
@@ -78,7 +79,7 @@ export default function useAdvisorController({
     }
   }
 
-  async function requestAdvisorActions(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[]; scheduleStartFrom?: string } = {}) {
+  async function requestAdvisorActions(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[]; scheduleStartFrom?: string; tagGrouping?: SchedulerTagGroupingInput } = {}) {
     if (!action) return;
 
     try {

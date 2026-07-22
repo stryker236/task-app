@@ -5,6 +5,7 @@ import { useGoogleCalendarContext } from '../context/GoogleCalendarContext';
 import { advisorCalendarPreviewEvents, advisorReservedPreviewEvents } from '../../../utils/advisorCalendarPreviews';
 import { filterAdvisorProposalBatch } from '../../../utils/advisorProposalFilters';
 import { AdvisorProposalBuffer } from '../../advisor/components/AdvisorProposalComponents';
+import type { SchedulerTagGroupingInput } from '../../advisor/api';
 import CalendarWeekView from './CalendarWeekView';
 
 const CALENDAR_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar';
@@ -22,6 +23,7 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
   const advisor = useAdvisorContext();
   const [schedulerConstraints, setSchedulerConstraints] = useState<Array<{ taskId: string; start: string; end?: string }>>([]);
   const [scheduleStartDate, setScheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [tagGrouping, setTagGrouping] = useState<SchedulerTagGroupingInput>({ enabled: false, mode: 'off', scope: 'block', strength: 0.35 });
   const calendarProposals = useMemo(
     () => filterAdvisorProposalBatch(advisor.proposalBatch, 'calendar-events', advisor.lastAdvisorAction),
     [advisor.lastAdvisorAction, advisor.proposalBatch]
@@ -44,12 +46,22 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
       { taskId, start, end }
     ];
     setSchedulerConstraints(nextConstraints);
-    await advisor.rescheduleAdvisorCalendarEvents(googleCalendar.advisorDefaultCalendarId, nextConstraints, scheduleStartIso(scheduleStartDate));
+    await advisor.requestAdvisorActions('schedule_calendar_events', {
+      defaultCalendarId: googleCalendar.advisorDefaultCalendarId,
+      schedulerConstraints: nextConstraints,
+      scheduleStartFrom: scheduleStartIso(scheduleStartDate),
+      tagGrouping
+    });
   }
 
   async function clearAdvisorScheduleConstraints() {
     setSchedulerConstraints([]);
-    await advisor.rescheduleAdvisorCalendarEvents(googleCalendar.advisorDefaultCalendarId, [], scheduleStartIso(scheduleStartDate));
+    await advisor.requestAdvisorActions('schedule_calendar_events', {
+      defaultCalendarId: googleCalendar.advisorDefaultCalendarId,
+      schedulerConstraints: [],
+      scheduleStartFrom: scheduleStartIso(scheduleStartDate),
+      tagGrouping
+    });
   }
 
   return (
@@ -80,8 +92,10 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
         advisorLoading={advisor.advisorLoading}
         advisorConstraintCount={schedulerConstraints.length}
         scheduleStartDate={scheduleStartDate}
+        tagGrouping={tagGrouping}
         onScheduleStartDateChange={setScheduleStartDate}
-        onRequestAdvisorCalendarEvents={() => advisor.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId, schedulerConstraints, scheduleStartFrom: scheduleStartIso(scheduleStartDate) })}
+        onTagGroupingChange={setTagGrouping}
+        onRequestAdvisorCalendarEvents={() => advisor.requestAdvisorActions('schedule_calendar_events', { defaultCalendarId: googleCalendar.advisorDefaultCalendarId, schedulerConstraints, scheduleStartFrom: scheduleStartIso(scheduleStartDate), tagGrouping })}
         onMoveAdvisorPreviewEvent={moveAdvisorPreviewEvent}
         onClearAdvisorScheduleConstraints={clearAdvisorScheduleConstraints}
         advisorProposals={calendarProposals}

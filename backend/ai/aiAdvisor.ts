@@ -8,6 +8,7 @@ const {
   resolveAdvisorAction,
   buildAdvisorCommandRequest,
   buildTagSuggestionRequest,
+  buildTagGroupingRequest,
   selectCommandContextTasks,
   buildAdvisorAdviceRequest
 } = require('./aiAdvisorPrompts');
@@ -56,6 +57,99 @@ function compactAvailableTags(tags = []) {
     result.push(name);
   }
   return result.slice(0, 200);
+}
+
+function normalizeTagKey(value) {
+  return String(value || '').trim().toLocaleLowerCase();
+}
+
+function schedulerTagGroupingDefaults(input: any = {}) {
+  const requestedMode = String(input?.mode || (input?.enabled ? 'preferred' : 'off'));
+  const requiredSupported = process.env.SCHEDULER_TAG_GROUPING_REQUIRED_SUPPORTED === 'true';
+  const mode = requestedMode === 'required' && requiredSupported
+    ? 'required'
+    : requestedMode === 'preferred' || requestedMode === 'required'
+      ? 'preferred'
+      : 'off';
+  const requestedScope = String(input?.scope || 'block');
+  const scope = requestedScope === 'day' ? 'day' : 'block';
+  const strengthValue = Number(input?.strength ?? (mode === 'required' ? 0.8 : 0.35));
+  const strength = Number.isFinite(strengthValue) ? Math.max(0, Math.min(1, strengthValue)) : 0.35;
+  return {
+    enabled: mode !== 'off',
+    mode,
+    requestedMode,
+    scope,
+    strength,
+    groups: [],
+    source: 'none'
+  };
+}
+
+function normalizeSchedulerTagGroups(parsed: any, tasks = [], tags = []) {
+  const allowedTags = new Map<string, string>();
+  for (const tag of compactAvailableTags(tags)) {
+    allowedTags.set(normalizeTagKey(tag), tag);
+  }
+  for (const task of Array.isArray(tasks) ? tasks : []) {
+    for (const tag of sanitizeTagList(task?.tags || [])) {
+      allowedTags.set(normalizeTagKey(tag), tag);
+    }
+  }
+
+  const taskTagSets = (Array.isArray(tasks) ? tasks : []).map((task) => new Set(sanitizeTagList(task?.tags || []).map(normalizeTagKey)));
+  const seenGroupIds = new Set();
+  const rawGroups = [];
+  for (const item of Array.isArray(parsed?.groups) ? parsed.groups : []) {
+    const tagsForGroup = [];
+    const seenTags = new Set();
+    for (const tag of sanitizeTagList(item?.tags || [])) {
+      const key = normalizeTagKey(tag);
+      const canonical = allowedTags.get(key);
+      if (!canonical || seenTags.has(key)) continue;
+      seenTags.add(key);
+      tagsForGroup.push(canonical);
+    }
+    if (tagsForGroup.length < 2) continue;
+    const tagKeys = new Set(tagsForGroup.map(normalizeTagKey));
+    const matchingTaskCount = taskTagSets.filter((taskTags) => [...tagKeys].some((tag) => taskTags.has(tag))).length;
+    if (matchingTaskCount < 2) continue;
+    const rawId = normalizeTagKey(item?.id || item?.label || tagsForGroup[0]).replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+    const id = rawId || `tag-group-${rawGroups.length + 1}`;
+    if (seenGroupIds.has(id)) continue;
+    seenGroupIds.add(id);
+    rawGroups.push({
+      id,
+      label: String(item?.label || item?.id || tagsForGroup[0]).trim() || id,
+      tags: tagsForGroup,
+      confidence: Number.isFinite(Number(item?.confidence)) ? Math.max(0, Math.min(1, Number(item.confidence))) : null,
+      reason: String(item?.reason || '').trim() || null,
+      matchingTaskCount
+    });
+  }
+  const usedTags = new Set<string>();
+  const groups = [];
+  for (const group of rawGroups.sort((left, right) => Number(right.confidence || 0) - Number(left.confidence || 0))) {
+    const uniqueTags = group.tags.filter((tag) => {
+      const key = normalizeTagKey(tag);
+      if (usedTags.has(key)) return false;
+      return true;
+    });
+    if (uniqueTags.length < 2) continue;
+    const uniqueTagKeys = new Set(uniqueTags.map(normalizeTagKey));
+    const matchingTaskCount = taskTagSets.filter((taskTags) => [...uniqueTagKeys].some((tag) => taskTags.has(String(tag)))).length;
+    if (matchingTaskCount < 2) continue;
+    uniqueTags.forEach((tag) => usedTags.add(normalizeTagKey(tag)));
+    groups.push({
+      id: group.id,
+      label: group.label,
+      tags: uniqueTags,
+      confidence: group.confidence,
+      reason: group.reason,
+      matchingTaskCount
+    });
+  }
+  return groups.slice(0, 20);
 }
 
 function compactTagDebugTask(task: any = {}) {
@@ -248,6 +342,50 @@ async function requestOpenAiJson(body, timeoutMs) {
   const responseBody: any = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(responseBody.error?.message || `OpenAI request failed with ${response.status}`);
   return JSON.parse(extractOpenAiResponseText(responseBody));
+}
+
+async function generateSchedulerTagGrouping({ tasks, tags = [], tagGrouping = {} }) {
+  const config = schedulerTagGroupingDefaults(tagGrouping);
+  if (!config.enabled) return config;
+  if (!process.env.OPENAI_API_KEY) {
+    return {
+      ...config,
+      enabled: false,
+      mode: 'off',
+      groups: [],
+      source: 'none',
+      error: 'OPENAI_API_KEY is not configured'
+    };
+  }
+  const body = buildTagGroupingRequest({
+    tasks,
+    tags,
+    mode: config.mode,
+    scope: config.scope,
+    strength: config.strength
+  });
+  try {
+    const parsed = await requestOpenAiJson(body, numberFromEnv(process.env.OPENAI_REQUEST_TIMEOUT_MS, 60000));
+    const groups = normalizeSchedulerTagGroups(parsed, tasks, tags);
+    return {
+      ...config,
+      enabled: groups.length > 0,
+      mode: groups.length ? config.mode : 'off',
+      groups,
+      source: groups.length ? 'llm' : 'none',
+      summary: String(parsed?.summary || '').trim()
+    };
+  } catch (error: any) {
+    logger.warn('advisor.scheduler_tag_grouping.failed', { metadata: { message: error.message } });
+    return {
+      ...config,
+      enabled: false,
+      mode: 'off',
+      groups: [],
+      source: 'none',
+      error: error.message
+    };
+  }
 }
 
 async function generateTagAdvisorCommands({ tasks, tags = [], memory = [] }) {
@@ -661,6 +799,7 @@ module.exports = {
   ADVISOR_ACTIONS,
   generateTaskAdvisorAdvice,
   generateTaskAdvisorCommands,
+  generateSchedulerTagGrouping,
   resolveAdvisorAction,
   buildRuleBasedAdvisorAdvice
 };

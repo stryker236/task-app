@@ -17,12 +17,15 @@ export default function App() {
   const loginReturnTo = safeInternalReturnTo(new URLSearchParams(location.search).get('returnTo'));
   const controllers = useAppControllers({ view, navigate });
   const { dashboard, googleCalendar, advisorController } = controllers;
+  const googleAuthenticated = googleCalendar.googleStatus.connected
+    && !googleCalendar.googleStatus.requiresReconnect
+    && !googleCalendar.googleSessionExpired;
 
   if (!routeView && !isLoginRoute) {
     return <Navigate to="/" replace />;
   }
 
-  if (isLoginRoute && googleCalendar.googleStatus.connected) {
+  if (isLoginRoute && googleAuthenticated) {
     return <Navigate to={loginReturnTo} replace />;
   }
 
@@ -30,11 +33,11 @@ export default function App() {
     return <Navigate to="/login" replace />;
   }
 
-  if (!isLoginRoute && !googleCalendar.googleLoading && !googleCalendar.googleStatus.connected) {
+  if (!isLoginRoute && !googleCalendar.googleLoading && !googleAuthenticated) {
     return <Navigate to={loginPath(protectedReturnTo)} replace />;
   }
 
-  if (isLoginRoute || !googleCalendar.googleStatus.connected) {
+  if (isLoginRoute || !googleAuthenticated) {
     return (
       <div className="app-shell">
         <GoogleLoginScreen

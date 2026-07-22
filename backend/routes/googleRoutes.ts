@@ -28,6 +28,19 @@ import type {
 
 const GOOGLE_TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000;
 const GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS = Number(process.env.GOOGLE_CALENDAR_EVENTS_CACHE_TTL_MS || 60_000);
+const GOOGLE_EVENT_COLORS: Record<string, string> = {
+  '1': '#7986cb',
+  '2': '#33b679',
+  '3': '#8e24aa',
+  '4': '#e67c73',
+  '5': '#f6c026',
+  '6': '#f4511e',
+  '7': '#039be5',
+  '8': '#616161',
+  '9': '#3f51b5',
+  '10': '#0b8043',
+  '11': '#d50000'
+};
 
 type Queryable = Pool | PoolClient;
 
@@ -153,7 +166,7 @@ function toCalendarEvent(event: calendar_v3.Schema$Event, sourceCalendar: Google
     googleEventId: event.id || undefined,
     calendarId: sourceCalendar.id,
     calendarSummary: sourceCalendar.summary,
-    calendarColor: sourceCalendar.backgroundColor,
+    calendarColor: event.colorId ? GOOGLE_EVENT_COLORS[event.colorId] || sourceCalendar.backgroundColor : sourceCalendar.backgroundColor,
     summary: event.summary || '(Sem tÃƒÂ­tulo)',
     description: event.description || '',
     location: event.location || '',
@@ -514,17 +527,20 @@ function createGoogleRouter({
 
       try {
         const authorized = await getAuthorizedClient();
+        const accountEmail = await getAccountEmail(authorized.authClient);
         (req as any).log?.('info', 'calendar.connection.status', {
           metadata: { connected: true, scopes: authorized.connection.scopes || [], tokenChecked: true }
         });
         return res.json({
           connected: true,
-          accountEmail: authorized.connection.accountEmail || null,
+          accountEmail: accountEmail || authorized.connection.accountEmail || null,
           scopes: authorized.connection.scopes || [],
           expiresAt: authorized.connection.expiresAt || null
         });
       } catch (error: any) {
-        if (Number(error?.status || error?.code || 0) === 401) {
+        const status = Number(error?.response?.status || error?.status || error?.code || 0);
+        if (status === 401 || isGoogleAuthRefreshError(error)) {
+          await deleteGoogleConnection(pool);
           (req as any).log?.('warn', 'calendar.connection.status_expired', {
             metadata: { connected: false, accountEmail: connection.accountEmail || null }
           });

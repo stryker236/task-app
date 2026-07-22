@@ -23,6 +23,7 @@ const FALLBACK_CONSTRAINT_TYPES: SchedulerConstraintType[] = [
   { type: 'min_duration', description: 'Applies only to matching tasks at or above a minimum duration.', payloadSchema: { required: ['minutes'] }, defaultHard: true },
   { type: 'max_duration', description: 'Applies only to matching tasks at or below a maximum duration.', payloadSchema: { required: ['minutes'] }, defaultHard: true },
   { type: 'priority_boost', description: 'Moves matching tasks earlier when possible.', payloadSchema: { required: [], properties: { days: {}, date: {}, dates: {}, startTime: {}, endTime: {}, weight: {} } }, defaultHard: false },
+  { type: 'tag_group_preference', description: 'Groups matching tasks near each other by resolving a user concept into concrete tags. It can also prefer or require a date/time window for those resolved tags.', payloadSchema: { required: ['concept', 'resolvedTags'], properties: { concept: {}, resolvedTags: {}, strength: {}, scope: {}, timeMode: {}, days: {}, date: {}, dates: {}, startTime: {}, endTime: {}, weight: {} } }, defaultHard: false, supportsHard: false },
   { type: 'daily_limit', description: 'Limits how many matching tasks can be scheduled in a matching day/window.', payloadSchema: { required: ['max'], properties: { max: {}, days: {}, date: {}, dates: {}, startTime: {}, endTime: {} } }, defaultHard: true },
   { type: 'break_after_task', description: 'Reserves a calculated break after each matching scheduled task.', payloadSchema: { required: ['breakMinutes'] }, defaultHard: false },
   { type: 'break_after_work_block', description: 'Reserves a calculated break after a continuous block of scheduled work.', payloadSchema: { required: ['workMinutes', 'breakMinutes'] }, defaultHard: true },
@@ -56,6 +57,9 @@ function normalizeConstraint(item: Record<string, any>, constraintTypes: Schedul
   if (!typeDefinition) return null;
   const scope = normalizeScope(item.scope);
   const payload = normalizePayload(type, item.payload);
+  if (type === 'tag_group_preference' && !Array.isArray(scope.tags) && Array.isArray(payload.resolvedTags)) {
+    scope.tags = payload.resolvedTags;
+  }
   if (!isSupportedConstraintPayload(type, payload, typeDefinition)) return null;
   return {
     type,
@@ -77,9 +81,28 @@ function normalizePayload(type: string, value: unknown) {
   if (type === 'break_after_task' && payload.minDurationMinutes == null && payload.minTaskDurationMinutes != null) {
     payload.minDurationMinutes = payload.minTaskDurationMinutes;
   }
+  if (type === 'tag_group_preference') {
+    const resolvedTags = Array.isArray(payload.resolvedTags) ? payload.resolvedTags : payload.tags;
+    payload.resolvedTags = cleanStringListForRule(resolvedTags, 20);
+    payload.concept = String(payload.concept || '').replace(/\s+/g, ' ').trim();
+    const strength = Number(payload.strength ?? 0.6);
+    payload.strength = Number.isFinite(strength) ? Math.max(0.1, Math.min(1, strength)) : 0.6;
+    payload.timeMode = payload.timeMode === 'required' ? 'required' : 'preferred';
+    if (payload.weight != null) {
+      const weight = Number(payload.weight);
+      payload.weight = Number.isFinite(weight) ? Math.max(1, Math.min(50000, Math.round(weight))) : undefined;
+    }
+    payload.scope = 'block';
+    delete payload.tags;
+  }
   delete payload.minTaskDurationMinutes;
   delete payload.minWorkMinutes;
   return payload;
+}
+
+function cleanStringListForRule(value: unknown, maxItems = 20) {
+  const items = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+  return [...new Set(items.map((item) => String(item || '').replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, maxItems);
 }
 
 function normalizeScope(value: unknown) {
@@ -126,6 +149,12 @@ function isSupportedConstraintPayload(type: string, payload: Record<string, any>
   if (type === 'break_after_work_block') return Number(payload.workMinutes) > 0 && Number(payload.breakMinutes) > 0;
   if (type === 'allowed_date') return hasDateFilter(payload);
   if (type === 'priority_boost') return true;
+  if (type === 'tag_group_preference') {
+    return typeof payload.concept === 'string'
+      && payload.concept.trim().length > 0
+      && Array.isArray(payload.resolvedTags)
+      && payload.resolvedTags.filter((tag) => typeof tag === 'string' && tag.trim()).length >= 2;
+  }
   if (type === 'avoid_day') return Array.isArray(payload.days) && payload.days.length > 0;
   return false;
 }
@@ -200,13 +229,15 @@ function buildSchedulerRulePrompt({ text, tasks = [], constraintTypes = [], temp
           ...temporalPromptLines(),
           'blocked_window, allowed_window, preferred_window, priority_boost, and daily_limit may include days, date, or dates.',
           'Use priority_boost for rules like "prioritize/prefer these tags during this day/time"; payload may include days, date, dates, startTime, endTime, weight.',
+          'Use tag_group_preference for rules like "group financial things/tasks together", "schedule financial things this Saturday", or "only do coding-related things Friday morning" when the user gives a semantic concept instead of explicit tags. Resolve the concept using availableTaskMetadata.tags only. Set scope.tags and payload.resolvedTags to the resolved concrete tags. Use at least 2 tags. payload.strength can be 0.2 light, 0.6 normal, 0.9 strong. payload.scope must be "block" in this version. If the user mentions date/day/time, put days/date/dates/startTime/endTime on the same payload. Use payload.timeMode "preferred" for prefer/try/want, and "required" for only/must/sempre/apenas.',
           'Use daily_limit for rules like "only X tasks with these tags on this day"; payload must include max and may include days/date/dates.',
           'Use break_after_task for rules like "15 minute break after tasks"; payload must include breakMinutes and may include minDurationMinutes for rules like "after tasks of 1 hour or more".',
           'Use break_after_work_block for rules like "15 minute break after 90 minutes of work"; payload must include workMinutes and breakMinutes. Do not use minTaskDurationMinutes.',
           'Payload may include daysOfMonth only for priority_boost or daily_limit.',
           'Use allowed_date for exact calendar dates like "on July 18, 2026"; payload must include date or dates and may include startTime/endTime.',
           'priority_boost is soft by default. daily_limit is hard by default.',
-          'Do not convert unsupported concepts such as grouping tasks into blocks, energy level, or balancing workload; mark ambiguous true instead.',
+          'Do not invent tags for tag_group_preference. If the concept cannot be mapped to at least two existing tags from the task metadata, mark ambiguous true.',
+          'Do not convert unsupported concepts such as energy level or balancing workload; mark ambiguous true instead.',
           'Mark ambiguous true when the rule cannot be safely converted.'
         ].join('\n')
       },
@@ -245,13 +276,15 @@ function buildSchedulerRuleBreakdownPrompt({ text, tasks = [], constraintTypes =
           ...temporalPromptLines(),
           'blocked_window, allowed_window, preferred_window, priority_boost, and daily_limit may include days, date, or dates.',
           'Use priority_boost for rules like "prioritize/prefer these tags during this day/time"; payload may include days, date, dates, startTime, endTime, weight.',
+          'Use tag_group_preference for rules like "group financial things/tasks together", "schedule financial things this Saturday", or "only do coding-related things Friday morning" when the user gives a semantic concept instead of explicit tags. Resolve the concept using availableTaskMetadata.tags only. Set scope.tags and payload.resolvedTags to the resolved concrete tags. Use at least 2 tags. payload.strength can be 0.2 light, 0.6 normal, 0.9 strong. payload.scope must be "block" in this version. If the user mentions date/day/time, put days/date/dates/startTime/endTime on the same payload. Use payload.timeMode "preferred" for prefer/try/want, and "required" for only/must/sempre/apenas.',
           'Use daily_limit for rules like "only X tasks with these tags on this day"; payload must include max and may include days/date/dates.',
           'Use break_after_task for rules like "15 minute break after tasks"; payload must include breakMinutes and may include minDurationMinutes for rules like "after tasks of 1 hour or more".',
           'Use break_after_work_block for rules like "15 minute break after 90 minutes of work"; payload must include workMinutes and breakMinutes. Do not use minTaskDurationMinutes.',
           'Payload may include daysOfMonth only for priority_boost or daily_limit.',
           'Use allowed_date for exact calendar dates like "on July 18, 2026"; payload must include date or dates and may include startTime/endTime.',
           'priority_boost is soft by default. daily_limit is hard by default.',
-          'Do not convert unsupported concepts such as grouping tasks into blocks, energy level, or balancing workload; mark ambiguous true instead.',
+          'Do not invent tags for tag_group_preference. If the concept cannot be mapped to at least two existing tags from the task metadata, mark ambiguous true.',
+          'Do not convert unsupported concepts such as energy level or balancing workload; mark ambiguous true instead.',
           'Mark ambiguous true for any rule that cannot be safely converted.'
         ].join('\n')
       },

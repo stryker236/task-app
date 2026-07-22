@@ -138,12 +138,40 @@ const tagSuggestionResponseSchema = {
   required: ['summary', 'decisions']
 };
 
+const tagGroupSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: { type: 'string' },
+    label: { type: 'string' },
+    tags: { type: 'array', items: { type: 'string' } },
+    confidence: { anyOf: [{ type: 'number', minimum: 0, maximum: 1 }, { type: 'null' }] },
+    reason: nullableString
+  },
+  required: ['id', 'label', 'tags', 'confidence', 'reason']
+};
+
+const tagGroupingResponseSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    summary: { type: 'string' },
+    groups: {
+      type: 'array',
+      maxItems: 20,
+      items: tagGroupSchema
+    }
+  },
+  required: ['summary', 'groups']
+};
+
 module.exports = {
   AI_COMMAND_TYPES,
   RELATION_TYPES,
   STATUSES,
   advisorCommandResponseSchema,
   tagSuggestionResponseSchema,
+  tagGroupingResponseSchema,
   calendarEventSchema,
   taskCreateSchema,
   taskPatchSchema

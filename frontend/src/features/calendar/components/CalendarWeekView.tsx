@@ -6,6 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { DatesSetArg, EventClickArg, EventDropArg } from '@fullcalendar/core';
 import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus, Task } from '../../../../../shared/types';
 import type { AdvisorFeedbackInput, AdvisorPreview } from '../../advisor/api';
+import type { SchedulerTagGroupingInput } from '../../advisor/api';
 import {
   addDays,
   advisorPreviewTaskId,
@@ -59,7 +60,9 @@ type CalendarWeekViewProps = {
   advisorLoading: boolean;
   advisorConstraintCount: number;
   scheduleStartDate: string;
+  tagGrouping: SchedulerTagGroupingInput;
   onScheduleStartDateChange: (value: string) => void;
+  onTagGroupingChange: (value: SchedulerTagGroupingInput) => void;
   onRequestAdvisorCalendarEvents: () => void;
   onMoveAdvisorPreviewEvent: (taskId: string, start: string, end: string) => void;
   onClearAdvisorScheduleConstraints: () => void;
@@ -100,7 +103,9 @@ export default function CalendarWeekView({
   advisorLoading,
   advisorConstraintCount,
   scheduleStartDate,
+  tagGrouping,
   onScheduleStartDateChange,
+  onTagGroupingChange,
   onRequestAdvisorCalendarEvents,
   onMoveAdvisorPreviewEvent,
   onClearAdvisorScheduleConstraints,
@@ -260,8 +265,10 @@ export default function CalendarWeekView({
             advisorLoading={advisorLoading}
             loading={loading}
             advisorConstraintCount={advisorConstraintCount}
+            tagGrouping={tagGrouping}
             onAdvisorDefaultCalendarChange={onAdvisorDefaultCalendarChange}
             onScheduleStartDateChange={onScheduleStartDateChange}
+            onTagGroupingChange={onTagGroupingChange}
             onRequestAdvisorCalendarEvents={onRequestAdvisorCalendarEvents}
             onConnect={onConnect}
             onDeleteDefaultCalendarEvents={onDeleteDefaultCalendarEvents}

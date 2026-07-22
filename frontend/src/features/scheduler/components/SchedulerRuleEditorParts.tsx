@@ -158,6 +158,28 @@ function PayloadFields({ draft, onChange }: { draft: ConstraintDraft; onChange: 
       </div>
     );
   }
+  if (draft.type === 'tag_group_preference') {
+    return (
+      <div className="scheduler-editor-stack">
+        <label><span>Conceito</span><input value={String(payload.concept || '')} placeholder="coisas financeiras" onChange={(event) => setPayload({ concept: event.target.value })} /></label>
+        <label><span>Tags resolvidas</span><input value={Array.isArray(payload.resolvedTags) ? payload.resolvedTags.join(', ') : String(payload.resolvedTags || '')} placeholder="finance, btc, money" onChange={(event) => setPayload({ resolvedTags: splitList(event.target.value) })} /></label>
+        <div className="scheduler-editor-grid two">
+          <label><span>Forca</span><input type="number" min="0.1" max="1" step="0.1" value={String(payload.strength || 0.6)} onChange={(event) => setPayload({ strength: event.target.value })} /></label>
+          <label><span>Modo temporal</span><select value={String(payload.timeMode || 'preferred')} onChange={(event) => setPayload({ timeMode: event.target.value })}><option value="preferred">Preferir</option><option value="required">Obrigar</option></select></label>
+        </div>
+        <span className="scheduler-editor-label">Dias da semana opcionais</span>
+        <WeekdayPicker value={numericList(payload.days)} onChange={(days) => setPayload({ days })} />
+        <div className="scheduler-editor-grid two">
+          <DateFilterFields payload={payload} setPayload={setPayload} />
+        </div>
+        <div className="scheduler-editor-grid three">
+          <label><span>Inicio opcional</span><input type="time" value={String(payload.startTime || '')} onChange={(event) => setPayload({ startTime: event.target.value })} /></label>
+          <label><span>Fim opcional</span><input type="time" value={String(payload.endTime || '')} onChange={(event) => setPayload({ endTime: event.target.value })} /></label>
+          <label><span>Peso opcional</span><input type="number" min="1" max="50000" value={String(payload.weight || '')} onChange={(event) => setPayload({ weight: event.target.value })} /></label>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="scheduler-editor-stack">
       <span className="scheduler-editor-label">Dias da semana opcionais</span>

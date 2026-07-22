@@ -1,5 +1,5 @@
 const { AI_COMMAND_TYPES, ADVISOR_ACTIONS } = require('../constants/aiConstants');
-const { RELATION_TYPES, STATUSES, advisorCommandResponseSchema, tagSuggestionResponseSchema } = require('./aiSchemas');
+const { RELATION_TYPES, STATUSES, advisorCommandResponseSchema, tagSuggestionResponseSchema, tagGroupingResponseSchema } = require('./aiSchemas');
 const { buildTaskDateContext, advisorStatusPriority, createCommandContextTask } = require('./aiAdvisorContext');
 
 function resolveAdvisorAction(action) {
@@ -377,6 +377,62 @@ function buildTagSuggestionRequest({ tasks, tags = [], memory = [], batchIndex =
   };
 }
 
+function buildTagGroupingRequest({ tasks, tags = [], mode = 'preferred', scope = 'block', strength = 0.35 }) {
+  const selectedTasks = selectCommandContextTasks({ action: 'schedule_calendar_events', tasks });
+  const availableTags = tags
+    .map((tag) => String(tag?.name || tag?.tag || tag?.label || tag || '').trim())
+    .filter(Boolean)
+    .slice(0, 200);
+  return {
+    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    input: [
+      {
+        role: 'system',
+        content: [
+          'You group task tags for a scheduling optimizer.',
+          'Return only JSON that matches the provided schema.',
+          'Create semantic tag groups that help reduce context switching when scheduling tasks.',
+          'Group related tags even when they are not identical, but do not force unrelated tags together.',
+          'Use only tags present in availableTags or in the provided tasks.',
+          'A useful group should normally contain at least 2 tags and be reusable across more than one task when possible.',
+          'Do not put the same tag in multiple groups. Prefer the single best group for each tag.',
+          'Do not create a group just because one task has two tags; the group must help schedule multiple related tasks.',
+          'Do not change tasks or tags. These groups are scheduling hints only.',
+          'For required mode, still return sensible groups; the scheduler decides how strictly to enforce them.'
+        ].join('\n')
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          today: new Date().toISOString(),
+          purpose: 'optional_tag_grouping_for_calendar_event_scheduling',
+          requestedMode: mode,
+          requestedScope: scope,
+          requestedStrength: strength,
+          availableTags,
+          tasks: selectedTasks.map((task) => ({
+            id: String(task.id || ''),
+            title: String(task.title || ''),
+            notes: String(task.notes || '').slice(0, 500),
+            status: String(task.status || ''),
+            priority: task.priority ?? null,
+            dueDateTime: task.dueDateTime || null,
+            tags: Array.isArray(task.tags) ? task.tags.map(String).slice(0, 12) : []
+          }))
+        })
+      }
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'scheduler_tag_groups',
+        strict: true,
+        schema: tagGroupingResponseSchema
+      }
+    }
+  };
+}
+
 function buildAdvisorAdviceRequest({ tasks, limit }) {
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
   const activeTasks = tasks
@@ -423,6 +479,7 @@ module.exports = {
   selectCommandContextTasks,
   buildAdvisorCommandRequest,
   buildTagSuggestionRequest,
+  buildTagGroupingRequest,
   buildAdvisorAdviceRequest
 };
 

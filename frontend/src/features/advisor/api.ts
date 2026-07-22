@@ -1,4 +1,4 @@
-import type { AiCommand, AiCommandPreview } from '../../../../shared/types';
+import type { AiCommand, AiCommandPreview, TagGroupingConfig } from '../../../../shared/types';
 import { DEFAULT_API_TIMEOUT_MS, requestJson } from '../../shared/api/requestJson';
 
 export type AdvisorAdvice = {
@@ -177,6 +177,8 @@ export type SchedulerConstraintInput = {
   end?: string;
 };
 
+export type SchedulerTagGroupingInput = Pick<TagGroupingConfig, 'enabled' | 'mode' | 'scope' | 'strength'>;
+
 export type AdvisorFeedbackInput = {
   action: string;
   commandPreview: AiCommandPreview;
@@ -300,14 +302,15 @@ export function getTaskAdvisorAdvice(limit = 5) {
   return requestJson<AdvisorAdvice>(`/advisor?limit=${encodeURIComponent(limit)}`);
 }
 
-export function requestTaskAdvisorCommands(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[]; scheduleStartFrom?: string } = {}) {
+export function requestTaskAdvisorCommands(action: string, options: { defaultCalendarId?: string; schedulerConstraints?: SchedulerConstraintInput[]; scheduleStartFrom?: string; tagGrouping?: SchedulerTagGroupingInput } = {}) {
   return requestJson<AdvisorPreview>('/ai/advisor/request', {
     method: 'POST',
     body: JSON.stringify({
       action,
       defaultCalendarId: options.defaultCalendarId || '',
       schedulerConstraints: options.schedulerConstraints || [],
-      scheduleStartFrom: options.scheduleStartFrom || ''
+      scheduleStartFrom: options.scheduleStartFrom || '',
+      tagGrouping: options.tagGrouping || { enabled: false, mode: 'off', scope: 'block', strength: 0 }
     })
   });
 }

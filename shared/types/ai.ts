@@ -2,6 +2,28 @@ import type { Task, TaskRelationType } from './task';
 
 export type AiCommandType = 'update_task' | 'add_relation' | 'create_task' | 'create_calendar_event';
 
+export type TagGroupingMode = 'off' | 'preferred' | 'required';
+export type TagGroupingScope = 'block' | 'day';
+
+export interface TagGroup {
+  id: string;
+  label: string;
+  tags: string[];
+  confidence?: number | null;
+  reason?: string | null;
+  matchingTaskCount?: number;
+}
+
+export interface TagGroupingConfig {
+  enabled: boolean;
+  mode: TagGroupingMode;
+  requestedMode?: TagGroupingMode;
+  scope: TagGroupingScope;
+  strength: number;
+  groups?: TagGroup[];
+  source?: 'llm' | 'heuristic' | 'manual' | 'none';
+}
+
 export interface AiCalendarEventCommandInput {
   summary: string;
   description?: string | null;

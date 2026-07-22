@@ -1,4 +1,5 @@
 import type { GoogleCalendar, GoogleStatus } from '../../../../../shared/types';
+import type { SchedulerTagGroupingInput } from '../../advisor/api';
 import { formatDateRange, toggleCalendarId, type CalendarViewMode } from '../calendarWeekUtils';
 
 type DailyEmailResult = {
@@ -101,8 +102,10 @@ type CalendarAdvisorBarProps = {
   advisorLoading: boolean;
   loading: boolean;
   advisorConstraintCount: number;
+  tagGrouping: SchedulerTagGroupingInput;
   onAdvisorDefaultCalendarChange: (calendarId: string) => void;
   onScheduleStartDateChange: (value: string) => void;
+  onTagGroupingChange: (value: SchedulerTagGroupingInput) => void;
   onRequestAdvisorCalendarEvents: () => void;
   onConnect: () => void;
   onDeleteDefaultCalendarEvents: () => Promise<{ calendarSummary: string; deletedCount: number; unlinkedCount: number } | null>;
@@ -119,13 +122,17 @@ export function CalendarAdvisorBar({
   advisorLoading,
   loading,
   advisorConstraintCount,
+  tagGrouping,
   onAdvisorDefaultCalendarChange,
   onScheduleStartDateChange,
+  onTagGroupingChange,
   onRequestAdvisorCalendarEvents,
   onConnect,
   onDeleteDefaultCalendarEvents,
   onClearAdvisorScheduleConstraints
 }: CalendarAdvisorBarProps) {
+  const tagGroupingEnabled = tagGrouping.enabled && tagGrouping.mode !== 'off';
+
   return (
     <div className="calendar-advisor-bar">
       <div>
@@ -146,6 +153,41 @@ export function CalendarAdvisorBar({
         <span>Agendar desde</span>
         <input type="date" value={scheduleStartDate} onChange={(event) => onScheduleStartDateChange(event.target.value)} />
       </label>
+      <div className="calendar-tag-grouping-toggle">
+        <span>Agrupar tags</span>
+        <button
+          type="button"
+          className={`button small ${tagGroupingEnabled ? 'primary' : 'secondary'}`}
+          aria-pressed={tagGroupingEnabled}
+          onClick={() => {
+            onTagGroupingChange({
+              ...tagGrouping,
+              enabled: !tagGroupingEnabled,
+              mode: tagGroupingEnabled ? 'off' : 'preferred',
+              scope: 'block',
+              strength: tagGrouping.strength || 0.35
+            });
+          }}
+        >
+          {tagGroupingEnabled ? 'Ligado' : 'Desligado'}
+        </button>
+      </div>
+      {tagGroupingEnabled && (
+        <label>
+          <span>Forca</span>
+          <select
+            value={tagGrouping.strength >= 0.7 ? 'strong' : tagGrouping.strength <= 0.2 ? 'light' : 'normal'}
+            onChange={(event) => {
+              const strength = event.target.value === 'strong' ? 0.8 : event.target.value === 'light' ? 0.2 : 0.35;
+              onTagGroupingChange({ ...tagGrouping, enabled: true, strength });
+            }}
+          >
+            <option value="light">Leve</option>
+            <option value="normal">Normal</option>
+            <option value="strong">Forte</option>
+          </select>
+        </label>
+      )}
       <button
         type="button"
         className="button primary small"

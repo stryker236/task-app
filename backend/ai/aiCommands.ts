@@ -13,6 +13,8 @@ const {
 const { AI_COMMAND_TYPES } = require('../constants/aiConstants');
 const { logger } = require('../logger');
 
+const AI_ADVISOR_CALENDAR_EVENT_COLOR_ID = '3';
+
 function getAiCommandsFromBody(body) {
   const commands = Array.isArray(body?.commands) ? body.commands : [];
   if (!commands.length) throw createValidationError(['commands must be a non-empty array']);
@@ -417,6 +419,7 @@ async function insertGoogleCalendarEvent(prepared, dependencies) {
       summary: event.summary,
       description: event.description || prepared.reason || '',
       location: event.location || '',
+      colorId: AI_ADVISOR_CALENDAR_EVENT_COLOR_ID,
       start: {
         dateTime: event.start,
         ...(event.timeZone ? { timeZone: event.timeZone } : {})

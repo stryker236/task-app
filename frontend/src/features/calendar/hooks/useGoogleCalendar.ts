@@ -94,9 +94,18 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     setGoogleLoading(true);
     try {
       const status = await getGoogleStatus();
+      if (status.requiresReconnect) {
+        setGoogleStatus({ connected: false, accountEmail: null, scopes: [], requiresReconnect: true });
+        setGoogleSessionExpired(true);
+        setGoogleCalendars([]);
+        setSelectedCalendarIds([]);
+        setCalendarEvents([]);
+        setWeeklyCalendarEvents([]);
+        setCalendarAccountEmail(null);
+        return;
+      }
       setGoogleStatus(status);
-      if (status.connected) setGoogleSessionExpired(false);
-      if (status.requiresReconnect) setGoogleSessionExpired(true);
+      setGoogleSessionExpired(false);
     } catch (error) {
       setError?.(errorMessage(error));
       if (isGoogleSessionExpired(error)) {

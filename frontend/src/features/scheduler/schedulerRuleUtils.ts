@@ -35,6 +35,7 @@ export const CONSTRAINT_OPTIONS = [
   ['min_duration', 'Duracao minima'],
   ['max_duration', 'Duracao maxima'],
   ['priority_boost', 'Prioridade extra'],
+  ['tag_group_preference', 'Agrupar conceito'],
   ['daily_limit', 'Limite diario'],
   ['break_after_task', 'Pausa apos tarefa'],
   ['break_after_work_block', 'Pausa apos bloco'],
@@ -198,6 +199,16 @@ export function validateDraft(draft: ConstraintDraft) {
     if (hasStart || hasEnd) validateTimeRange(payload, errors);
     if (payload.weight !== '' && payload.weight != null && (numberValue(payload.weight) < 1 || numberValue(payload.weight) > 10)) errors.push('Peso tem de estar entre 1 e 10.');
   }
+  if (draft.type === 'tag_group_preference') {
+    if (!String(payload.concept || '').trim()) errors.push('Conceito e obrigatorio.');
+    if (splitList(String(Array.isArray(payload.resolvedTags) ? payload.resolvedTags.join(', ') : payload.resolvedTags || '')).length < 2) errors.push('Precisa de pelo menos duas tags resolvidas.');
+    if (payload.strength !== '' && payload.strength != null && (numberValue(payload.strength) < 0.1 || numberValue(payload.strength) > 1)) errors.push('Forca tem de estar entre 0.1 e 1.');
+    validateDateFilters(payload, errors);
+    const hasStart = Boolean(payload.startTime);
+    const hasEnd = Boolean(payload.endTime);
+    if (hasStart || hasEnd) validateTimeRange(payload, errors);
+    if (payload.weight !== '' && payload.weight != null && (numberValue(payload.weight) < 1 || numberValue(payload.weight) > 50000)) errors.push('Peso tem de estar entre 1 e 50000.');
+  }
   return errors;
 }
 
@@ -241,6 +252,19 @@ function cleanPayload(draft: ConstraintDraft) {
   }
   if (draft.type === 'priority_boost') {
     return {
+      ...(numericList(payload.days).length ? { days: numericList(payload.days) } : {}),
+      ...dateFilter,
+      ...(payload.startTime && payload.endTime ? { startTime: String(payload.startTime), endTime: String(payload.endTime) } : {}),
+      ...(numberValue(payload.weight) > 0 ? { weight: numberValue(payload.weight) } : {})
+    };
+  }
+  if (draft.type === 'tag_group_preference') {
+    return {
+      concept: String(payload.concept || '').trim(),
+      resolvedTags: splitList(String(Array.isArray(payload.resolvedTags) ? payload.resolvedTags.join(', ') : payload.resolvedTags || '')),
+      strength: numberValue(payload.strength) > 0 ? numberValue(payload.strength) : 0.6,
+      scope: 'block',
+      timeMode: String(payload.timeMode || 'preferred') === 'required' ? 'required' : 'preferred',
       ...(numericList(payload.days).length ? { days: numericList(payload.days) } : {}),
       ...dateFilter,
       ...(payload.startTime && payload.endTime ? { startTime: String(payload.startTime), endTime: String(payload.endTime) } : {}),

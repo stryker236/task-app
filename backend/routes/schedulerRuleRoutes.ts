@@ -12,6 +12,7 @@ const CONSTRAINT_TYPES = [
   'min_duration',
   'max_duration',
   'priority_boost',
+  'tag_group_preference',
   'daily_limit',
   'break_after_task',
   'break_after_work_block',
@@ -165,6 +166,30 @@ function sanitizeManualPayload(type, value, errors: string[]) {
     if (source.weight != null && String(source.weight).trim() !== '') {
       payload.weight = cleanPositiveInteger(source.weight, 'weight', errors, { min: 1, max: 10 });
     }
+    return payload;
+  }
+  if (type === 'tag_group_preference') {
+    const concept = normalizeString(source.concept);
+    const resolvedTags = cleanStringList(source.resolvedTags || source.tags, 20);
+    if (!concept) errors.push('concept is required');
+    if (resolvedTags.length < 2) errors.push('resolvedTags must include at least two tags');
+    payload.concept = concept;
+    payload.resolvedTags = resolvedTags;
+    const strength = Number(source.strength ?? 0.6);
+    payload.strength = Number.isFinite(strength) ? Math.max(0.1, Math.min(1, strength)) : 0.6;
+    payload.timeMode = normalizeString(source.timeMode) === 'required' ? 'required' : 'preferred';
+    applyOptionalDays(payload, source);
+    applyOptionalDates(payload, source, errors);
+    applyOptionalTimeWindow(payload, source, errors);
+    if (source.weight != null && String(source.weight).trim() !== '') {
+      const weight = Number(source.weight);
+      if (!Number.isFinite(weight) || weight < 1 || weight > 50000) {
+        errors.push('weight must be a number between 1 and 50000');
+      } else {
+        payload.weight = Math.round(weight);
+      }
+    }
+    payload.scope = 'block';
     return payload;
   }
   errors.push(`Unsupported constraint type: ${type}`);

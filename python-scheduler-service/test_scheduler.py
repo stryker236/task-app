@@ -552,6 +552,168 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(result["reserved"][0]["end"], "2026-07-08T09:45:00Z")
         self.assertEqual(by_id["d"]["start"], "2026-07-08T09:45:00Z")
 
+    def test_preferred_tag_grouping_keeps_related_tasks_together(self):
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-08T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "tagGrouping": {
+                "enabled": True,
+                "mode": "preferred",
+                "scope": "block",
+                "strength": 0.8,
+                "groups": [
+                    {"id": "dev", "label": "Development", "tags": ["frontend", "backend", "repo"]}
+                ],
+            },
+            "tasks": [
+                {"id": "frontend", "title": "Frontend", "durationMinutes": 30, "tags": ["frontend"]},
+                {"id": "admin", "title": "Admin", "durationMinutes": 30, "tags": ["admin"]},
+                {"id": "repo", "title": "Repo", "durationMinutes": 30, "tags": ["repo"]},
+            ],
+        })
+
+        task_ids = [item["taskId"] for item in result["scheduled"]]
+        self.assertEqual(abs(task_ids.index("frontend") - task_ids.index("repo")), 1)
+        self.assertEqual(result["debug"]["schedulerVersion"], "tag-grouping-v1")
+        trace_by_id = {item["taskId"]: item for item in result["debug"]["tagGrouping"]["selectionTrace"]}
+        self.assertLess(trace_by_id["repo"]["tagGroupingAdjustment"], 0)
+        self.assertEqual(result["debug"]["tagGrouping"]["beamWidth"], 12)
+
+    def test_required_tag_grouping_rejects_other_groups_inside_current_block(self):
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-08T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "tagGrouping": {
+                "enabled": True,
+                "mode": "required",
+                "scope": "block",
+                "strength": 1,
+                "groups": [
+                    {"id": "dev", "label": "Development", "tags": ["frontend", "repo"]},
+                    {"id": "money", "label": "Money", "tags": ["finance", "btc"]},
+                ],
+            },
+            "tasks": [
+                {"id": "frontend", "title": "Frontend", "durationMinutes": 30, "tags": ["frontend"]},
+                {"id": "finance", "title": "Finance", "durationMinutes": 30, "tags": ["finance"]},
+                {"id": "repo", "title": "Repo", "durationMinutes": 30, "tags": ["repo"]},
+            ],
+        })
+
+        task_ids = [item["taskId"] for item in result["scheduled"]]
+        self.assertEqual(abs(task_ids.index("frontend") - task_ids.index("repo")), 1)
+
+    def test_tag_group_preference_rule_creates_scheduler_group(self):
+        rule = {
+            "id": "finance-group-rule",
+            "ruleId": "rule-finance",
+            "type": "tag_group_preference",
+            "payload": {
+                "concept": "financial tasks",
+                "resolvedTags": ["finance", "btc", "money"],
+                "strength": 0.9,
+                "scope": "block",
+            },
+            "hard": False,
+        }
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-08T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "taskConstraints": {
+                "btc": [rule],
+                "money": [rule],
+            },
+            "tasks": [
+                {"id": "btc", "title": "BTC", "durationMinutes": 30, "tags": ["btc"]},
+                {"id": "admin", "title": "Admin", "durationMinutes": 30, "tags": ["admin"]},
+                {"id": "money", "title": "Money", "durationMinutes": 30, "tags": ["money"]},
+            ],
+        })
+
+        task_ids = [item["taskId"] for item in result["scheduled"]]
+        self.assertEqual(abs(task_ids.index("btc") - task_ids.index("money")), 1)
+        self.assertEqual(result["debug"]["tagGrouping"]["ruleGroupCount"], 1)
+
+    def test_tag_group_preference_rule_prefers_specific_time_window(self):
+        rule = {
+            "id": "finance-saturday-rule",
+            "ruleId": "rule-finance",
+            "type": "tag_group_preference",
+            "payload": {
+                "concept": "financial tasks",
+                "resolvedTags": ["finance", "btc", "money"],
+                "strength": 0.8,
+                "scope": "block",
+                "timeMode": "preferred",
+                "date": "2026-07-11",
+                "startTime": "14:00",
+                "endTime": "18:00",
+                "weight": 20000,
+            },
+            "hard": False,
+        }
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-12T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "taskConstraints": {
+                "btc": [rule],
+                "money": [rule],
+            },
+            "tasks": [
+                {"id": "admin", "title": "Admin", "durationMinutes": 30, "tags": ["admin"]},
+                {"id": "btc", "title": "BTC", "durationMinutes": 30, "tags": ["btc"]},
+                {"id": "money", "title": "Money", "durationMinutes": 30, "tags": ["money"]},
+            ],
+        })
+
+        by_id = {item["taskId"]: item for item in result["scheduled"]}
+        self.assertEqual(by_id["btc"]["start"], "2026-07-11T14:00:00Z")
+        self.assertEqual(by_id["money"]["start"], "2026-07-11T14:30:00Z")
+
+    def test_tag_group_preference_rule_can_require_specific_time_window(self):
+        rule = {
+            "id": "finance-required-rule",
+            "ruleId": "rule-finance",
+            "type": "tag_group_preference",
+            "payload": {
+                "concept": "financial tasks",
+                "resolvedTags": ["finance", "btc", "money"],
+                "strength": 0.9,
+                "scope": "block",
+                "timeMode": "required",
+                "date": "2026-07-11",
+                "startTime": "14:00",
+                "endTime": "14:30",
+            },
+            "hard": False,
+        }
+        result = solve_schedule({
+            "now": "2026-07-08T08:00:00Z",
+            "horizonEnd": "2026-07-12T22:00:00Z",
+            "timeZone": "UTC",
+            "busy": [],
+            "taskConstraints": {
+                "btc": [rule],
+                "money": [rule],
+            },
+            "tasks": [
+                {"id": "btc", "title": "BTC", "durationMinutes": 30, "tags": ["btc"]},
+                {"id": "money", "title": "Money", "durationMinutes": 30, "tags": ["money"]},
+            ],
+        })
+
+        self.assertEqual([item["taskId"] for item in result["scheduled"]], ["btc"])
+        self.assertEqual(result["scheduled"][0]["start"], "2026-07-11T14:00:00Z")
+        self.assertEqual(result["unscheduled"][0]["taskId"], "money")
+
     def test_reports_due_date_conflict(self):
         result = solve_schedule({
             "now": "2026-07-08T08:00:00Z",

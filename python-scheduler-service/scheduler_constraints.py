@@ -187,6 +187,31 @@ def temporal_payload_weight(payload: dict[str, Any]) -> int:
     return 10000
 
 
+def has_temporal_filter(payload: dict[str, Any]) -> bool:
+    return bool(
+        payload.get("_daysSet")
+        or payload.get("_daysOfMonthSet")
+        or payload.get("_datesSet")
+        or payload.get("days")
+        or payload.get("date")
+        or payload.get("dates")
+        or isinstance(payload.get("_startMinutes"), int)
+        or isinstance(payload.get("_endMinutes"), int)
+        or payload.get("startTime")
+        or payload.get("endTime")
+    )
+
+
+def tag_group_time_weight(payload: dict[str, Any]) -> int:
+    if payload.get("weight") is not None:
+        return int(payload.get("weight") or 10000)
+    try:
+        strength = float(payload.get("strength", 0.6))
+    except (TypeError, ValueError):
+        strength = 0.6
+    return max(1000, int(round(max(0.1, min(1.0, strength)) * 15000)))
+
+
 def task_priority_bias(constraints: list[dict[str, Any]]) -> int:
     bias = 0
     for constraint in constraints:
@@ -195,6 +220,8 @@ def task_priority_bias(constraints: list[dict[str, Any]]) -> int:
         hard = constraint.get("hard") is not False
         if kind == "priority_boost":
             bias -= priority_boost_weight(payload)
+        elif kind == "tag_group_preference" and has_temporal_filter(payload):
+            bias -= tag_group_time_weight(payload) if payload.get("timeMode") != "required" else temporal_payload_weight(payload)
         elif kind == "preferred_window":
             bias -= int(payload.get("weight") or 100)
         elif hard and kind == "allowed_date":
@@ -252,6 +279,15 @@ def evaluate_task_constraints(
                 score -= priority_boost_weight(payload)
             if matches and constraint_id:
                 applied.append(constraint_id)
+        elif kind == "tag_group_preference":
+            if has_temporal_filter(payload):
+                matches = candidate_matches_temporal_payload(candidate, payload)
+                if payload.get("timeMode") == "required":
+                    violates = not matches
+                elif matches:
+                    score -= tag_group_time_weight(payload)
+                if matches and constraint_id:
+                    applied.append(constraint_id)
         elif kind == "daily_limit":
             max_count = int(payload.get("max") or 0)
             if max_count > 0 and candidate_matches_temporal_payload(candidate, payload):
@@ -261,10 +297,10 @@ def evaluate_task_constraints(
         elif kind in ("break_after_task", "break_after_work_block"):
             pass
 
-        if violates and hard:
+        if violates and (hard or kind == "tag_group_preference"):
             if constraint_id:
                 blocking.append(constraint_id)
-        elif not violates and constraint_id and kind not in ("preferred_window", "priority_boost"):
+        elif not violates and constraint_id and kind not in ("preferred_window", "priority_boost", "tag_group_preference"):
             applied.append(constraint_id)
 
     return not blocking, score, applied, blocking
