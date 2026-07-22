@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { getAppSettings, updateAppSettings, type AppSettings, type AppSettingsUpdate } from '../features/settings/api';
+import { getAppSettings, updateAppSettings, type AppSettings, type AppSettingsUpdate } from '../api';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   productivity: {
@@ -66,4 +66,5 @@ export default function useAppSettings({ setError }: { setError: (message: strin
 
   return { settings, settingsLoading, settingsSaving, refreshSettings, saveSettings };
 }
+
 

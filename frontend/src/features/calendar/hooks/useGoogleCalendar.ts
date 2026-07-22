@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../shared/types';
+﻿import { useEffect, useMemo, useState } from 'react';
+import type { GoogleCalendar, GoogleCalendarEvent, GoogleStatus } from '../../../../../shared/types';
 import {
   deleteDefaultGoogleCalendarEvents,
   disconnectGoogle,
@@ -9,8 +9,8 @@ import {
   getGoogleOAuthUrl,
   getGoogleStatus,
   sendGoogleDailyTaskEmail
-} from '../features/calendar/api';
-import { clientLog } from '../logger';
+} from '../api';
+import { clientLog } from '../../../logger';
 
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10);
@@ -356,3 +356,4 @@ export default function useGoogleCalendar({ setError }: UseGoogleCalendarOptions
     deleteDefaultCalendarEvents
   };
 }
+

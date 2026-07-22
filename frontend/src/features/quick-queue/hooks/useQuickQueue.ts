@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import type { QuickQueueItem, TaskInput } from '../../../shared/types';
+﻿import { useEffect, useState } from 'react';
+import type { QuickQueueItem, TaskInput } from '../../../../../shared/types';
 import {
   clearDoneQuickQueueItems as clearDoneQuickQueueItemsRequest,
   createQuickQueueItem,
@@ -8,7 +8,7 @@ import {
   moveQuickQueueItem as moveQuickQueueItemRequest,
   reorderQuickQueueItems as reorderQuickQueueItemsRequest,
   updateQuickQueueItem
-} from '../features/quick-queue/api';
+} from '../api';
 
 const LEGACY_QUICK_QUEUE_KEY = 'task-app:quick-queue:v1';
 
@@ -210,3 +210,4 @@ export default function useQuickQueue({ setError }: UseQuickQueueOptions = {}) {
     clearDoneQuickQueueItems
   };
 }
+

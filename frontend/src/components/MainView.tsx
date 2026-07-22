@@ -2,7 +2,7 @@
 import type { AppSettings, AppSettingsUpdate, ProductivitySummary, QuickQueueItem, Task, TaskCalendarEvent, TaskCalendarEventReviewStatus, TaskStatus } from '../../../shared/types';
 import type { TaskFilters } from '../features/tasks/api';
 import type { ViewKey } from '../constants/tasks';
-import { useAdvisorContext } from '../context/AdvisorContext';
+import { useAdvisorContext } from '../features/advisor/context/AdvisorContext';
 import KanbanView from '../features/tasks/components/KanbanView';
 import QueueView from '../features/tasks/components/QueueView';
 import type { QueueSort } from '../features/tasks/components/QueueView';
@@ -206,5 +206,6 @@ export default function MainView({
 
   return null;
 }
+
 
 

@@ -1,6 +1,6 @@
 ﻿import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { ChecklistItem, Task, TaskCalendarEvent, TaskCalendarEventReviewStatus, TaskPriority, TaskStatus } from '../../../shared/types';
+import type { ChecklistItem, Task, TaskCalendarEvent, TaskCalendarEventReviewStatus, TaskPriority, TaskStatus } from '../../../../../shared/types';
 import {
   addTaskProgressEntry,
   archiveTask,
@@ -13,13 +13,13 @@ import {
   toggleChecklistItem,
   updateTask,
   type TaskFilters
-} from '../features/tasks/api';
+} from '../api';
 import {
   attachSharedNoteToTask,
   createTaskSharedNote,
   detachSharedNoteFromTask
-} from '../features/shared-notes/api';
-import type { TaskDetailsChange } from '../features/tasks/components/TaskDetails';
+} from '../../shared-notes/api';
+import type { TaskDetailsChange } from '../components/TaskDetails';
 
 type UseTaskActionsOptions = {
   filters: TaskFilters;
@@ -269,4 +269,5 @@ export default function useTaskActions({
     postponeTaskDueDate
   };
 }
+
 

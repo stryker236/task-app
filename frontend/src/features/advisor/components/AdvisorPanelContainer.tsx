@@ -1,6 +1,6 @@
 ﻿import type { Task } from '../../../../../shared/types';
-import { useAdvisorContext } from '../../../context/AdvisorContext';
-import { useGoogleCalendarContext } from '../../../context/GoogleCalendarContext';
+import { useAdvisorContext } from '../context/AdvisorContext';
+import { useGoogleCalendarContext } from '../../calendar/context/GoogleCalendarContext';
 import { filterAdvisorProposalBatch, type AdvisorProposalSurface } from '../../../utils/advisorProposalFilters';
 import AdvisorPanel from './AdvisorPanel';
 
@@ -50,5 +50,6 @@ export default function AdvisorPanelContainer({ allTasks, proposalSurface = 'tas
     />
   );
 }
+
 
 

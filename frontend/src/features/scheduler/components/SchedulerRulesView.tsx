@@ -12,15 +12,17 @@ import { getTasks } from '../../tasks/api';
 import type { Task } from '../../../../../shared/types';
 
 import {
+  ConstraintDetails
+} from './SchedulerRuleEditorParts';
+import {
   buildConstraint,
-  ConstraintDetails,
   draftFromConstraint,
   formatPayload,
   formatScope,
   ruleAppliesToTask,
   validateDraft,
   type ConstraintDraft
-} from './SchedulerRuleEditorParts';
+} from '../schedulerRuleUtils';
 export default function SchedulerRulesView() {
   const [rules, setRules] = useState<SchedulerRule[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);

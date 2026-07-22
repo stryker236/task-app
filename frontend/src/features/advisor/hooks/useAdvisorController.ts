@@ -1,6 +1,6 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { AiCommand, AiCommandPreview, Task } from '../../../shared/types';
+import type { AiCommand, AiCommandPreview, Task } from '../../../../../shared/types';
 import {
   applyAiCommands,
   deleteAdvisorMemoryRule,
@@ -17,9 +17,9 @@ import {
   type AdvisorPreviewDebug,
   type AdvisorReservedBlock,
   type SchedulerConstraintInput
-} from '../features/advisor/api';
-import type { TaskFilters } from '../features/tasks/api';
-import { clientLog } from '../logger';
+} from '../api';
+import type { TaskFilters } from '../../tasks/api';
+import { clientLog } from '../../../logger';
 
 type AdvisorAdvice = Awaited<ReturnType<typeof getTaskAdvisorAdvice>>;
 type AdvisorBatch = {
@@ -396,4 +396,5 @@ export default function useAdvisorController({
     openAdvisorRecommendedTask
   };
 }
+
 

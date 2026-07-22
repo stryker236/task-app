@@ -1,7 +1,7 @@
 ﻿import { useMemo, useState } from 'react';
 import type { Task } from '../../../../../shared/types';
-import { useAdvisorContext } from '../../../context/AdvisorContext';
-import { useGoogleCalendarContext } from '../../../context/GoogleCalendarContext';
+import { useAdvisorContext } from '../../advisor/context/AdvisorContext';
+import { useGoogleCalendarContext } from '../context/GoogleCalendarContext';
 import { advisorCalendarPreviewEvents, advisorReservedPreviewEvents } from '../../../utils/advisorCalendarPreviews';
 import { filterAdvisorProposalBatch } from '../../../utils/advisorProposalFilters';
 import { AdvisorProposalBuffer } from '../../advisor/components/AdvisorProposalComponents';
@@ -122,6 +122,7 @@ export default function CalendarView({ allTasks }: CalendarViewProps) {
     </>
   );
 }
+
 
 
 

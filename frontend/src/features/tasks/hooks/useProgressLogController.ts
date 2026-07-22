@@ -1,7 +1,7 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { Task } from '../../../shared/types';
-import { addTaskProgressEntry, editTaskProgressEntry, type TaskFilters } from '../features/tasks/api';
+import type { Task } from '../../../../../shared/types';
+import { addTaskProgressEntry, editTaskProgressEntry, type TaskFilters } from '../api';
 
 type UseProgressLogControllerOptions = {
   filters: TaskFilters;
@@ -63,3 +63,4 @@ export default function useProgressLogController({ filters, fetchDashboardData, 
     openProgressLogFromTaskDetails
   };
 }
+

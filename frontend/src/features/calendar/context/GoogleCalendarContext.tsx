@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+﻿import { createContext, useContext, type ReactNode } from 'react';
 import type useGoogleCalendar from '../hooks/useGoogleCalendar';
 
 type GoogleCalendarContextValue = ReturnType<typeof useGoogleCalendar>;
@@ -24,3 +24,4 @@ export function useGoogleCalendarContext() {
   if (!value) throw new Error('useGoogleCalendarContext must be used inside GoogleCalendarProvider');
   return value;
 }
+

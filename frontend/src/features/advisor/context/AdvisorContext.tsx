@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+﻿import { createContext, useContext, type ReactNode } from 'react';
 import type useAdvisorController from '../hooks/useAdvisorController';
 
 type AdvisorContextValue = ReturnType<typeof useAdvisorController>;
@@ -24,3 +24,4 @@ export function useAdvisorContext() {
   if (!value) throw new Error('useAdvisorContext must be used inside AdvisorProvider');
   return value;
 }
+

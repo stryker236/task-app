@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { ProductivitySummary } from '../../../shared/types';
-import { getProductivitySummary } from '../features/productivity/api';
+﻿import { useCallback, useEffect, useState } from 'react';
+import type { ProductivitySummary } from '../../../../../shared/types';
+import { getProductivitySummary } from '../api';
 
 const EMPTY_SUMMARY: ProductivitySummary = {
   todayXp: 0,
@@ -55,3 +55,4 @@ export default function useProductivitySummary({ setError }: { setError: (messag
 
   return { productivitySummary: summary, productivityLoading: loading, refreshProductivitySummary };
 }
+

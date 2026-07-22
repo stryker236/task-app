@@ -1,5 +1,5 @@
 ﻿import type { ChecklistItem, SharedNote, Tag, Task, TaskCalendarEvent, TaskInput } from '../../../shared/types';
-import { useGoogleCalendarContext } from '../context/GoogleCalendarContext';
+import { useGoogleCalendarContext } from '../features/calendar/context/GoogleCalendarContext';
 import CalendarEventDialog from '../features/calendar/components/CalendarEventDialog';
 import PostponeDialog from './PostponeDialog';
 import ProgressLog from './ProgressLog';
@@ -157,4 +157,5 @@ export default function AppDialogs({
     </>
   );
 }
+
 
