@@ -1,4 +1,4 @@
-import type { AdvisorPreview } from '../api';
+import type { AdvisorPreview } from '../features/advisor/api';
 
 type ProposalCommand = AdvisorPreview['commands'][number];
 

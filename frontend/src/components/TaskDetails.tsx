@@ -1,26 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, MouseEvent } from 'react';
 import type { ActivityLogEntry, ChecklistItem, SharedNote, Tag, Task, TaskInput, TaskPriority, TaskRelation, TaskStatus } from '../../../shared/types';
-import { getSchedulerRules, getSharedNotes, type SchedulerRule } from '../api';
+import { getSchedulerRules, type SchedulerRule } from '../features/scheduler/api';
+import { getSharedNotes } from '../features/shared-notes/api';
+import {
+  activityText,
+  constraintAppliesToTask,
+  editableTaskFromTask,
+  formatConstraintPayload,
+  formatDate,
+  formatMinutes,
+  HOURS,
+  localDeadline,
+  MINUTES,
+  numericMinutes,
+  TASK_PRIORITIES,
+  TASK_STATUS_LABELS,
+  type EditableChecklistItem,
+  type EditableTask
+} from '../features/tasks/taskDetailsUtils';
 import { activeCalendarEvents, nextScheduledEvent, reviewedCalendarEvents } from '../utils/taskScheduling';
 import DependencyPicker from './DependencyPicker';
 import RelationPicker, { RELATION_LABELS } from './RelationPicker';
 import TagPicker from './TagPicker';
-
-const PRIORITIES: Record<TaskPriority, string> = { 1: 'Baixa', 2: 'Media', 3: 'Alta', 4: 'Urgente' };
-const STATUS_LABELS: Record<TaskStatus, string> = { new: 'New', in_progress: 'In progress', waiting: 'Waiting', done: 'Done', cancelled: 'Cancelled' };
-const HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
-const MINUTES = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
-
-type EditableChecklistItem = Partial<ChecklistItem> & {
-  title: string;
-  isDone: boolean;
-};
-
-type EditableTask = Omit<Task, 'estimatedMinutes' | 'checklistItems'> & {
-  estimatedMinutes: number | string | null;
-  checklistItems: EditableChecklistItem[];
-};
 
 export type TaskDetailsChange = Omit<Partial<TaskInput>, 'checklistItems' | 'relations'> & {
   blocksTaskIds?: string[];
@@ -48,82 +50,10 @@ type TaskDetailsProps = {
   onCreateCalendarEvent: (task: Task) => void;
 };
 
-function formatDate(value?: string | null) {
-  if (!value) return '—';
-  return new Intl.DateTimeFormat('pt-PT', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
-  }).format(new Date(value));
-}
-
-function localDeadline(value?: string | null) {
-  if (!value) return { date: '', time: '' };
-  const date = new Date(value);
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString();
-  return { date: local.slice(0, 10), time: local.slice(11, 16) };
-}
-
-function editableTaskFromTask(task: Task): EditableTask {
-  return {
-    ...task,
-    checklistItems: task.checklistItems || []
-  };
-}
-
 function stopDialogMouseDown(event: MouseEvent<HTMLElement>) {
   event.stopPropagation();
 }
 
-function arrayValue(value: unknown) {
-  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
-}
-
-function constraintAppliesToTask(constraint: { scope?: Record<string, unknown> }, task: Task) {
-  const scope = constraint.scope || {};
-  const keys = Object.keys(scope).filter((key) => {
-    const value = scope[key];
-    return !(Array.isArray(value) && value.length === 0) && value !== false && value != null;
-  });
-  if (!keys.length || scope.allTasks === true) return true;
-  const tags = arrayValue(scope.tags);
-  if (tags.length && !tags.some((tag) => task.tags.includes(tag))) return false;
-  const titleIncludes = arrayValue(scope.titleIncludes).map((item) => item.toLocaleLowerCase());
-  if (titleIncludes.length && !titleIncludes.some((item) => task.title.toLocaleLowerCase().includes(item))) return false;
-  const taskIds = arrayValue(scope.taskIds);
-  if (taskIds.length && !taskIds.includes(task.id)) return false;
-  const statuses = arrayValue(scope.statuses);
-  if (statuses.length && !statuses.includes(task.status)) return false;
-  const priorities = Array.isArray(scope.priorities) ? scope.priorities.map(Number) : [];
-  if (priorities.length && !priorities.includes(task.priority)) return false;
-  return true;
-}
-
-function formatConstraintPayload(payload?: Record<string, unknown>) {
-  const entries = Object.entries(payload || {});
-  if (!entries.length) return 'Sem parametros';
-  return entries.map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`).join('; ');
-}
-
-function formatMinutes(value?: number | null) {
-  if (value == null) return '-';
-  if (value < 60) return `${value} min`;
-  const hours = Math.floor(value / 60);
-  const minutes = value % 60;
-  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
-}
-
-function numericMinutes(value: number | string | null | undefined) {
-  if (value == null || value === '') return null;
-  const minutes = Number(value);
-  return Number.isFinite(minutes) ? minutes : null;
-}
-
-function activityText(entry: ActivityLogEntry) {
-  if (entry.type === 'status') {
-    return `Status changed from ${entry.fromStatus || ''} to ${entry.toStatus || ''}`;
-  }
-  return entry.message;
-}
 
 export default function TaskDetails({
   task,
@@ -331,8 +261,8 @@ export default function TaskDetails({
 
         <div className="task-details-content">
           <section className="details-summary-grid editable-summary">
-            <label><span>Status</span><select disabled={task.isArchived} value={draft.status} title={statusBlocked ? 'Conclua os bloqueios antes de marcar como Done' : 'Estado da tarefa'} onChange={(event) => commit('status', { status: event.target.value as TaskStatus })}>{Object.entries(STATUS_LABELS).map(([value, label]) => <option value={value} disabled={value === 'done' && statusBlocked} key={value}>{label}</option>)}</select></label>
-            <label><span>Prioridade</span><select disabled={task.isArchived} value={draft.priority} onChange={(event) => commit('priority', { priority: Number(event.target.value) as TaskPriority })}>{Object.entries(PRIORITIES).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+            <label><span>Status</span><select disabled={task.isArchived} value={draft.status} title={statusBlocked ? 'Conclua os bloqueios antes de marcar como Done' : 'Estado da tarefa'} onChange={(event) => commit('status', { status: event.target.value as TaskStatus })}>{Object.entries(TASK_STATUS_LABELS).map(([value, label]) => <option value={value} disabled={value === 'done' && statusBlocked} key={value}>{label}</option>)}</select></label>
+            <label><span>Prioridade</span><select disabled={task.isArchived} value={draft.priority} onChange={(event) => commit('priority', { priority: Number(event.target.value) as TaskPriority })}>{Object.entries(TASK_PRIORITIES).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
             <label><span>Estimativa</span><input disabled={task.isArchived} type="number" min={0} value={draft.estimatedMinutes ?? ''} placeholder="Minutos" onChange={(event) => setDraft((current) => ({ ...current, estimatedMinutes: event.target.value }))} onBlur={() => commit('estimatedMinutes', { estimatedMinutes: draft.estimatedMinutes === '' ? null : Number(draft.estimatedMinutes) })} /></label>
             <label className="details-favorite"><span>Favorita</span><input disabled={task.isArchived} type="checkbox" checked={draft.isFavorite === true} onChange={(event) => commit('isFavorite', { isFavorite: event.target.checked })} /></label>
             <div><span>Criada</span><strong>{formatDate(draft.createdAt)}</strong></div>
@@ -545,3 +475,6 @@ export default function TaskDetails({
     </div>
   );
 }
+
+
+

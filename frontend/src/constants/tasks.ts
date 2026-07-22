@@ -1,4 +1,4 @@
-import type { TaskFilters } from '../api';
+import type { TaskFilters } from '../features/tasks/api';
 
 export type ViewKey = 'kanban' | 'queue' | 'quickQueue' | 'collections' | 'sharedNotes' | 'calendar' | 'periodicTasks' | 'scheduledReview' | 'productivity' | 'settings' | 'learnedRules' | 'schedulerRules' | 'logs' | 'archived';
 

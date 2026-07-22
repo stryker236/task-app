@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AppSettings, AppSettingsUpdate } from '../api';
+import type { AppSettings, AppSettingsUpdate } from '../features/settings/api';
 
 type SettingsViewProps = {
   settings: AppSettings;

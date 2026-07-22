@@ -1,4 +1,4 @@
-import type { AdvisorMemoryRule } from '../../api';
+import type { AdvisorMemoryRule } from '../../features/advisor/api';
 
 function formatMemoryRule(rule: AdvisorMemoryRule) {
   const parts = [];

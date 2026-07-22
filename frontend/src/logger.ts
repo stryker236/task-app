@@ -1,4 +1,4 @@
-import { sendClientLog } from './api';
+import { sendClientLog } from './features/logs/api';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 type LogMetadata = Record<string, unknown>;

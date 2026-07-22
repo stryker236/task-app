@@ -1,6 +1,6 @@
 import type { ChangeEvent } from 'react';
 import type { Tag } from '../../../shared/types';
-import type { TaskFilters } from '../api';
+import type { TaskFilters } from '../features/tasks/api';
 import TagFilter from './TagFilter';
 
 type FiltersProps = {

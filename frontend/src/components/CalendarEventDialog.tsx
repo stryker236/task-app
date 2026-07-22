@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, MouseEvent } from 'react';
 import type { GoogleCalendar, Task, TaskCalendarEvent } from '../../../shared/types';
-import { createGoogleCalendarEvent } from '../api';
+import { createGoogleCalendarEvent } from '../features/calendar/api';
 
 type CalendarEventDialogProps = {
   task: Task;

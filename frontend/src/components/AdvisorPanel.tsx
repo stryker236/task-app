@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { AiCommand, GoogleCalendar, GoogleStatus, Task } from '../../../shared/types';
-import type { AdvisorAdvice, AdvisorFeedbackInput, AdvisorMemoryRule, AdvisorPreview } from '../api';
+import type { AdvisorAdvice, AdvisorFeedbackInput, AdvisorMemoryRule, AdvisorPreview } from '../features/advisor/api';
 import AdvisorAdviceGrid, { type AdvisorActionItem } from './advisor/AdvisorAdviceGrid';
 import AdvisorPanelHeader, { advisorCalendarWriteReady } from './advisor/AdvisorPanelHeader';
 

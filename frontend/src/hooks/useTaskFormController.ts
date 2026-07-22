@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { QuickQueueItem, Task } from '../../../shared/types';
-import { createBlockingTask, createTask, updateTask, type TaskFilters } from '../api';
+import { createBlockingTask, createTask, updateTask, type TaskFilters } from '../features/tasks/api';
 import { TASK_DRAFT_KEY, type TaskDraft, type TaskFormPayload } from '../components/TaskForm';
 import { createTaskDraftFromQuickQueueItem } from './useQuickQueue';
 

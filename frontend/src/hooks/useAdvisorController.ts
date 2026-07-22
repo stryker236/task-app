@@ -14,9 +14,11 @@ import {
   type AdvisorFeedbackInput,
   type AdvisorMemoryRule,
   type AdvisorMemoryRuleUpdate,
-  type SchedulerConstraintInput,
-  type TaskFilters
-} from '../api';
+  type AdvisorPreviewDebug,
+  type AdvisorReservedBlock,
+  type SchedulerConstraintInput
+} from '../features/advisor/api';
+import type { TaskFilters } from '../features/tasks/api';
 import { clientLog } from '../logger';
 
 type AdvisorAdvice = Awaited<ReturnType<typeof getTaskAdvisorAdvice>>;
@@ -29,8 +31,8 @@ type AdvisorBatch = {
   commandCount: number;
   commands: AiCommandPreview[];
   rawCommands?: AiCommand[];
-  reservedBlocks?: import('../api').AdvisorReservedBlock[];
-  debug?: import('../api').AdvisorPreviewDebug;
+  reservedBlocks?: AdvisorReservedBlock[];
+  debug?: AdvisorPreviewDebug;
 };
 type ProposalStatus = 'accepted' | 'ignored';
 

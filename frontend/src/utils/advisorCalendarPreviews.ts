@@ -1,5 +1,5 @@
 import type { GoogleCalendar, GoogleCalendarEvent } from '../../../shared/types';
-import type { AdvisorPreview } from '../api';
+import type { AdvisorPreview } from '../features/advisor/api';
 
 type ObjectRecord = Record<string, unknown>;
 

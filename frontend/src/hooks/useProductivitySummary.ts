@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ProductivitySummary } from '../../../shared/types';
-import { getProductivitySummary } from '../api';
+import { getProductivitySummary } from '../features/productivity/api';
 
 const EMPTY_SUMMARY: ProductivitySummary = {
   todayXp: 0,

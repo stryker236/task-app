@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Tag, Task } from '../../../shared/types';
-import { getTags, getTasks, type TaskFilters } from '../api';
+import { getTags, getTasks, type TaskFilters } from '../features/tasks/api';
 import { createViewFilters, type ViewKey } from '../constants/tasks';
 import { isOverdue, isToday } from '../utils/taskDates';
 

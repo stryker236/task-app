@@ -9,7 +9,7 @@ import {
   type PeriodicTask,
   type PeriodicTaskConstraint,
   type PeriodicTaskInput
-} from '../api';
+} from '../features/periodic-tasks/api';
 
 const DAY_OPTIONS = [
   [1, 'Seg'],

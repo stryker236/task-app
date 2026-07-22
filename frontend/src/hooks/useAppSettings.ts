@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { getAppSettings, updateAppSettings, type AppSettings, type AppSettingsUpdate } from '../api';
+import { getAppSettings, updateAppSettings, type AppSettings, type AppSettingsUpdate } from '../features/settings/api';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   productivity: {

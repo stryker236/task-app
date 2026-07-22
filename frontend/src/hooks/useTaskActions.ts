@@ -3,12 +3,9 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { ChecklistItem, Task, TaskCalendarEvent, TaskCalendarEventReviewStatus, TaskPriority, TaskStatus } from '../../../shared/types';
 import {
   addTaskProgressEntry,
-  attachSharedNoteToTask,
   archiveTask,
   archiveTasksByStatus,
-  createTaskSharedNote,
   deleteTask,
-  detachSharedNoteFromTask,
   duplicateTask,
   editTaskProgressEntry,
   restoreTask,
@@ -16,7 +13,12 @@ import {
   toggleChecklistItem,
   updateTask,
   type TaskFilters
-} from '../api';
+} from '../features/tasks/api';
+import {
+  attachSharedNoteToTask,
+  createTaskSharedNote,
+  detachSharedNoteFromTask
+} from '../features/shared-notes/api';
 import type { TaskDetailsChange } from '../components/TaskDetails';
 
 type UseTaskActionsOptions = {

@@ -8,7 +8,7 @@ import {
   moveQuickQueueItem as moveQuickQueueItemRequest,
   reorderQuickQueueItems as reorderQuickQueueItemsRequest,
   updateQuickQueueItem
-} from '../api';
+} from '../features/quick-queue/api';
 
 const LEGACY_QUICK_QUEUE_KEY = 'task-app:quick-queue:v1';
 

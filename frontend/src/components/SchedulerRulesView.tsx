@@ -3,12 +3,12 @@ import {
   createSchedulerRulesFromText,
   deleteSchedulerRule,
   getSchedulerRules,
-  getTasks,
   reinterpretSchedulerRule,
   updateSchedulerRule,
   type SchedulerRule,
   type SchedulerRuleConstraint
-} from '../api';
+} from '../features/scheduler/api';
+import { getTasks } from '../features/tasks/api';
 import type { Task } from '../../../shared/types';
 
 type ConstraintDraft = {

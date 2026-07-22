@@ -1,5 +1,5 @@
 import type { AppSettings, AppSettingsUpdate, ProductivitySummary, QuickQueueItem, Task, TaskCalendarEvent, TaskCalendarEventReviewStatus, TaskStatus } from '../../../shared/types';
-import type { TaskFilters } from '../api';
+import type { TaskFilters } from '../features/tasks/api';
 import type { ViewKey } from '../constants/tasks';
 import { useAdvisorContext } from '../context/AdvisorContext';
 import CalendarView from './CalendarView';

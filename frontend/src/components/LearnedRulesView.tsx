@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AdvisorMemoryRule, AdvisorMemoryRuleUpdate } from '../api';
+import type { AdvisorMemoryRule, AdvisorMemoryRuleUpdate } from '../features/advisor/api';
 
 type LearnedRulesViewProps = {
   rules: AdvisorMemoryRule[];

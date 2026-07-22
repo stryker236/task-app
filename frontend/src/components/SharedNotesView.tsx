@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SharedNote, Task } from '../../../shared/types';
-import { archiveSharedNote, attachSharedNoteToTask, createSharedNote, detachSharedNoteFromTask, getSharedNotes, updateSharedNote } from '../api';
+import { archiveSharedNote, attachSharedNoteToTask, createSharedNote, detachSharedNoteFromTask, getSharedNotes, updateSharedNote } from '../features/shared-notes/api';
 
 type SharedNotesViewProps = {
   allTasks: Task[];

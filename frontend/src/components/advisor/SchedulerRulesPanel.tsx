@@ -6,7 +6,7 @@ import {
   reinterpretSchedulerRule,
   updateSchedulerRule,
   type SchedulerRule
-} from '../../api';
+} from '../../features/scheduler/api';
 
 function formatConstraint(rule: SchedulerRule['constraints'][number]) {
   const payload = Object.entries(rule.payload || {}).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`);

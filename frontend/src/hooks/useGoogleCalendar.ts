@@ -9,7 +9,7 @@ import {
   getGoogleOAuthUrl,
   getGoogleStatus,
   sendGoogleDailyTaskEmail
-} from '../api';
+} from '../features/calendar/api';
 import { clientLog } from '../logger';
 
 function todayInputValue() {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Task } from '../../../shared/types';
-import { addTaskProgressEntry, editTaskProgressEntry, type TaskFilters } from '../api';
+import { addTaskProgressEntry, editTaskProgressEntry, type TaskFilters } from '../features/tasks/api';
 
 type UseProgressLogControllerOptions = {
   filters: TaskFilters;

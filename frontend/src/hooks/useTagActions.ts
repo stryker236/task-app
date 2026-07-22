@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { Tag } from '../../../shared/types';
-import { deleteTag, deleteTags, type TaskFilters } from '../api';
+import { deleteTag, deleteTags, type TaskFilters } from '../features/tasks/api';
 import type { ViewKey } from '../constants/tasks';
 
 type TagWithUsage = Tag & {

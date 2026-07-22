@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import type { SharedNote, Task, TaskCalendarEvent, TaskStatus } from '../../shared/types';
+import { safeInternalReturnTo } from './app/navigation';
+import { showsAppDashboardChrome, showsTaskFilters, showsTaskWorkspaceChrome } from './app/viewConfig';
 import AdvisorPanelContainer from './components/AdvisorPanelContainer';
 import AppDialogs from './components/AppDialogs';
 import AppHeader from './components/AppHeader';
@@ -17,6 +19,7 @@ import ViewTabs from './components/ViewTabs';
 import { EMPTY_FILTERS } from './constants/tasks';
 import { AdvisorProvider } from './context/AdvisorContext';
 import { GoogleCalendarProvider } from './context/GoogleCalendarContext';
+import { createTaskCollectionSections } from './features/tasks/taskCollections';
 import useAdvisorController from './hooks/useAdvisorController';
 import useAppSettings from './hooks/useAppSettings';
 import useDashboardData from './hooks/useDashboardData';
@@ -28,12 +31,6 @@ import useTagActions from './hooks/useTagActions';
 import useTaskActions from './hooks/useTaskActions';
 import useTaskFormController from './hooks/useTaskFormController';
 import { loginPath, viewFromPath, viewPath } from './utils/routes';
-import { isOverdue, isToday } from './utils/taskDates';
-
-function safeInternalReturnTo(value: string | null) {
-  if (!value || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/login')) return '/';
-  return value;
-}
 
 export default function App() {
   const location = useLocation();
@@ -43,6 +40,9 @@ export default function App() {
   const view = routeView || 'kanban';
   const protectedReturnTo = `${location.pathname}${location.search}${location.hash}`;
   const loginReturnTo = safeInternalReturnTo(new URLSearchParams(location.search).get('returnTo'));
+  const showDashboardChrome = showsAppDashboardChrome(view);
+  const showTaskWorkspaceChrome = showsTaskWorkspaceChrome(view);
+  const showTaskFilters = showsTaskFilters(view);
 
   const [darkMode, setDarkMode] = useState(() => {
     const stored = localStorage.getItem('task-app:theme');
@@ -180,17 +180,7 @@ export default function App() {
     onRestore: taskActions.restoreArchivedTask
   };
 
-  const collectionSections = useMemo(() => {
-    const active = (task: Task) => !['done', 'cancelled'].includes(task.status);
-    return [
-      ['Atrasadas', tasks.filter((task) => active(task) && isOverdue(task))],
-      ['Para hoje', tasks.filter((task) => active(task) && isToday(task))],
-      ['Urgentes', tasks.filter((task) => active(task) && task.priority === 4)],
-      ['Alta prioridade', tasks.filter((task) => active(task) && task.priority === 3)],
-      ['Waiting', tasks.filter((task) => task.status === 'waiting')],
-      ['Sem prazo', tasks.filter((task) => active(task) && !task.dueDateTime)]
-    ] satisfies Array<[string, Task[]]>;
-  }, [tasks]);
+  const collectionSections = useMemo(() => createTaskCollectionSections(tasks), [tasks]);
 
   if (!routeView && !isLoginRoute) {
     return <Navigate to="/" replace />;
@@ -235,13 +225,13 @@ export default function App() {
       />
 
       <main>
-        {view !== 'productivity' && view !== 'settings' && settings.productivity.showDashboardPanel && <ProductivityPanel summary={productivitySummary} loading={productivityLoading} />}
+        {showDashboardChrome && settings.productivity.showDashboardPanel && <ProductivityPanel summary={productivitySummary} loading={productivityLoading} />}
 
-        {view !== 'productivity' && view !== 'settings' && <DashboardCounters counters={counters} />}
+        {showDashboardChrome && <DashboardCounters counters={counters} />}
 
         <ViewTabs view={view} />
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'scheduledReview' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {showTaskWorkspaceChrome && (
           <GoogleDailyPanel
             status={googleCalendar.googleStatus}
             loading={googleCalendar.googleLoading}
@@ -256,21 +246,21 @@ export default function App() {
           />
         )}
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'scheduledReview' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {showTaskWorkspaceChrome && (
           <AdvisorPanelContainer
             allTasks={allTasks}
           />
         )}
 
 
-        {view !== 'archived' && view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'scheduledReview' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {showTaskWorkspaceChrome && (
           <BulkArchiveActions
             onArchiveDone={() => taskActions.archiveTasksWithStatus('done')}
             onArchiveCancelled={() => taskActions.archiveTasksWithStatus('cancelled')}
           />
         )}
 
-        {view !== 'quickQueue' && view !== 'sharedNotes' && view !== 'calendar' && view !== 'periodicTasks' && view !== 'scheduledReview' && view !== 'productivity' && view !== 'settings' && view !== 'learnedRules' && view !== 'schedulerRules' && view !== 'logs' && (
+        {showTaskFilters && (
           <Filters
             filters={filters}
             tags={availableTags}
