@@ -1,20 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import type { SharedNote, Task, TaskCalendarEvent, TaskStatus } from '../../shared/types';
 import { safeInternalReturnTo } from './app/navigation';
 import { showsAppDashboardChrome, showsTaskFilters, showsTaskWorkspaceChrome } from './app/viewConfig';
-import AdvisorPanelContainer from './components/AdvisorPanelContainer';
+import AdvisorPanelContainer from './features/advisor/components/AdvisorPanelContainer';
 import AppDialogs from './components/AppDialogs';
 import AppHeader from './components/AppHeader';
-import BulkArchiveActions from './components/BulkArchiveActions';
 import DashboardCounters from './components/DashboardCounters';
-import Filters from './components/Filters';
 import GoogleDailyPanel from './components/GoogleDailyPanel';
 import GoogleLoginScreen from './components/GoogleLoginScreen';
 import MainView from './components/MainView';
-import ProductivityPanel from './components/ProductivityPanel';
-import type { QueueSort } from './components/QueueView';
-import type { TaskCardActions } from './components/TaskCard';
+import ProductivityPanel from './features/productivity/components/ProductivityPanel';
+import BulkArchiveActions from './features/tasks/components/BulkArchiveActions';
+import Filters from './features/tasks/components/Filters';
+import type { QueueSort } from './features/tasks/components/QueueView';
+import type { TaskCardActions } from './features/tasks/components/TaskCard';
 import ViewTabs from './components/ViewTabs';
 import { EMPTY_FILTERS } from './constants/tasks';
 import { AdvisorProvider } from './context/AdvisorContext';
@@ -361,6 +361,7 @@ export default function App() {
     </GoogleCalendarProvider>
   );
 }
+
 
 
 

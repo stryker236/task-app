@@ -1,12 +1,12 @@
-import type { ChecklistItem, SharedNote, Tag, Task, TaskCalendarEvent, TaskInput } from '../../../shared/types';
+﻿import type { ChecklistItem, SharedNote, Tag, Task, TaskCalendarEvent, TaskInput } from '../../../shared/types';
 import { useGoogleCalendarContext } from '../context/GoogleCalendarContext';
-import CalendarEventDialog from './CalendarEventDialog';
+import CalendarEventDialog from '../features/calendar/components/CalendarEventDialog';
 import PostponeDialog from './PostponeDialog';
 import ProgressLog from './ProgressLog';
-import TaskDetails from './TaskDetails';
-import type { TaskDetailsChange } from './TaskDetails';
-import TaskForm from './TaskForm';
-import type { TaskDraft, TaskFormPayload } from './TaskForm';
+import TaskDetails from '../features/tasks/components/TaskDetails';
+import type { TaskDetailsChange } from '../features/tasks/components/TaskDetails';
+import TaskForm from '../features/tasks/components/TaskForm';
+import type { TaskDraft, TaskFormPayload } from '../features/tasks/components/TaskForm';
 
 type AppDialogsProps = {
   formOpen: boolean;
@@ -157,3 +157,4 @@ export default function AppDialogs({
     </>
   );
 }
+

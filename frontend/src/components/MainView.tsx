@@ -1,23 +1,24 @@
+﻿import { lazy, Suspense, type ReactNode } from 'react';
 import type { AppSettings, AppSettingsUpdate, ProductivitySummary, QuickQueueItem, Task, TaskCalendarEvent, TaskCalendarEventReviewStatus, TaskStatus } from '../../../shared/types';
 import type { TaskFilters } from '../features/tasks/api';
 import type { ViewKey } from '../constants/tasks';
 import { useAdvisorContext } from '../context/AdvisorContext';
-import CalendarView from './CalendarView';
-import KanbanView from './KanbanView';
-import LearnedRulesView from './LearnedRulesView';
-import LogsView from './LogsView';
-import PeriodicTasksView from './PeriodicTasksView';
-import ProductivityView from './ProductivityView';
-import QueueView from './QueueView';
-import type { QueueSort } from './QueueView';
-import QuickQueue from './QuickQueue';
-import SchedulerRulesView from './SchedulerRulesView';
-import ScheduledReviewView from './ScheduledReviewView';
-import SharedNotesView from './SharedNotesView';
-import SettingsView from './SettingsView';
-import TaskCard from './TaskCard';
-import type { TaskCardActions } from './TaskCard';
+import KanbanView from '../features/tasks/components/KanbanView';
+import QueueView from '../features/tasks/components/QueueView';
+import type { QueueSort } from '../features/tasks/components/QueueView';
+import ScheduledReviewView from '../features/tasks/components/ScheduledReviewView';
+import TaskCard from '../features/tasks/components/TaskCard';
+import type { TaskCardActions } from '../features/tasks/components/TaskCard';
 
+const CalendarView = lazy(() => import('../features/calendar/components/CalendarView'));
+const LearnedRulesView = lazy(() => import('../features/advisor/components/LearnedRulesView'));
+const LogsView = lazy(() => import('../features/logs/components/LogsView'));
+const PeriodicTasksView = lazy(() => import('../features/periodic-tasks/components/PeriodicTasksView'));
+const ProductivityView = lazy(() => import('../features/productivity/components/ProductivityView'));
+const QuickQueue = lazy(() => import('../features/quick-queue/components/QuickQueue'));
+const SchedulerRulesView = lazy(() => import('../features/scheduler/components/SchedulerRulesView'));
+const SharedNotesView = lazy(() => import('../features/shared-notes/components/SharedNotesView'));
+const SettingsView = lazy(() => import('../features/settings/components/SettingsView'));
 type CollectionSection = [string, Task[]];
 
 type MainViewProps = {
@@ -90,9 +91,10 @@ export default function MainView({
   focusedSharedNoteId
 }: MainViewProps) {
   const advisor = useAdvisorContext();
+  const lazyView = (content: ReactNode) => <Suspense fallback={<div className="loading">A carregar vista...</div>}>{content}</Suspense>;
 
   if (view === 'quickQueue') {
-    return (
+    return lazyView(
       <QuickQueue
         items={quickQueueItems}
         loading={quickQueueLoading}
@@ -109,15 +111,15 @@ export default function MainView({
   }
 
   if (view === 'sharedNotes') {
-    return <SharedNotesView allTasks={allTasks} onOpenTask={onOpenTask} onError={onError} onTasksChanged={onTasksChanged} focusedNoteId={focusedSharedNoteId} />;
+    return lazyView(<SharedNotesView allTasks={allTasks} onOpenTask={onOpenTask} onError={onError} onTasksChanged={onTasksChanged} focusedNoteId={focusedSharedNoteId} />);
   }
 
   if (view === 'calendar') {
-    return <CalendarView allTasks={allTasks} />;
+    return lazyView(<CalendarView allTasks={allTasks} />);
   }
 
   if (view === 'periodicTasks') {
-    return <PeriodicTasksView onError={onError} />;
+    return lazyView(<PeriodicTasksView onError={onError} />);
   }
 
   if (view === 'scheduledReview') {
@@ -125,15 +127,15 @@ export default function MainView({
   }
 
   if (view === 'productivity') {
-    return <ProductivityView summary={productivitySummary} loading={productivityLoading} onRefresh={onProductivityRefresh} tasks={allTasks} onOpenTask={onOpenTask} />;
+    return lazyView(<ProductivityView summary={productivitySummary} loading={productivityLoading} onRefresh={onProductivityRefresh} tasks={allTasks} onOpenTask={onOpenTask} />);
   }
 
   if (view === 'settings') {
-    return <SettingsView settings={settings} loading={settingsLoading} saving={settingsSaving} onSave={onSettingsSave} onRefresh={onSettingsRefresh} />;
+    return lazyView(<SettingsView settings={settings} loading={settingsLoading} saving={settingsSaving} onSave={onSettingsSave} onRefresh={onSettingsRefresh} />);
   }
 
   if (view === 'learnedRules') {
-    return (
+    return lazyView(
       <LearnedRulesView
         rules={advisor.advisorMemoryRules}
         loading={advisor.advisorMemoryLoading}
@@ -145,11 +147,11 @@ export default function MainView({
   }
 
   if (view === 'schedulerRules') {
-    return <SchedulerRulesView />;
+    return lazyView(<SchedulerRulesView />);
   }
 
   if (view === 'logs') {
-    return <LogsView onError={onError} />;
+    return lazyView(<LogsView onError={onError} />);
   }
 
   if (loading) return <div className="loading">A carregar tarefas...</div>;
@@ -204,3 +206,5 @@ export default function MainView({
 
   return null;
 }
+
+
